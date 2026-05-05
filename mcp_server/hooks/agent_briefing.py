@@ -267,13 +267,19 @@ def _fetch_agent_context(agent_name: str, keywords: list[str]) -> list[dict]:
         try:
             rows = conn.execute(
                 """
-                SELECT id, content, heat, agent_context
-                FROM memories
-                WHERE agent_context = %s
-                  AND heat >= %s
-                  AND NOT is_benchmark
-                  AND content_tsv @@ plainto_tsquery('english', %s)
-                ORDER BY heat DESC
+                -- memories.heat is not a stored column; use
+                -- effective_heat(m, NOW()) for lazy A3 decay (matches
+                -- production recall_memories semantics).
+                -- Source: pg_schema.py EFFECTIVE_HEAT_FN.
+                SELECT m.id, m.content,
+                       effective_heat(m, NOW()) AS heat,
+                       m.agent_context
+                FROM memories m
+                WHERE m.agent_context = %s
+                  AND effective_heat(m, NOW()) >= %s
+                  AND NOT m.is_benchmark
+                  AND m.content_tsv @@ plainto_tsquery('english', %s)
+                ORDER BY effective_heat(m, NOW()) DESC
                 LIMIT %s
                 """,
                 (agent_name, _MIN_HEAT, " ".join(keywords[:5]), _MAX_MEMORIES),
@@ -295,13 +301,15 @@ def _fetch_agent_context(agent_name: str, keywords: list[str]) -> list[dict]:
         try:
             rows = conn.execute(
                 """
-                SELECT id, content, heat, agent_context
-                FROM memories
-                WHERE is_protected = TRUE
-                  AND is_global = TRUE
-                  AND agent_context != %s
-                  AND NOT is_benchmark
-                ORDER BY heat DESC
+                SELECT m.id, m.content,
+                       effective_heat(m, NOW()) AS heat,
+                       m.agent_context
+                FROM memories m
+                WHERE m.is_protected = TRUE
+                  AND m.is_global = TRUE
+                  AND m.agent_context != %s
+                  AND NOT m.is_benchmark
+                ORDER BY effective_heat(m, NOW()) DESC
                 LIMIT %s
                 """,
                 (agent_name, remaining),

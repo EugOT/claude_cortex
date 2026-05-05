@@ -102,9 +102,13 @@ def _fetch_anchors(conn) -> list[dict]:
     """Fetch anchored memories (is_protected with _anchor tag)."""
     try:
         rows = conn.execute(
-            "SELECT id, content, tags, domain, is_global FROM memories "
-            "WHERE is_protected = TRUE "
-            "ORDER BY heat DESC LIMIT %s",
+            # `memories.heat` is not a stored column; use effective_heat()
+            # to match production recall semantics (lazy A3 decay).
+            # Source: pg_schema.py EFFECTIVE_HEAT_FN.
+            "SELECT m.id, m.content, m.tags, m.domain, m.is_global "
+            "FROM memories m "
+            "WHERE m.is_protected = TRUE "
+            "ORDER BY effective_heat(m, NOW()) DESC LIMIT %s",
             (int(_ANCHOR_LIMIT),),
         ).fetchall()
     except Exception:
@@ -144,10 +148,14 @@ def _fetch_team_decisions(conn, exclude_ids: set) -> list[dict]:
     """
     try:
         rows = conn.execute(
-            "SELECT id, content, domain, agent_context, heat FROM memories "
-            "WHERE is_protected = TRUE AND is_global = TRUE "
-            "AND agent_context != '' "
-            "ORDER BY heat DESC LIMIT 5",
+            # `memories.heat` is not stored; effective_heat(m, NOW())
+            # matches production lazy A3 decay semantics.
+            # Source: pg_schema.py EFFECTIVE_HEAT_FN.
+            "SELECT m.id, m.content, m.domain, m.agent_context, "
+            "effective_heat(m, NOW()) AS heat FROM memories m "
+            "WHERE m.is_protected = TRUE AND m.is_global = TRUE "
+            "AND m.agent_context != '' "
+            "ORDER BY effective_heat(m, NOW()) DESC LIMIT 5",
         ).fetchall()
     except Exception:
         return []

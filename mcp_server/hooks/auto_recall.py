@@ -141,18 +141,28 @@ def _recall_memories(query: str) -> list[dict]:
 
     results = []
 
-    # Pass 1: FTS match with heat filter
+    # Pass 1: FTS match with heat filter.
+    #
+    # `memories.heat` does NOT exist as a stored column — heat is computed
+    # via the effective_heat(m, NOW()) PL/pgSQL function which applies
+    # lazy A3 decay over heat_base + heat_base_set_at + stage + valence.
+    # Using effective_heat() here keeps this hook semantically aligned
+    # with production recall_memories() — same lazy-decay read path,
+    # just without the WRRF fusion (we only need a fast FTS prefilter).
+    # Source: pg_schema.py EFFECTIVE_HEAT_FN (lines 586-682).
     try:
         rows = conn.execute(
             """
-            SELECT id, content, heat, domain, agent_context, is_protected,
-                   ts_rank_cd(content_tsv, q) AS rank
-            FROM memories,
+            SELECT m.id, m.content,
+                   effective_heat(m, NOW()) AS heat,
+                   m.domain, m.agent_context, m.is_protected,
+                   ts_rank_cd(m.content_tsv, q) AS rank
+            FROM memories m,
                  plainto_tsquery('english', %s) q
-            WHERE content_tsv @@ q
-              AND heat >= %s
-              AND NOT is_benchmark
-            ORDER BY is_protected DESC, rank DESC, heat DESC
+            WHERE m.content_tsv @@ q
+              AND effective_heat(m, NOW()) >= %s
+              AND NOT m.is_benchmark
+            ORDER BY m.is_protected DESC, rank DESC, effective_heat(m, NOW()) DESC
             LIMIT %s
             """,
             (query[:200], _MIN_HEAT, _MAX_MEMORIES + 2),
