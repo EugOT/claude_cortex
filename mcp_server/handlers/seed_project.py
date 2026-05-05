@@ -113,10 +113,14 @@ def _parse_args(args: dict[str, Any] | None) -> tuple[Path, str, int, bool]:
     """Extract and validate handler arguments."""
     args = args or {}
     directory = args.get("directory", "") or os.getcwd()
-    domain = args.get("domain", "")
+    root = Path(directory).expanduser().resolve()
+    # Domain auto-detection: schema documents this behavior; the previous
+    # implementation passed an empty string through, which broke the
+    # per-domain purge contract (issue #16).
+    domain = args.get("domain", "") or root.name
     max_kb = int(args.get("max_file_size_kb", 64))
     dry_run = args.get("dry_run", False)
-    return Path(directory).expanduser().resolve(), domain, max_kb * 1024, dry_run
+    return root, domain, max_kb * 1024, dry_run
 
 
 async def _store_discoveries(
@@ -177,7 +181,10 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
 
     purged = 0
     if not dry_run:
-        purged = _get_store().delete_memories_by_tag("seeded")
+        # Scope purge to this domain (issue #16): seeding repo-A must not
+        # wipe out repo-B's seeded memories. Domain authority ends at the
+        # project boundary; cross-domain effects are an externality.
+        purged = _get_store().delete_memories_by_tag("seeded", domain=domain)
 
     all_discoveries = collect_all_discoveries(root, max_bytes)
 

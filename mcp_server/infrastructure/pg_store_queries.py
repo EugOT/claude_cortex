@@ -192,12 +192,27 @@ class PgQueryMixin:
             ).fetchall()
         return [self._normalize_memory_row(r) for r in rows]
 
-    def delete_memories_by_tag(self, tag: str) -> int:
-        """Delete all memories containing the given tag."""
-        cur = self._execute(
-            "DELETE FROM memories WHERE tags @> %s::jsonb",
-            (json.dumps([tag]),),
-        )
+    def delete_memories_by_tag(self, tag: str, domain: str | None = None) -> int:
+        """Delete memories with the given tag, optionally scoped to a domain.
+
+        precondition: tag is a non-empty string; domain is None or a non-empty string.
+        postcondition: returns the number of rows removed; rows removed iff their
+            tags JSONB contains [tag] AND (domain is None OR domain matches).
+            domain=None preserves global-purge behavior for callers that
+            actually want it (legacy contract). Caller is responsible for
+            passing domain when scope matters (e.g. seed_project, which is
+            per-repo by design — see issue #16).
+        """
+        if domain is None:
+            cur = self._execute(
+                "DELETE FROM memories WHERE tags @> %s::jsonb",
+                (json.dumps([tag]),),
+            )
+        else:
+            cur = self._execute(
+                "DELETE FROM memories WHERE tags @> %s::jsonb AND domain = %s",
+                (json.dumps([tag]), domain),
+            )
         self._conn.commit()
         return cur.rowcount
 

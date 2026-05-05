@@ -111,12 +111,22 @@ class SqliteQueryMixin:
         ).fetchall()
         return [self._normalize_memory_row(r) for r in rows]
 
-    def delete_memories_by_tag(self, tag: str) -> int:
-        """Delete all memories containing the given tag.
+    def delete_memories_by_tag(self, tag: str, domain: str | None = None) -> int:
+        """Delete memories with the given tag, optionally scoped to a domain.
+
+        precondition: tag is a non-empty string; domain is None or a non-empty string.
+        postcondition: returns the number of memory rows removed; rows removed
+            iff their tags list contains tag AND (domain is None OR row.domain
+            matches). domain=None preserves the legacy global-purge behavior.
 
         SQLite lacks jsonb operators — filter in Python then delete by ID.
         """
-        rows = self._conn.execute("SELECT id, tags FROM memories").fetchall()
+        if domain is None:
+            rows = self._conn.execute("SELECT id, tags FROM memories").fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT id, tags FROM memories WHERE domain = ?", (domain,)
+            ).fetchall()
         ids_to_delete: list[int] = []
         for r in rows:
             try:
