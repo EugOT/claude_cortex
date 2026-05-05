@@ -197,8 +197,7 @@ def test_no_hook_or_handler_sql_references_unknown_columns(_live_conn) -> None:
         f"SQL in hooks/handlers references unknown columns "
         f"({len(failures)} failure(s) across {audited} audited blob(s)):\n"
         + "\n".join(
-            f"  {f}: {err}\n    SQL: {sql_excerpt}"
-            for f, err, sql_excerpt in failures
+            f"  {f}: {err}\n    SQL: {sql_excerpt}" for f, err, sql_excerpt in failures
         )
         + "\n\nFix the SQL — see issue #20 for the reference fix pattern "
         "(use effective_heat(m, NOW()) instead of memories.heat)."

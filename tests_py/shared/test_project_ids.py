@@ -52,9 +52,7 @@ class TestCwdToProjectId:
 
     def test_windows_lowercases_drive(self):
         # Drive letter case shouldn't matter — same path, same slug.
-        assert cwd_to_project_id("c:/Users/foo") == cwd_to_project_id(
-            "C:/Users/foo"
-        )
+        assert cwd_to_project_id("c:/Users/foo") == cwd_to_project_id("C:/Users/foo")
 
     def test_idempotent_on_existing_posix_slug(self):
         # Round-trip: existing slugs in profiles.json must survive a re-pass.

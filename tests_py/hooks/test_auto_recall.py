@@ -52,7 +52,9 @@ def _seeded_db():
     try:
         # Wipe relevant rows; conftest cleans tables but the autouse
         # fixture has already run at this point.
-        conn.execute("DELETE FROM memories WHERE content LIKE %s", ("AUTORECALL_TEST%",))
+        conn.execute(
+            "DELETE FROM memories WHERE content LIKE %s", ("AUTORECALL_TEST%",)
+        )
         rows = [
             ("AUTORECALL_TEST freight delivery routing optimization", 0.9, False),
             ("AUTORECALL_TEST quantum entanglement laboratory protocol", 0.8, False),
@@ -73,7 +75,9 @@ def _seeded_db():
     # Cleanup
     try:
         conn = psycopg.connect(_TEST_DB_URL, autocommit=True)
-        conn.execute("DELETE FROM memories WHERE content LIKE %s", ("AUTORECALL_TEST%",))
+        conn.execute(
+            "DELETE FROM memories WHERE content LIKE %s", ("AUTORECALL_TEST%",)
+        )
         conn.close()
     except Exception:
         pass

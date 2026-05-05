@@ -41,18 +41,14 @@ def test_seed_repo_a_then_repo_b_preserves_repo_a(tmp_path: Path) -> None:
     store = MemoryStore()
 
     # Seed repo-a
-    res_a = asyncio.run(
-        handler({"directory": str(repo_a), "domain": "repo-a"})
-    )
+    res_a = asyncio.run(handler({"directory": str(repo_a), "domain": "repo-a"}))
     assert res_a["seeded"] is True
     assert res_a["stored"] >= 1, "fixture should yield at least one stored memory"
     a_after_first_seed = _seeded_count(store, "repo-a")
     assert a_after_first_seed >= 1
 
     # Seed repo-b — must not touch repo-a's memories
-    res_b = asyncio.run(
-        handler({"directory": str(repo_b), "domain": "repo-b"})
-    )
+    res_b = asyncio.run(handler({"directory": str(repo_b), "domain": "repo-b"}))
     assert res_b["seeded"] is True
 
     a_after_second_seed = _seeded_count(store, "repo-a")
@@ -77,9 +73,7 @@ def test_reseeding_same_repo_purges_only_that_repo(tmp_path: Path) -> None:
     assert b_before >= 1
 
     # Reseed repo-a — purge should be domain-scoped
-    res_a2 = asyncio.run(
-        handler({"directory": str(repo_a), "domain": "repo-a"})
-    )
+    res_a2 = asyncio.run(handler({"directory": str(repo_a), "domain": "repo-a"}))
     assert res_a2["seeded"] is True
     # Reported purge count must reflect the prior repo-a memories,
     # never zero (we know there were some) and never include repo-b's.

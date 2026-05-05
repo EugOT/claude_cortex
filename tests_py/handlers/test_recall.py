@@ -179,8 +179,6 @@ class TestRecallReturnsDict:
         from mcp_server.handlers.recall import handler
         from mcp_server.tool_error_handler import safe_handler
 
-        result = asyncio.run(
-            safe_handler(handler, {"query": ""}, tool_name="recall")
-        )
+        result = asyncio.run(safe_handler(handler, {"query": ""}, tool_name="recall"))
         assert isinstance(result, dict)
         assert not isinstance(result, str)

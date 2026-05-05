@@ -30,9 +30,7 @@ class TestGetTelemetryReturnsDict:
     def test_safe_handler_returns_dict(self):
         from mcp_server.tool_error_handler import safe_handler
 
-        result = asyncio.run(
-            safe_handler(handler, {}, tool_name="get_telemetry")
-        )
+        result = asyncio.run(safe_handler(handler, {}, tool_name="get_telemetry"))
         assert isinstance(result, dict)
         assert not isinstance(result, str)
 
