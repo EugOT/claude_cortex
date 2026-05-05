@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.15.1] - 2026-05-05
+
+### Fixed
+- **#16** `seed_project` purged memories tagged `seeded` globally, ignoring the `domain` argument (Coase boundary scope). `delete_memories_by_tag` now accepts an optional `domain` parameter; `seed_project` passes it through. Also auto-detects domain from directory name when caller omits it. Reported by PSGSupport.
+- **#17** `remember`, `recall`, `get_telemetry` returned `'structured_content must be a dict or None. Got str'` from FastMCP despite the underlying ops succeeding (Liskov contract violation). Root cause: `safe_handler` JSON-encoded every return value globally; the bug surfaced only on handlers declaring `outputSchema`. Fix returns dicts directly; new contract-enforcement test introspects every registered tool. Reported by PSGSupport.
+- **#18** `query_methodology(cwd="C:/Users/...")` returned a hollow profile because the slug generator only handled POSIX paths (Hopper cross-platform abstraction leak). Path normalization now detects path syntax (not `os.name`), accepting Windows forward-slash, Windows backslash, and Git-Bash drive translation forms. Idempotent: existing slugs round-trip to themselves. Reported by PSGSupport.
+- **#20** `auto_recall` hook queried non-existent `memories.heat` column instead of `heat_base`, failing silently on every UserPromptSubmit (Feynman integrity audit). Fix uses `effective_heat(m, NOW())` PL/pgSQL function for lazy-decay semantics. Audit also caught and fixed 4 sister bugs in `session_start.py` and `agent_briefing.py`. New schema-integrity test parses every static SQL blob in hooks/handlers and asserts column existence. Reported by PSGSupport.
+- **#19** Dockerfile `ENTRYPOINT ["neuro-cortex-memory"]` referenced a console script not registered in `pyproject.toml`; the image failed to start. Switched to `python -m mcp_server` (the documented invocation in `mcp_server/__main__.py`). Reported and fixed by PSGSupport.
+
+### Verification
+- 2669 tests pass on Mac (full regression sweep).
+- Liskov handler-contract test (3 cases) and Feynman schema-integrity test (27 SQL blobs audited) added as abstraction barriers preventing recurrence.
+- All fixes platform-agnostic; no Mac/Linux regression.
+
 ## [3.15.0] — E1 v3 verification campaign + arXiv-ready papers + BEAM-10M harness
 
 A single coherent release covering 64 commits since v3.14.12. The headline is
