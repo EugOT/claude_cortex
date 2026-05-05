@@ -23,6 +23,56 @@ class TestCwdToProjectId:
     def test_returns_none_for_empty_string(self):
         assert cwd_to_project_id("") is None
 
+    # ── Cross-platform: Windows / Git-Bash forms (issue #18) ────────────
+
+    def test_windows_forward_slash(self):
+        # PSGSupport reporter data: 'C:/Users/michael.crawford' must produce
+        # the same slug as the on-disk domain c--users-michael-crawford.
+        assert (
+            cwd_to_project_id("C:/Users/michael.crawford")
+            == "c--users-michael-crawford"
+        )
+
+    def test_windows_backslash(self):
+        assert (
+            cwd_to_project_id("C:\\Users\\michael.crawford")
+            == "c--users-michael-crawford"
+        )
+
+    def test_gitbash_drive_translation(self):
+        # Git-Bash represents 'C:/...' as '/c/...'. Same logical path → same slug.
+        assert (
+            cwd_to_project_id("/c/users/michael.crawford")
+            == "c--users-michael-crawford"
+        )
+
+    def test_bare_drive(self):
+        assert cwd_to_project_id("C:/") == "c--"
+        assert cwd_to_project_id("C:\\") == "c--"
+
+    def test_windows_lowercases_drive(self):
+        # Drive letter case shouldn't matter — same path, same slug.
+        assert cwd_to_project_id("c:/Users/foo") == cwd_to_project_id(
+            "C:/Users/foo"
+        )
+
+    def test_idempotent_on_existing_posix_slug(self):
+        # Round-trip: existing slugs in profiles.json must survive a re-pass.
+        slug = "-Users-cdeust-Developments-Cortex"
+        assert cwd_to_project_id(slug) == slug
+
+    def test_idempotent_on_existing_windows_slug(self):
+        slug = "c--users-michael-crawford"
+        assert cwd_to_project_id(slug) == slug
+
+    def test_windows_dotted_filename_segment(self):
+        # Dots are non-alnum and must collapse to '-' on Windows paths,
+        # matching the Claude Code on-disk convention.
+        assert (
+            cwd_to_project_id("C:/Users/michael.crawford/Project.Name")
+            == "c--users-michael-crawford-project-name"
+        )
+
 
 class TestProjectIdToLabel:
     def test_strips_users_prefix(self):
