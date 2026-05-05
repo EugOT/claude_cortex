@@ -48,7 +48,7 @@ def _register_remember(mcp: FastMCP) -> None:
         source: str | None = None,
         force: bool = False,
         agent_topic: str | None = None,
-    ) -> str:
+    ) -> dict:
         """Store a memory through the predictive coding write gate."""
         return await safe_handler(
             remember.handler,
@@ -77,7 +77,7 @@ def _register_recall(mcp: FastMCP) -> None:
         max_results: int = 10,
         min_heat: float = 0.05,
         agent_topic: str | None = None,
-    ) -> str:
+    ) -> dict:
         """Retrieve memories using multi-signal fusion."""
         return await safe_handler(
             recall.handler,
@@ -98,7 +98,7 @@ def _register_memory_stats(mcp: FastMCP) -> None:
         name="memory_stats",
         **tool_kwargs(memory_stats.schema),
     )
-    async def tool_memory_stats() -> str:
+    async def tool_memory_stats() -> dict:
         """Memory system diagnostics."""
         return await safe_handler(memory_stats.handler, {}, tool_name="memory_stats")
 
@@ -119,7 +119,7 @@ def _register_checkpoint(mcp: FastMCP) -> None:
         active_errors: list[str] | None = None,
         custom_context: str | None = None,
         session_id: str | None = None,
-    ) -> str:
+    ) -> dict:
         """Save or restore working state for hippocampal replay."""
         return await safe_handler(
             checkpoint.handler,
@@ -148,7 +148,7 @@ def _register_narrative(mcp: FastMCP) -> None:
         directory: str | None = None,
         domain: str | None = None,
         brief: bool = False,
-    ) -> str:
+    ) -> dict:
         """Generate project narrative from stored memories."""
         return await safe_handler(
             narrative.handler,
@@ -172,7 +172,7 @@ def _register_consolidate(mcp: FastMCP) -> None:
         cls: bool = True,
         memify: bool = True,
         deep: bool = False,
-    ) -> str:
+    ) -> dict:
         """Run memory maintenance: decay, compression, CLS, memify."""
         return await safe_handler(
             consolidate.handler,
@@ -198,7 +198,7 @@ def _register_import_sessions(mcp: FastMCP) -> None:
         min_importance: float = 0.4,
         max_sessions: int = 0,
         dry_run: bool = False,
-    ) -> str:
+    ) -> dict:
         """Import conversation history into the memory store.
 
         Always streams JSONL files via head+tail (ADR-0045 R2). The legacy
@@ -223,7 +223,7 @@ def _register_get_telemetry(mcp: FastMCP) -> None:
         name="get_telemetry",
         **tool_kwargs(get_telemetry.schema),
     )
-    async def tool_get_telemetry() -> str:
+    async def tool_get_telemetry() -> dict:
         """Return per-op counters + read/write ratio (Popper C6)."""
         return await safe_handler(get_telemetry.handler, {}, tool_name="get_telemetry")
 
@@ -238,7 +238,7 @@ def _register_unified_search(mcp: FastMCP) -> None:
         domain: str | None = None,
         max_results: int = 10,
         k: int = 60,
-    ) -> str:
+    ) -> dict:
         """RRF-fuse Cortex memory recall with AP code search (ADR-0046 P3)."""
         return await safe_handler(
             unified_search.handler,

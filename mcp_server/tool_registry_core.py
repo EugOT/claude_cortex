@@ -46,7 +46,7 @@ def _register_query_methodology(mcp: FastMCP) -> None:
         cwd: str | None = None,
         project: str | None = None,
         first_message: str | None = None,
-    ) -> str:
+    ) -> dict:
         """Returns cognitive profile for the current domain."""
         return await safe_handler(
             query_methodology.handler,
@@ -68,7 +68,7 @@ def _register_detect_domain(mcp: FastMCP) -> None:
         cwd: str | None = None,
         project: str | None = None,
         first_message: str | None = None,
-    ) -> str:
+    ) -> dict:
         """Lightweight domain classification."""
         return await safe_handler(
             detect_domain_handler.handler,
@@ -89,7 +89,7 @@ def _register_rebuild_profiles(mcp: FastMCP) -> None:
     async def tool_rebuild_profiles(
         domain: str | None = None,
         force: bool = False,
-    ) -> str:
+    ) -> dict:
         """Full rescan of all session data to rebuild methodology profiles."""
         return await safe_handler(
             rebuild_profiles.handler,
@@ -106,7 +106,7 @@ def _register_list_domains(mcp: FastMCP) -> None:
         name="list_domains",
         **tool_kwargs(list_domains.schema),
     )
-    async def tool_list_domains() -> str:
+    async def tool_list_domains() -> dict:
         """Overview of all detected cognitive domains."""
         return await safe_handler(list_domains.handler, {}, tool_name="list_domains")
 
@@ -125,7 +125,7 @@ def _register_record_session_end(mcp: FastMCP) -> None:
         keywords: list[str] | None = None,
         cwd: str | None = None,
         project: str | None = None,
-    ) -> str:
+    ) -> dict:
         """Incremental profile update after a session ends."""
         return await safe_handler(
             record_session_end.handler,
@@ -150,7 +150,7 @@ def _register_get_methodology_graph(mcp: FastMCP) -> None:
     )
     async def tool_get_methodology_graph(
         domain: str | None = None,
-    ) -> str:
+    ) -> dict:
         """Returns methodology map as graph data for 3D visualization."""
         return await safe_handler(
             get_methodology_graph.handler,
@@ -175,7 +175,7 @@ def _register_query_workflow_graph(mcp: FastMCP) -> None:
         depth: int | None = None,
         domain: str | None = None,
         limit_nodes: int | None = None,
-    ) -> str:
+    ) -> dict:
         """Return a typed subgraph of the unified workflow graph."""
         return await safe_handler(
             query_workflow_graph.handler,
@@ -198,7 +198,7 @@ def _register_open_visualization(mcp: FastMCP) -> None:
     )
     async def tool_open_visualization(
         domain: str | None = None,
-    ) -> str:
+    ) -> dict:
         """Launch the 3D methodology constellation map in the browser."""
         return await safe_handler(
             open_visualization.handler,
@@ -216,7 +216,7 @@ def _register_explore_features(mcp: FastMCP) -> None:
         mode: str,
         domain: str | None = None,
         compare_domain: str | None = None,
-    ) -> str:
+    ) -> dict:
         """Explore interpretability features."""
         return await safe_handler(
             explore_features.handler,

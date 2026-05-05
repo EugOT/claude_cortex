@@ -273,3 +273,29 @@ class TestUserMoodEmaHook:
         # Old None → treated as 0.0; new = α * compound
         compound = vader_compound("Wonderful!")
         assert new == pytest.approx(MOOD_EMA_ALPHA * compound, rel=1e-6)
+
+
+# ── Issue #17 — handler returns dict, not str ─────────────────────────────
+
+
+class TestRememberReturnsDict:
+    """Liskov: remember handler must return a dict per its output_schema.
+
+    PSGSupport reported strict MCP clients (Claude Code tool runtime)
+    rejecting the response with ``structured_content must be a dict or
+    None. Got str``. Root cause was ``safe_handler`` JSON-encoding the
+    dict before returning. The contract is dict; this test pins it.
+    """
+
+    def test_handler_direct_returns_dict(self):
+        result = asyncio.run(handler(None))
+        assert isinstance(result, dict)
+
+    def test_safe_handler_returns_dict(self):
+        from mcp_server.tool_error_handler import safe_handler
+
+        result = asyncio.run(
+            safe_handler(handler, {"content": ""}, tool_name="remember")
+        )
+        assert isinstance(result, dict)
+        assert not isinstance(result, str)

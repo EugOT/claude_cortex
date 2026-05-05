@@ -207,12 +207,13 @@ class TestToolErrorHandler:
         async def failing_handler(args):
             raise ConnectionError("could not connect to server: Connection refused")
 
+        # Issue #17: safe_handler returns dict, not JSON string.
         result = await safe_handler(failing_handler, {})
-        parsed = json.loads(result)
+        assert isinstance(result, dict)
 
-        assert parsed["error"] == "database_not_connected"
-        assert "PostgreSQL" in parsed["message"]
-        assert "brew install" in parsed["message"]
+        assert result["error"] == "database_not_connected"
+        assert "PostgreSQL" in result["message"]
+        assert "brew install" in result["message"]
 
     @pytest.mark.asyncio
     async def test_missing_extension_error(self):
@@ -223,10 +224,10 @@ class TestToolErrorHandler:
             raise Exception('type "vector" does not exist')
 
         result = await safe_handler(failing_handler, {})
-        parsed = json.loads(result)
+        assert isinstance(result, dict)
 
-        assert parsed["error"] == "missing_extension"
-        assert "pgvector" in parsed["message"]
+        assert result["error"] == "missing_extension"
+        assert "pgvector" in result["message"]
 
     @pytest.mark.asyncio
     async def test_generic_error_no_traceback(self):
@@ -237,27 +238,28 @@ class TestToolErrorHandler:
             raise ValueError("something went wrong")
 
         result = await safe_handler(failing_handler, {})
-        parsed = json.loads(result)
+        assert isinstance(result, dict)
 
-        assert parsed["error"] == "ValueError"
-        assert "something went wrong" in parsed["message"]
-        # Should NOT contain traceback markers
-        assert "Traceback" not in result
-        assert "File " not in result
+        assert result["error"] == "ValueError"
+        assert "something went wrong" in result["message"]
+        # Should NOT contain traceback markers anywhere in the payload.
+        serialized = json.dumps(result, default=str)
+        assert "Traceback" not in serialized
+        assert "File " not in serialized
 
     @pytest.mark.asyncio
-    async def test_successful_handler_returns_json(self):
-        """Successful handler calls return properly formatted JSON."""
+    async def test_successful_handler_returns_dict(self):
+        """Successful handler calls return the dict verbatim (issue #17)."""
         from mcp_server.tool_error_handler import safe_handler
 
         async def good_handler(args):
             return {"status": "ok", "count": 42}
 
         result = await safe_handler(good_handler, {"query": "test"})
-        parsed = json.loads(result)
+        assert isinstance(result, dict)
 
-        assert parsed["status"] == "ok"
-        assert parsed["count"] == 42
+        assert result["status"] == "ok"
+        assert result["count"] == 42
 
     @pytest.mark.asyncio
     async def test_handler_with_empty_args(self):
@@ -268,8 +270,8 @@ class TestToolErrorHandler:
             return {"total": 0}
 
         result = await safe_handler(no_arg_handler, {})
-        parsed = json.loads(result)
-        assert parsed["total"] == 0
+        assert isinstance(result, dict)
+        assert result["total"] == 0
 
 
 # ── Setup Script Tests ───────────────────────────────────────────────────

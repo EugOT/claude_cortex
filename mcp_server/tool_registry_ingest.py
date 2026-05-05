@@ -31,7 +31,7 @@ def _register_ingest_codebase(mcp: FastMCP) -> None:
         output_dir: str | None = None,
         language: str = "auto",
         force_reindex: bool = False,
-    ) -> str:
+    ) -> dict:
         """Ingest upstream codebase analysis into Cortex.
 
         No caps. Pulls every Function/Method/Struct/process the upstream
@@ -61,7 +61,7 @@ def _register_change_impact(mcp: FastMCP) -> None:
         head: str = "HEAD",
         expand_impact: bool = False,
         apply_heat_bump: bool = False,
-    ) -> str:
+    ) -> dict:
         """Report memories affected by a commit's code changes (ADR-0046 P4)."""
         return await safe_handler(
             change_impact.handler,
@@ -87,7 +87,7 @@ def _register_ingest_prd(mcp: FastMCP) -> None:
         title: str | None = None,
         validate: bool = False,
         domain: str | None = None,
-    ) -> str:
+    ) -> dict:
         """Ingest a PRD document into Cortex."""
         return await safe_handler(
             ingest_prd.handler,

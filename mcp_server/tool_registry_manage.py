@@ -40,7 +40,7 @@ def _register_forget(mcp: FastMCP) -> None:
         memory_id: int,
         soft: bool = False,
         force: bool = False,
-    ) -> str:
+    ) -> dict:
         """Delete or soft-delete a memory by ID."""
         return await safe_handler(
             forget.handler,
@@ -65,7 +65,7 @@ def _register_validate_memory(mcp: FastMCP) -> None:
         base_dir: str | None = None,
         staleness_threshold: float = 0.5,
         dry_run: bool = False,
-    ) -> str:
+    ) -> dict:
         """Validate memories against current filesystem state."""
         return await safe_handler(
             validate_memory.handler,
@@ -89,7 +89,7 @@ def _register_rate_memory(mcp: FastMCP) -> None:
     async def tool_rate_memory(
         memory_id: int,
         useful: bool,
-    ) -> str:
+    ) -> dict:
         """Rate a memory as useful or not to update metamemory confidence."""
         return await safe_handler(
             rate_memory.handler,
@@ -111,7 +111,7 @@ def _register_seed_project(mcp: FastMCP) -> None:
         domain: str | None = None,
         max_file_size_kb: int = 64,
         dry_run: bool = False,
-    ) -> str:
+    ) -> dict:
         """Bootstrap memory from an existing codebase."""
         return await safe_handler(
             seed_project.handler,
@@ -133,7 +133,7 @@ def _register_anchor(mcp: FastMCP) -> None:
     async def tool_anchor(
         memory_id: int,
         reason: str | None = None,
-    ) -> str:
+    ) -> dict:
         """Mark a memory as compaction-resistant (heat=1.0)."""
         return await safe_handler(
             anchor.handler,
@@ -156,7 +156,7 @@ def _register_backfill_memories(mcp: FastMCP) -> None:
         min_importance: float = 0.35,
         dry_run: bool = False,
         force_reprocess: bool = False,
-    ) -> str:
+    ) -> dict:
         """Auto-import prior Claude Code conversations into memory."""
         return await safe_handler(
             backfill_memories.handler,
@@ -184,7 +184,7 @@ def _register_codebase_analyze(mcp: FastMCP) -> None:
         incremental: bool = True,
         dry_run: bool = False,
         domain: str | None = None,
-    ) -> str:
+    ) -> dict:
         """Analyze codebase and store structure as memories."""
         return await safe_handler(
             codebase_analyze.handler,

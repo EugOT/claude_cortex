@@ -159,3 +159,28 @@ class TestRecallHandler:
         assert any("PostgreSQL server" in c for c in contents), (
             "Global memory should be visible from a different domain"
         )
+
+
+# ── Issue #17 — handler returns dict, not str ─────────────────────────────
+
+
+class TestRecallReturnsDict:
+    """Liskov: recall handler must return a dict per its output_schema."""
+
+    def test_handler_direct_returns_dict(self):
+        import asyncio
+        from mcp_server.handlers.recall import handler
+
+        result = asyncio.run(handler(None))
+        assert isinstance(result, dict)
+
+    def test_safe_handler_returns_dict(self):
+        import asyncio
+        from mcp_server.handlers.recall import handler
+        from mcp_server.tool_error_handler import safe_handler
+
+        result = asyncio.run(
+            safe_handler(handler, {"query": ""}, tool_name="recall")
+        )
+        assert isinstance(result, dict)
+        assert not isinstance(result, str)

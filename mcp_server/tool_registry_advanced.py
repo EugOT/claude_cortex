@@ -39,7 +39,7 @@ def _register_sync_instructions(mcp: FastMCP) -> None:
         max_insights: int = 10,
         min_heat: float = 0.3,
         dry_run: bool = False,
-    ) -> str:
+    ) -> dict:
         """Push top memory insights into CLAUDE.md."""
         return await safe_handler(
             sync_instructions.handler,
@@ -63,7 +63,7 @@ def _register_create_trigger(mcp: FastMCP) -> None:
         trigger_condition: str,
         trigger_type: str = "keyword",
         target_directory: str | None = None,
-    ) -> str:
+    ) -> dict:
         """Create a prospective memory trigger."""
         return await safe_handler(
             create_trigger.handler,
@@ -89,7 +89,7 @@ def _register_add_rule(mcp: FastMCP) -> None:
         scope: str = "global",
         scope_value: str | None = None,
         priority: int = 0,
-    ) -> str:
+    ) -> dict:
         """Add a neuro-symbolic rule to the memory store."""
         return await safe_handler(
             add_rule.handler,
@@ -114,7 +114,7 @@ def _register_get_rules(mcp: FastMCP) -> None:
         scope: str | None = None,
         rule_type: str | None = None,
         include_inactive: bool = False,
-    ) -> str:
+    ) -> dict:
         """List active neuro-symbolic rules."""
         return await safe_handler(
             get_rules.handler,
@@ -137,7 +137,7 @@ def _register_get_project_story(mcp: FastMCP) -> None:
         domain: str | None = None,
         period: str = "week",
         max_chapters: int = 5,
-    ) -> str:
+    ) -> dict:
         """Generate a period-based autobiographical narrative."""
         return await safe_handler(
             get_project_story.handler,
@@ -160,7 +160,7 @@ def _register_assess_coverage(mcp: FastMCP) -> None:
         directory: str | None = None,
         domain: str | None = None,
         stale_days: int = 14,
-    ) -> str:
+    ) -> dict:
         """Evaluate knowledge coverage completeness."""
         return await safe_handler(
             assess_coverage.handler,

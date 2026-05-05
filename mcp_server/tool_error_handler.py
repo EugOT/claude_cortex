@@ -9,10 +9,18 @@ Phase 5 adds two transparent safety nets on top of error handling:
     DB methods) run on a worker thread instead of blocking the event
     loop
 
+Issue #17 (PSGSupport): handlers that declare ``output_schema`` were
+rejected by FastMCP with ``structured_content must be a dict or None.
+Got str: '{...}'`` because this wrapper used to ``json.dumps`` the
+result before returning. FastMCP 2.x validates the return shape
+against the declared schema and rejects strings. Fix: return the
+dict directly. The handler contract IS dict-or-None (Liskov: every
+``mcp__cortex__*`` handler now uniformly satisfies the same interface).
+
 Usage in tool registries:
     from mcp_server.tool_error_handler import safe_handler
 
-    async def tool_remember(...) -> str:
+    async def tool_remember(...) -> dict:
         result = await safe_handler(remember.handler, {...}, tool_name="remember")
         return result
 """
@@ -20,7 +28,6 @@ Usage in tool registries:
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any, Callable, Coroutine
 
 _DB_SETUP_GUIDE = (
@@ -107,8 +114,8 @@ async def safe_handler(
     handler_fn: Callable[..., Coroutine[Any, Any, dict]],
     args: dict[str, Any],
     tool_name: str | None = None,
-) -> str:
-    """Call a handler and return JSON, catching errors gracefully.
+) -> dict[str, Any]:
+    """Call a handler and return its dict, catching errors gracefully.
 
     When ``tool_name`` is provided:
       * The call is gated by the per-tool admission semaphore (Phase 5
@@ -124,9 +131,15 @@ async def safe_handler(
     event loop without admission (backward-compat for code paths not
     yet migrated).
 
-    On success: returns json.dumps(result).
-    On DB errors: returns a friendly setup guide.
-    On other errors: returns error type + message (no traceback).
+    Contract (issue #17 — Liskov enforcement across all MCP handlers):
+      precondition: ``handler_fn`` is an async callable returning a dict.
+      postcondition: returns a ``dict[str, Any]``. Never a JSON string.
+                     FastMCP 2.x validates structured content against
+                     the declared ``output_schema`` and rejects strings.
+
+    On success: returns the handler's dict verbatim.
+    On DB errors: returns a friendly setup-guide dict.
+    On other errors: returns an error-type/message dict (no traceback).
     """
     try:
         if tool_name:
@@ -147,7 +160,13 @@ async def safe_handler(
             )
         else:
             result = await handler_fn(args)
-        return json.dumps(result, indent=2, default=str)
+        # Defensive: every handler must already return a dict per its
+        # ``output_schema``. If a handler regresses to None we surface
+        # an empty dict so FastMCP's structured-content validator does
+        # not reject the response.
+        if result is None:
+            return {}
+        return result
     except Exception as exc:
         error_type, message = _classify_error(exc)
         if tool_name:
@@ -160,17 +179,13 @@ async def safe_handler(
                 )
             except Exception:
                 pass
-        return json.dumps(
-            {
-                "error": error_type,
-                "message": message,
-                "hint": (
-                    "If this persists, check that PostgreSQL is running "
-                    "and DATABASE_URL is set correctly."
-                )
-                if error_type not in ("missing_extension", "database_not_connected")
-                else None,
-            },
-            indent=2,
-            default=str,
-        )
+        return {
+            "error": error_type,
+            "message": message,
+            "hint": (
+                "If this persists, check that PostgreSQL is running "
+                "and DATABASE_URL is set correctly."
+            )
+            if error_type not in ("missing_extension", "database_not_connected")
+            else None,
+        }

@@ -43,7 +43,7 @@ def _register_wiki_write(mcp: FastMCP) -> None:
         content: str,
         mode: str = "create",
         tags: list[str] | None = None,
-    ) -> str:
+    ) -> dict:
         """Author a wiki page (create/append/replace) with the provided markdown."""
         return await safe_handler(
             wiki_write.handler,
@@ -59,7 +59,7 @@ def _register_wiki_write(mcp: FastMCP) -> None:
 
 def _register_wiki_read(mcp: FastMCP) -> None:
     @mcp.tool(name="wiki_read", **tool_kwargs(wiki_read.schema))
-    async def tool_wiki_read(path: str) -> str:
+    async def tool_wiki_read(path: str) -> dict:
         """Read the raw markdown of a wiki page by relative path."""
         return await safe_handler(
             wiki_read.handler, {"path": path}, tool_name="wiki_read"
@@ -68,7 +68,7 @@ def _register_wiki_read(mcp: FastMCP) -> None:
 
 def _register_wiki_list(mcp: FastMCP) -> None:
     @mcp.tool(name="wiki_list", **tool_kwargs(wiki_list.schema))
-    async def tool_wiki_list(kind: str | None = None) -> str:
+    async def tool_wiki_list(kind: str | None = None) -> dict:
         """List authored wiki pages, optionally filtered by kind."""
         return await safe_handler(
             wiki_list.handler, {"kind": kind}, tool_name="wiki_list"
@@ -77,7 +77,7 @@ def _register_wiki_list(mcp: FastMCP) -> None:
 
 def _register_wiki_link(mcp: FastMCP) -> None:
     @mcp.tool(name="wiki_link", **tool_kwargs(wiki_link.schema))
-    async def tool_wiki_link(from_path: str, to_path: str, relation: str) -> str:
+    async def tool_wiki_link(from_path: str, to_path: str, relation: str) -> dict:
         """Add a bidirectional link between two wiki pages (Related section)."""
         return await safe_handler(
             wiki_link.handler,
@@ -95,7 +95,7 @@ def _register_wiki_adr(mcp: FastMCP) -> None:
         consequences: str,
         status: str = "accepted",
         tags: list[str] | None = None,
-    ) -> str:
+    ) -> dict:
         """Create a numbered ADR with auto-incremented sequence."""
         return await safe_handler(
             wiki_adr.handler,
@@ -113,7 +113,7 @@ def _register_wiki_adr(mcp: FastMCP) -> None:
 
 def _register_wiki_reindex(mcp: FastMCP) -> None:
     @mcp.tool(name="wiki_reindex", **tool_kwargs(wiki_reindex.schema))
-    async def tool_wiki_reindex() -> str:
+    async def tool_wiki_reindex() -> dict:
         """Regenerate the wiki table of contents at .generated/INDEX.md."""
         return await safe_handler(wiki_reindex.handler, {}, tool_name="wiki_reindex")
 
@@ -123,7 +123,7 @@ def _register_wiki_purge(mcp: FastMCP) -> None:
     async def tool_wiki_purge(
         apply: bool = False,
         kind: str | None = None,
-    ) -> str:
+    ) -> dict:
         """Re-evaluate and purge wiki pages that fail the current classifier."""
         return await safe_handler(
             wiki_purge.handler,
@@ -134,7 +134,7 @@ def _register_wiki_purge(mcp: FastMCP) -> None:
 
 def _register_wiki_verify(mcp: FastMCP) -> None:
     @mcp.tool(name="wiki_verify", **tool_kwargs(wiki_verify.schema))
-    async def tool_wiki_verify(path: str | None = None) -> str:
+    async def tool_wiki_verify(path: str | None = None) -> dict:
         """Verify wiki-page symbol citations against AP's code graph (ADR-0046 Phase 2)."""
         return await safe_handler(
             wiki_verify.handler,

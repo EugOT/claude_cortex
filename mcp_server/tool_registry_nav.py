@@ -39,7 +39,7 @@ def _register_recall_hierarchical(mcp: FastMCP) -> None:
         max_results: int = 10,
         min_heat: float = 0.05,
         cluster_threshold: float = 0.6,
-    ) -> str:
+    ) -> dict:
         """Retrieve memories using fractal hierarchy."""
         return await safe_handler(
             recall_hierarchical.handler,
@@ -63,7 +63,7 @@ def _register_drill_down(mcp: FastMCP) -> None:
         cluster_id: str,
         domain: str | None = None,
         min_heat: float = 0.05,
-    ) -> str:
+    ) -> dict:
         """Navigate into a fractal memory cluster."""
         return await safe_handler(
             drill_down.handler,
@@ -86,7 +86,7 @@ def _register_navigate_memory(mcp: FastMCP) -> None:
         max_depth: int = 2,
         include_2d_map: bool = False,
         window_hours: float = 2.0,
-    ) -> str:
+    ) -> dict:
         """Navigate memory space using Successor Representation."""
         return await safe_handler(
             navigate_memory.handler,
@@ -111,7 +111,7 @@ def _register_get_causal_chain(mcp: FastMCP) -> None:
         relationship_types: list[str] | None = None,
         max_depth: int = 3,
         direction: str = "both",
-    ) -> str:
+    ) -> dict:
         """Trace entity relationships through the knowledge graph."""
         return await safe_handler(
             get_causal_chain.handler,
@@ -137,7 +137,7 @@ def _register_detect_gaps(mcp: FastMCP) -> None:
         include_domain_gaps: bool = True,
         include_temporal_gaps: bool = True,
         stale_threshold_days: int = 30,
-    ) -> str:
+    ) -> dict:
         """Identify knowledge gaps in the memory store."""
         return await safe_handler(
             detect_gaps.handler,
