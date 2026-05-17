@@ -11,6 +11,7 @@ from mcp_server.handlers import (
     add_rule,
     assess_coverage,
     create_trigger,
+    curate_wiki,
     get_project_story,
     get_rules,
     sync_instructions,
@@ -27,6 +28,35 @@ def register(mcp: FastMCP) -> None:
     _register_get_rules(mcp)
     _register_get_project_story(mcp)
     _register_assess_coverage(mcp)
+    _register_curate_wiki(mcp)
+
+
+def _register_curate_wiki(mcp: FastMCP) -> None:
+    @mcp.tool(
+        name="curate_wiki",
+        **tool_kwargs(curate_wiki.schema),
+    )
+    async def tool_curate_wiki(
+        domain: str | None = None,
+        limit: int = 3,
+        min_memories: int = 4,
+        min_avg_heat: float = 0.3,
+        recent_only: bool = True,
+        memory_pool_size: int = 500,
+    ) -> dict:
+        """Return structured authoring jobs for the in-session LLM to author."""
+        return await safe_handler(
+            curate_wiki.handler,
+            {
+                "domain": domain,
+                "limit": limit,
+                "min_memories": min_memories,
+                "min_avg_heat": min_avg_heat,
+                "recent_only": recent_only,
+                "memory_pool_size": memory_pool_size,
+            },
+            tool_name="curate_wiki",
+        )
 
 
 def _register_sync_instructions(mcp: FastMCP) -> None:
