@@ -224,6 +224,16 @@ _AUDIT_TAGS = frozenset(
         "tool:grep",
         "tool:webfetch",
         "tool:websearch",
+        # 2026-05-17 (user feedback "wiki is still far from being curated
+        # documentation"): codebase_analyze dumped one wiki page per scanned
+        # file PER scan invocation — 2176 of 2248 notes were the same
+        # auth/middleware/crypto files repeated 290-349 times each.
+        # ``seeded`` is the tag set by seed_project; ``codebase`` is the
+        # tag set by codebase_analyze's file-level extractor. Both belong
+        # in PG memory (recall substrate, halo retrieval) but never on a
+        # wiki page meant for curated knowledge.
+        "seeded",
+        "codebase",
         "code-review",
         "stage-1",
         "stage-2",
