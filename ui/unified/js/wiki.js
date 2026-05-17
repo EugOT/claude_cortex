@@ -643,6 +643,18 @@
     var bodyEl = el('div', 'wiki-body');
     bodyEl.innerHTML = renderMarkdown(body);
 
+    // Mermaid diagrams — renders ```mermaid blocks to SVG. Lazy-loads
+    // mermaid.js from esm.sh on first encounter so pages without
+    // diagrams pay no cost.
+    if (bodyEl.querySelector('.wiki-mermaid')) {
+      _ensureMermaid().then(function(mermaid) {
+        if (!mermaid) return;
+        try {
+          mermaid.run({ querySelector: '.wiki-mermaid', suppressErrors: false });
+        } catch (e) { /* mermaid optional; swallow failures */ }
+      });
+    }
+
     // KaTeX math — renders $…$ and $$…$$ spans to real math.
     if (window.renderMathInElement) {
       try {
@@ -801,6 +813,41 @@
     return item;
   }
 
+  // ── Mermaid lazy-loader ──
+  // Loaded once per page session via dynamic import from esm.sh.
+  // Themed to match the wiki's dark background; arrows / nodes use the
+  // gold accent that the rest of the UI uses.
+  var _mermaidPromise = null;
+  function _ensureMermaid() {
+    if (_mermaidPromise) return _mermaidPromise;
+    _mermaidPromise = import('https://esm.sh/mermaid@10.9.0')
+      .then(function(mod) {
+        var mermaid = mod.default || mod;
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: 'dark',
+          themeVariables: {
+            primaryColor: '#1a1a1a',
+            primaryTextColor: '#e0e0e0',
+            primaryBorderColor: '#c9a96e',
+            lineColor: '#c9a96e',
+            secondaryColor: '#2a2a2a',
+            tertiaryColor: '#0f0f0f',
+            background: '#0a0a0a',
+            mainBkg: '#1a1a1a',
+            secondBkg: '#2a2a2a',
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+          },
+          flowchart: { htmlLabels: true, curve: 'basis' },
+          sequence: { mirrorActors: false, actorMargin: 50 },
+          securityLevel: 'loose',
+        });
+        return mermaid;
+      })
+      .catch(function() { return null; });
+    return _mermaidPromise;
+  }
+
   // ── Markdown Renderer ──
   function renderMarkdown(md) {
     if (!md) return '';
@@ -809,6 +856,7 @@
     var inCode = false;
     var codeLang = '';
     var codeLines = [];
+    var rawCodeLines = [];  // unescaped — for mermaid which needs raw syntax
     var inList = false;
     var listType = 'ul';
     var inTable = false;
@@ -821,8 +869,20 @@
       var fenceMatch = line.match(/^```(\w*)/);
       if (fenceMatch !== null) {
         if (inCode) {
-          html.push('<div class="wiki-code-block"><pre><code class="lang-' + esc(codeLang) + '">' + codeLines.join('\n') + '</code></pre></div>');
+          // 2026-05-17: mermaid blocks get their own marker div so the
+          // post-render pass can call mermaid.run() on them. The graph
+          // text itself must NOT be HTML-escaped — mermaid expects raw
+          // syntax with literal "->" arrows, "&" etc. Other code blocks
+          // keep their escaped <pre><code> rendering.
+          if (codeLang === 'mermaid') {
+            // Use the unescaped raw lines for mermaid input. We
+            // re-collected them below in rawCodeLines.
+            html.push('<div class="mermaid wiki-mermaid">' + rawCodeLines.join('\n') + '</div>');
+          } else {
+            html.push('<div class="wiki-code-block"><pre><code class="lang-' + esc(codeLang) + '">' + codeLines.join('\n') + '</code></pre></div>');
+          }
           codeLines = [];
+          rawCodeLines = [];
           codeLang = '';
           inCode = false;
         } else {
@@ -835,6 +895,7 @@
       }
       if (inCode) {
         codeLines.push(esc(line));
+        rawCodeLines.push(line);
         continue;
       }
 
