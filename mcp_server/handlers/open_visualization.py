@@ -203,54 +203,30 @@ async def handler(args: dict | None = None) -> dict:
     # Regardless of how we got here, launch the standalone server.
     url = launch_server("unified")
 
-    # Drive the full prepare-then-render flow from this single entry
-    # point so the user never has to know the pipeline exists. Steps:
-    #   1. Wait for the graph build to reach full_ready (else the
-    #      layout pass has nothing to chew on).
-    #   2. Trigger /api/recompute_layout on the standalone — it skips
-    #      itself when the fingerprint already matches PG.
-    #   3. Surface extras-missing / errors as the MCP message so the
-    #      user sees them in Claude Code's response.
-    #   4. Only then open the browser at ?viz=tilemap.
-    layout_status = _prepare_layout(url)
-    extras_missing = layout_status.get("reason") == "igraph_missing"
-    if extras_missing:
-        # Skip opening the new viz — fall back to legacy URL so the
-        # user still sees a graph. Surface the install hint clearly.
-        target_url = url
-        message = (
-            f"Legacy viz opened at {target_url}. "
-            "The high-scale tilemap path requires the optional "
-            "'viz-tile' extra:\n"
-            "    pip install -e '.[viz-tile]'   (or)\n"
-            "    uv pip install '.[viz-tile]'"
-        )
-    else:
-        target_url = url.rstrip("/") + "/?viz=tilemap"
-        if layout_status.get("status") == "ok":
-            cached = layout_status.get("cached")
-            stamp = (
-                "cached"
-                if cached
-                else (f"computed in {layout_status.get('elapsed_ms', 0)} ms")
-            )
-            message = (
-                f"Tilemap viz opened at {target_url} — "
-                f"{layout_status.get('node_count', 0)} nodes ({stamp})."
-            )
-        else:
-            message = (
-                f"Tilemap viz opened at {target_url} (layout status: "
-                f"{layout_status.get('reason', 'unknown')})."
-            )
-
+    # 2026-05-17 (user direction): the indexing/graph build must NEVER
+    # block the MCP tool launch OR the interface load. The graph build
+    # is triggered by the user clicking the Graph button in the UI —
+    # not on MCP launch, not on first page-load.
+    #
+    # Previous implementation called _prepare_layout() synchronously
+    # with a 600s timeout. Removed entirely: the handler now just
+    # opens the browser at the UI and returns. The frontend's Graph
+    # button is the only place that fires /api/graph and
+    # /api/recompute_layout, with its own progress polling.
+    target_url = url.rstrip("/") + "/?viz=tilemap"
     open_in_browser(target_url)
+
+    message = (
+        f"Tilemap viz opened at {target_url}. Click the Graph button "
+        "in the UI to build/refresh the graph; indexing happens on "
+        "demand, not on launch."
+    )
     return {
         "url": target_url,
         "message": message,
         "dev_source": str(dev_src) if dev_src else None,
         "bootstrap": bootstrap_status,
-        "layout": layout_status,
+        "layout": {"status": "not_triggered", "reason": "user_action_pending"},
     }
 
 

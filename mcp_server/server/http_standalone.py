@@ -326,6 +326,15 @@ def _auto_enable_ap() -> None:
             {"command": bin_path, "args": []},
         )
 
+    # 2026-05-17 (user direction): the AST roster indexer must NOT
+    # auto-fire at server startup. It walks every git repo under
+    # ~/Documents/Developments/ and runs analyze_codebase on each —
+    # ~30 minutes of pinned CPU that blocked HTTP requests via GIL
+    # contention. Gated behind CORTEX_AP_AUTO_INDEX=1 so existing
+    # automation that depends on this can still opt in.
+    if os.environ.get("CORTEX_AP_AUTO_INDEX") != "1":
+        return
+
     # Multi-project roster. ``~/.cortex/ap_graphs/<project>/graph`` is
     # one LadybugDB per git repo under ``~/Documents/Developments/``.
     # The resolver (ap_bridge.resolve_graph_paths) sweeps them all so
@@ -409,8 +418,18 @@ def main() -> None:
     parser.add_argument("--port", type=int, required=True)
     args = parser.parse_args()
 
-    # AST overlay auto-wiring (ADR-0046). Silent no-op when AP isn't
-    # installed or when the user has pre-configured the env.
+    # 2026-05-17 (user direction): the graph build must NEVER auto-fire
+    # at server startup. It only runs when the user clicks the Graph
+    # button in the UI, which fires /api/graph — that endpoint already
+    # lazy-kicks _kick_background_build on first hit with empty cache
+    # (see http_standalone_graph.py line 1025). The previous behavior
+    # pinned CPU at 99% for 30+ minutes whether the user ever opened
+    # the Graph view or not, blocking every HTTP request via GIL
+    # contention.
+    #
+    # Same gating for _auto_enable_ap()'s AST roster indexer: it now
+    # only resolves the AP binary path; the per-project analyze_codebase
+    # walk is opt-in via CORTEX_AP_AUTO_INDEX=1.
     _auto_enable_ap()
 
     ui_root = _get_ui_root()
@@ -426,18 +445,6 @@ def main() -> None:
         args=(server,),
         daemon=True,
     ).start()
-
-    if args.type == "unified" and store is not None:
-        # Kick the two-phase background builder (baseline → AST) so
-        # ``/api/graph`` can serve the baseline within seconds and the
-        # AST overlay becomes available minutes later without
-        # blocking the first paint. Progress surfaces at
-        # ``/api/graph/progress``.
-        from mcp_server.server.http_standalone_graph import (
-            _kick_background_build,
-        )
-
-        _kick_background_build(store, None)
 
     print(f"[cortex] Standalone {args.type} server at {url}", file=sys.stderr)
     server.serve_forever()
