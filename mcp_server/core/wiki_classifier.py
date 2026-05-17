@@ -197,12 +197,33 @@ _YAML_KV_TITLE_PATTERNS = [
 
 # Session / audit artefact tags — these are recall-fodder, not wiki-worthy.
 # Any hit in tags auto-rejects from the wiki (memory is preserved separately).
+#
+# 2026-05-17 (user feedback "that's the same for all kind of category"):
+# PostToolUse auto-captures are journal entries — tool dumps, command
+# outputs, edit diffs — useful as memories for halo retrieval but
+# pollute the wiki with hundreds of ``Lesson: Command: `git log...```
+# pages that aren't curated knowledge. Adding ``auto-captured`` and
+# ``tool:bash``/``tool:edit`` etc. as audit tags so they stay in PG
+# memory but never become wiki pages. Real wiki pages come from
+# explicit ``remember`` calls with curated content.
 _AUDIT_TAGS = frozenset(
     {
         "_backfill",
         "imported",
         "session-summary",
         "tool-output",
+        "auto-captured",
+        "tool:bash",
+        "tool:edit",
+        "tool:write",
+        "tool:multiedit",
+        "tool:notebookedit",
+        "tool:read",
+        "tool:notebookread",
+        "tool:glob",
+        "tool:grep",
+        "tool:webfetch",
+        "tool:websearch",
         "code-review",
         "stage-1",
         "stage-2",
