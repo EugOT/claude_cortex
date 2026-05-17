@@ -179,6 +179,22 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
     if not root.exists() or not root.is_dir():
         return {"seeded": False, "reason": f"directory not found: {root}"}
 
+    # 2026-05-17 (user feedback): refuse to seed transient roots —
+    # ``.claude/worktrees/agent-*``, pytest temp fixtures
+    # (``/private/var/folders/.../pytest-of-*``), and other ephemeral
+    # paths. Seeding them produced wiki pages titled
+    # ``Spec: Entry point: .claude/worktrees/agent-a0ceb782/...`` and
+    # ``Spec: Project structure: repo-a`` from fixture runs — both
+    # noise that lives forever in the wiki because the underlying path
+    # is gone by the next test run.
+    from mcp_server.handlers.seed_project_constants import is_transient_seed_root
+
+    if is_transient_seed_root(str(root)):
+        return {
+            "seeded": False,
+            "reason": f"transient_root_refused: {root}",
+        }
+
     purged = 0
     if not dry_run:
         # Scope purge to this domain (issue #16): seeding repo-A must not

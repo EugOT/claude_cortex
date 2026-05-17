@@ -95,7 +95,44 @@ IGNORE_DIRS = {
     "site-packages",
     ".tox",
     ".nox",
+    # 2026-05-17 (user feedback): seed_project was producing wiki pages
+    # titled ``Spec: Entry point: .claude/worktrees/agent-a0ceb782/...``
+    # because per-agent git worktrees were treated as real source trees.
+    # A worktree is a transient build of the same code — seeding it
+    # creates N duplicate sets of stub pages. Same for ``.claude/``
+    # itself (settings, hooks, agent state) and for ``deps/`` vendored
+    # third-party trees we don't author.
+    ".claude",
+    "worktrees",
+    "deps",
+    "vendor",
+    "third_party",
+    "external",
+    # pytest temp directories (``/private/var/folders/.../pytest-of-*``)
+    # leak into seeded titles when test runs invoke seed_project on
+    # fixture repos like ``repo-a``/``repo-b``. They're caught by the
+    # path-based skip in seed_project_stages.is_test_fixture_path().
 }
+
+# 2026-05-17: path-fragment predicate complementing IGNORE_DIRS. Returns
+# True if the absolute path looks like a pytest temp fixture root or a
+# transient agent worktree — both should be silently rejected by
+# seed_project before any pages are generated.
+TEST_FIXTURE_PATH_MARKERS = (
+    "pytest-of-",
+    "/private/var/folders/",
+    "/var/folders/",
+    ".claude/worktrees/",
+)
+
+
+def is_transient_seed_root(path: str) -> bool:
+    """Return True when ``path`` is a known transient/test/worktree root
+    that ``seed_project`` should refuse to operate on. Used at the
+    handler entry point so test runs and worktree creation never pollute
+    the wiki with stub pages."""
+    p = str(path)
+    return any(marker in p for marker in TEST_FIXTURE_PATH_MARKERS)
 
 EXT_MAP = {
     ".py": "Python",
