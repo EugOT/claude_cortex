@@ -54,13 +54,32 @@ def render_process_page(process: dict[str, Any]) -> tuple[str, str]:
 
 
 def write_process_pages(processes: list[dict[str, Any]]) -> list[str]:
-    """Create wiki reference pages for each process. Returns paths written."""
+    """Create wiki reference pages for each process. Returns paths written.
+
+    2026-05-17 (user feedback "the wiki is still far from being curated
+    documentation"): processes with zero symbols-in-flow produce a
+    268-byte stub that carries no information. When the AST graph is
+    empty (the common case until ``analyze_codebase`` has been run for
+    a project) EVERY process page is empty — 1215 stubs in one audit,
+    100% of reference/codebase/. Filter them out: a Process page
+    without symbols has nothing to document.
+    """
     written: list[str] = []
+    skipped_empty = 0
     for proc in processes:
+        symbols = proc.get("symbols") or []
+        symbol_count = proc.get("symbol_count") or len(symbols)
+        if symbol_count == 0:
+            skipped_empty += 1
+            continue
         try:
             rel_path, markdown = render_process_page(proc)
             write_page(WIKI_ROOT, rel_path, markdown, mode="replace")
             written.append(rel_path)
         except Exception as exc:
             logger.debug("process page write failed: %s", exc)
+    if skipped_empty:
+        logger.info(
+            "skipped %d empty process pages (symbol_count=0)", skipped_empty
+        )
     return written
