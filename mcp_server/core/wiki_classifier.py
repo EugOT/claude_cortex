@@ -383,6 +383,19 @@ _TITLE_STRIP_PREFIXES = [
     re.compile(r"^(Here is|Here's|The following)\s+", re.IGNORECASE),
 ]
 
+# 2026-05-17: markdown unwrappers. Applied with ``sub(r"\1", ...)`` (keep
+# inner text) before the path-detection patterns so a line like
+# ``**File:** `/Users/.../remember.py` `` is tested against the path
+# detector as ``File: /Users/.../remember.py`` — previously the backtick
+# before ``/Users/`` wasn't whitespace so the path filter missed and the
+# raw markdown-wrapped path leaked into the wiki page title.
+_TITLE_MARKDOWN_UNWRAP = [
+    re.compile(r"\*\*([^*]+)\*\*"),  # **bold** → bold
+    re.compile(r"`([^`]+)`"),  # `code` → code
+    re.compile(r"\*([^*]+)\*"),  # *italic* → italic
+    re.compile(r"_([^_]+)_"),  # _italic_ → italic
+]
+
 
 _POSITIVE_SCORE_THRESHOLD = 4  # must satisfy ≥ 4 of 8 positive signals
 
@@ -801,6 +814,14 @@ def derive_title(
     first_meaningful = ""
     for line in lines:
         cleaned = line.strip()
+        # Unwrap markdown formatting first so the underlying text is
+        # what gets prefix-stripped and tested. Without this step,
+        # ``**File:** `/path` `` keeps its asterisks/backticks, the
+        # backtick blocks the path detector at line 178 from matching
+        # the embedded ``/Users/`` segment, and the raw markdown leaks
+        # through as the page title.
+        for unwrap in _TITLE_MARKDOWN_UNWRAP:
+            cleaned = unwrap.sub(r"\1", cleaned).strip()
         for pat in _TITLE_STRIP_PREFIXES:
             cleaned = pat.sub("", cleaned).strip()
         if _line_is_title_candidate(cleaned):

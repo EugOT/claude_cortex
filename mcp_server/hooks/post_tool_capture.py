@@ -53,8 +53,13 @@ _CONDITIONAL_TOOLS = {
 # Minimum output length to consider capturing (chars)
 _MIN_OUTPUT_LENGTH = 50
 
-# Maximum output length to store (chars) — truncate beyond this
-_MAX_OUTPUT_LENGTH = 4096
+# 2026-05-17 (user directive: "Truncated info are prohibited"):
+# auto-capture stores the FULL tool output. Truncation destroys the
+# substrate halo retrieval needs — a 20k-char Edit diff cropped to 4k
+# loses the actual code change. If the corpus grows too large, address
+# it via compression or filesystem-backed references, not by silently
+# dropping content. The previous _MAX_OUTPUT_LENGTH = 4096 cap is
+# removed.
 
 # Keywords that signal high-value content
 _HIGH_VALUE_PATTERNS = [
@@ -158,15 +163,21 @@ def _build_memory_content(
         parts.append(ref)
     if tool_name in _LIGHT_VALUE_TOOLS:
         return "\n".join(parts)
-    truncated = output[:_MAX_OUTPUT_LENGTH]
-    if len(output) > _MAX_OUTPUT_LENGTH:
-        truncated += f"\n... [truncated {len(output) - _MAX_OUTPUT_LENGTH} chars]"
-    parts.append(f"\n**Output:**\n```\n{truncated}\n```")
+    parts.append(f"\n**Output:**\n```\n{output}\n```")
     return "\n".join(parts)
 
 
 def _build_tags(tool_name: str, output: str) -> list[str]:
-    """Build tags from tool name and output signals."""
+    """Build tags from tool name and output signals.
+
+    2026-05-17: the ``decision`` tag was previously added whenever the
+    raw tool output contained the substring "selected"/"switched"/etc.
+    Edit/Bash dumps routinely contain those words inside diffs or stdout,
+    so every auto-capture got promoted to wiki kind="adr" and rendered
+    as ``Decision: <first line of dump>``. Real ADRs come from explicit
+    ``remember`` calls with ``source="decision"``, not from PostToolUse
+    keyword scanning — the tag is removed here.
+    """
     tags = ["auto-captured", f"tool:{tool_name.lower()}"]
     output_lower = output.lower()
     if (
@@ -179,8 +190,6 @@ def _build_tags(tool_name: str, output: str) -> list[str]:
         tags.append("test-result")
     if any(kw in output_lower for kw in ("fixed", "resolved", "success")):
         tags.append("success")
-    if any(kw in output_lower for kw in ("decided", "chose", "switched", "selected")):
-        tags.append("decision")
     return tags
 
 
