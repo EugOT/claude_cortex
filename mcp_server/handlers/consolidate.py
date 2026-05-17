@@ -152,6 +152,25 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
     stats = _run_cycles(args, store, settings, embeddings, memories)
     stats = _run_always_cycles(args, store, stats, memories)
 
+    # 2026-05-17: surface pending curation count so the SessionStart
+    # preamble and any downstream caller can see how much authoring
+    # work the auto-curator has queued up. ``consolidate`` is the right
+    # place to compute this — it already has the full memory snapshot
+    # in memory and runs on the maintenance cadence anyway. Failure
+    # here is non-fatal: a missing curation count must never break
+    # consolidate itself.
+    try:
+        from mcp_server.core.auto_curator import count_pending_clusters
+        from mcp_server.infrastructure.config import WIKI_ROOT
+        pending = count_pending_clusters(
+            memories,
+            wiki_root=str(WIKI_ROOT),
+        )
+        stats["pending_curations"] = pending
+    except Exception as exc:
+        logger.debug("pending curation count failed (non-fatal): %s", exc)
+        stats["pending_curations"] = None
+
     elapsed_ms = int((time.monotonic() - start) * 1000)
     stats["duration_ms"] = elapsed_ms
 

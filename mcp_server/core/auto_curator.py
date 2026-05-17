@@ -74,6 +74,36 @@ class CurationJob:
     related_pages: list[str] = field(default_factory=list)  # paths for [[wiki-links]]
 
 
+# 2026-05-17: how recent counts as "already authored" — skip re-curating a
+# cluster whose suggested path was written within this window. 30 days
+# is the heuristic floor; clusters with substantial new content after
+# that window get re-curated to update the page.
+SKIP_IF_AUTHORED_WITHIN_DAYS = 30
+
+
+def is_path_recently_authored(
+    suggested_path: str,
+    wiki_root: str,
+    within_days: int = SKIP_IF_AUTHORED_WITHIN_DAYS,
+) -> bool:
+    """True if ``<wiki_root>/<suggested_path>`` exists and was modified
+    within the last ``within_days``. Used to skip clusters whose page
+    already exists and is fresh.
+
+    The check is filesystem-mtime based — no PG lookup needed. If a
+    user edits a page by hand, the mtime updates and the cluster stays
+    skipped (their edits aren't clobbered).
+    """
+    import os
+    import time
+
+    full = os.path.join(wiki_root, suggested_path)
+    if not os.path.isfile(full):
+        return False
+    age_seconds = time.time() - os.path.getmtime(full)
+    return age_seconds < (within_days * 86400)
+
+
 # ── Topic identification ────────────────────────────────────────────────
 
 
@@ -150,6 +180,8 @@ def build_clusters(
     domain: str | None = None,
     min_memories: int = MIN_MEMORIES_PER_CLUSTER,
     min_avg_heat: float = MIN_AVG_HEAT_FOR_PAGE,
+    wiki_root: str | None = None,
+    skip_recently_authored: bool = True,
 ) -> list[CurationCluster]:
     """Group memories into topic clusters via dominant-entity bucketing.
 
@@ -221,9 +253,43 @@ def build_clusters(
             )
         )
 
+    # 2026-05-17: skip clusters whose suggested page already exists and
+    # was authored within ``SKIP_IF_AUTHORED_WITHIN_DAYS``. Without this
+    # filter the curator keeps re-suggesting the same topics on every
+    # call, even after a page was just authored. Caller passes the wiki
+    # root path (``WIKI_ROOT``); when omitted we don't filter (useful
+    # for tests).
+    if skip_recently_authored and wiki_root:
+        clusters = [
+            c for c in clusters
+            if not is_path_recently_authored(c.suggested_path, wiki_root)
+        ]
+
     # Rank by size × avg_heat
     clusters.sort(key=lambda c: len(c.memory_ids) * c.avg_heat, reverse=True)
     return clusters
+
+
+def count_pending_clusters(
+    memories: list[dict],
+    *,
+    domain: str | None = None,
+    wiki_root: str | None = None,
+) -> int:
+    """Count how many clusters would yield a fresh authoring job.
+
+    Cheap-to-call summary for SessionStart preamble and ``consolidate``
+    telemetry. Uses the same defaults as ``build_clusters`` so the
+    count matches what ``curate_wiki`` would return on full invocation.
+    """
+    return len(
+        build_clusters(
+            memories,
+            domain=domain,
+            wiki_root=wiki_root,
+            skip_recently_authored=True,
+        )
+    )
 
 
 def _infer_kind(memories: list[dict]) -> str:

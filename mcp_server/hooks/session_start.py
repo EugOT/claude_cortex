@@ -203,6 +203,56 @@ def _fetch_hot_memories(conn, exclude_ids: set) -> list[dict]:
     return hot[:_HOT_LIMIT]
 
 
+def _count_pending_curations(conn) -> int:
+    """Count topic clusters of PG memories that warrant a wiki page
+    but don't have one yet.
+
+    Surfaced in the SessionStart preamble so the in-session LLM
+    (Opus 4.7) sees how much authoring work is queued. The full
+    detection logic lives in ``mcp_server.core.auto_curator``; this
+    helper just pulls a sample of recently-accessed memories and asks
+    the curator to count.
+
+    Failure here is non-fatal: a missing curation count must never
+    break the SessionStart preamble. We return 0 and move on.
+    """
+    try:
+        from mcp_server.core.auto_curator import count_pending_clusters
+
+        rows = conn.execute(
+            "SELECT id, content, tags, effective_heat, created_at, domain "
+            "FROM memories "
+            "WHERE NOT is_stale "
+            "ORDER BY last_accessed DESC NULLS LAST, created_at DESC "
+            "LIMIT 500"
+        ).fetchall()
+        memories: list[dict] = []
+        for r in rows:
+            d = dict(r) if not isinstance(r, dict) else r
+            memories.append(
+                {
+                    "id": d.get("id"),
+                    "content": d.get("content") or "",
+                    "tags": list(d.get("tags") or []),
+                    "effective_heat": float(d.get("effective_heat") or 0.0),
+                    "created_at": str(d.get("created_at") or ""),
+                    "domain": d.get("domain") or "",
+                }
+            )
+        if not memories:
+            return 0
+        # WIKI_ROOT lookup so the curator can skip already-authored
+        # clusters by filesystem mtime.
+        try:
+            from mcp_server.infrastructure.config import WIKI_ROOT
+            wiki_root = str(WIKI_ROOT)
+        except Exception:
+            wiki_root = None
+        return count_pending_clusters(memories, wiki_root=wiki_root)
+    except Exception:
+        return 0
+
+
 def _fetch_checkpoint(conn) -> dict | None:
     """Fetch the latest active checkpoint."""
     try:
@@ -370,9 +420,16 @@ def _build_context(
     hot: list[dict],
     checkpoint: dict | None,
     team_decisions: list[dict] | None = None,
+    pending_curations: int = 0,
 ) -> str:
     """Build the Markdown context block injected into the session."""
-    if not anchors and not hot and not checkpoint and not team_decisions:
+    if (
+        not anchors
+        and not hot
+        and not checkpoint
+        and not team_decisions
+        and not pending_curations
+    ):
         return ""
 
     lines = ["## Cortex Memory Context\n"]
@@ -401,6 +458,26 @@ def _build_context(
             heat_bar = "+" * min(5, int(m["heat"] * 5))
             domain_hint = f" [{m['domain']}]" if m.get("domain") else ""
             lines.append(f"- [{heat_bar}]{domain_hint} {_short(m['content'])}")
+        lines.append("")
+
+    # 2026-05-17: surface pending wiki authoring work to the in-session
+    # LLM. The auto-curator (handlers/curate_wiki.py) detects high-heat
+    # topic clusters of PG memories that warrant a curated wiki page;
+    # the in-session LLM (Opus 4.7) is the authoring agent. Without
+    # this nudge the LLM has no way to know there's documentation
+    # work waiting — surfacing it here lets it happen "without a human
+    # asking", per the 2026-05-17 user directive.
+    if pending_curations:
+        lines.append("### Pending Wiki Curation")
+        lines.append(
+            f"Auto-curator detected **{pending_curations}** topic cluster"
+            f"{'s' if pending_curations != 1 else ''} of PG memories "
+            "warrant a curated wiki page. Call `curate_wiki` to fetch "
+            "authoring jobs and write the pages via `wiki_write` — "
+            "each job carries a structured prompt with the cluster's "
+            "memories and the documentation conventions. No human "
+            "needs to ask; the curator works queued."
+        )
         lines.append("")
 
     lines.append(
@@ -667,9 +744,13 @@ def main() -> None:
     hot = _fetch_hot_memories(conn, anchor_ids)
     team_decisions = _fetch_team_decisions(conn, anchor_ids)
     checkpoint = _fetch_checkpoint(conn)
+    pending_curations = _count_pending_curations(conn)
     conn.close()
 
-    context = _build_context(anchors, hot, checkpoint, team_decisions)
+    context = _build_context(
+        anchors, hot, checkpoint, team_decisions,
+        pending_curations=pending_curations,
+    )
 
     if context:
         print(context)

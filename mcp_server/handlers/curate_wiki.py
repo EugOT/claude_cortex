@@ -205,6 +205,8 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
         domain=domain,
         min_memories=min_memories,
         min_avg_heat=min_avg_heat,
+        wiki_root=str(WIKI_ROOT),
+        skip_recently_authored=True,
     )
 
     existing_pages = _scan_existing_pages(Path(WIKI_ROOT))
