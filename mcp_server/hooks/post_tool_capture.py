@@ -155,7 +155,14 @@ def _build_memory_content(
     cwd: str,
 ) -> str:
     """Build a structured memory string. Light-value tools record only
-    the input reference to keep writes <200ms."""
+    the input reference to keep writes <200ms.
+
+    2026-05-17: ``_normalize_output`` now returns Markdown-ready text
+    for dict tool responses (with its own fenced ``stdout:`` /
+    ``stderr:`` sections). Detect that here and don't wrap it again —
+    nested fences break rendering. Only wrap raw string output, which
+    is the case for tools whose response is a flat string.
+    """
     _ = cwd
     parts = [f"# Tool: {tool_name}"]
     ref = _reference_line(tool_name, tool_input)
@@ -163,7 +170,14 @@ def _build_memory_content(
         parts.append(ref)
     if tool_name in _LIGHT_VALUE_TOOLS:
         return "\n".join(parts)
-    parts.append(f"\n**Output:**\n```\n{output}\n```")
+    # Output is already Markdown-formatted (Bash/Edit/etc.) — don't
+    # wrap. Otherwise wrap raw string output in a code fence so newlines
+    # render as newlines.
+    already_formatted = "**stdout:**" in output or "**before:**" in output or output.startswith("**file:**")
+    if already_formatted:
+        parts.append(f"\n## Output\n\n{output}")
+    else:
+        parts.append(f"\n**Output:**\n```\n{output}\n```")
     return "\n".join(parts)
 
 
@@ -194,9 +208,63 @@ def _build_tags(tool_name: str, output: str) -> list[str]:
 
 
 def _normalize_output(raw_output: Any) -> str:
-    """Normalize tool output to a string."""
-    if isinstance(raw_output, (dict, list)):
-        return json.dumps(raw_output, default=str)
+    """Normalize tool output to a HUMAN-READABLE string.
+
+    2026-05-17 (user directive: "stdout should never be a single line,
+    intelligible and readable documentation in natural way"). Previously
+    every dict response went through ``json.dumps`` which encoded real
+    newlines as the two-character ``\\n`` escape sequence — so a multi-
+    line grep output rendered in the wiki as one literal-escape-laden
+    string instead of a readable code block.
+
+    Tool-response shapes handled here:
+
+      * ``Bash``: ``{"stdout": "...", "stderr": "...", "interrupted": bool,
+        ...}`` → renders stdout (and stderr if non-empty) as fenced
+        sections with real newlines preserved.
+      * ``Edit``/``Write``/``MultiEdit``: ``{"filePath": "...",
+        "oldString": "...", "newString": "..."}`` → renders as a
+        before/after section with real newlines.
+      * Generic dict / list → json.dumps with ``indent=2`` so newlines
+        between fields survive at least one level of structure.
+      * Anything else → ``str()``.
+    """
+    if isinstance(raw_output, dict):
+        # Bash-shaped: stdout / stderr separated. Render each as its own
+        # fenced section so multi-line output stays readable.
+        if "stdout" in raw_output or "stderr" in raw_output:
+            parts: list[str] = []
+            stdout = str(raw_output.get("stdout") or "")
+            stderr = str(raw_output.get("stderr") or "")
+            if stdout.strip():
+                parts.append(f"**stdout:**\n```\n{stdout.rstrip()}\n```")
+            if stderr.strip():
+                parts.append(f"**stderr:**\n```\n{stderr.rstrip()}\n```")
+            interrupted = raw_output.get("interrupted")
+            if interrupted:
+                parts.append(f"**interrupted:** {interrupted}")
+            if not parts:
+                parts.append("_(no output)_")
+            return "\n\n".join(parts)
+        # Edit/Write-shaped: file_path + oldString/newString diff.
+        if "filePath" in raw_output and (
+            "oldString" in raw_output or "newString" in raw_output
+        ):
+            parts = [f"**file:** `{raw_output['filePath']}`"]
+            old = raw_output.get("oldString")
+            new = raw_output.get("newString")
+            if old:
+                parts.append(f"**before:**\n```\n{str(old).rstrip()}\n```")
+            if new:
+                parts.append(f"**after:**\n```\n{str(new).rstrip()}\n```")
+            return "\n\n".join(parts)
+        # Generic dict — indent=2 preserves field separation but still
+        # escapes newlines inside string values. The wiki renderer can't
+        # do better without a per-tool template; this is honest about
+        # the shape.
+        return json.dumps(raw_output, indent=2, default=str)
+    if isinstance(raw_output, list):
+        return json.dumps(raw_output, indent=2, default=str)
     return str(raw_output)
 
 
