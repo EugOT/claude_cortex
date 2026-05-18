@@ -260,11 +260,53 @@ class DomainRegistry:
         self.path_to_repo = {r.fs_path: r for r in self.repos}
 
 
+def _candidate_dev_roots() -> list[Path]:
+    """Plausible parent directories for the user's git repos.
+
+    Probed in order:
+      1. ``$CORTEX_DEV_ROOT`` env var — explicit override.
+      2. ``~/Developments`` — original assumption.
+      3. ``~/Documents/Developments`` — the common macOS Documents-nested layout.
+      4. ``~/dev`` and ``~/code`` — common alternative parents.
+
+    The first directory that exists wins. Without this fallback the
+    registry returns zero repos on systems where the user keeps source
+    under ``~/Documents`` (a real layout in production today).
+    """
+    import os as _os
+
+    cands: list[Path] = []
+    env = _os.environ.get("CORTEX_DEV_ROOT")
+    if env:
+        cands.append(Path(env))
+    home = Path.home()
+    cands.extend(
+        [
+            home / "Developments",
+            home / "Documents" / "Developments",
+            home / "dev",
+            home / "code",
+        ]
+    )
+    return [c for c in cands if c.is_dir()]
+
+
 @lru_cache(maxsize=1)
 def _build_registry() -> DomainRegistry:
-    """Build the complete domain registry from git repos. Cached at startup."""
-    dev_root = Path.home() / "Developments"
-    repos = _discover_repos(dev_root)
+    """Build the complete domain registry from git repos. Cached at startup.
+
+    Scans every candidate dev root (see ``_candidate_dev_roots``) so the
+    registry works regardless of whether the user keeps repos at
+    ``~/Developments`` or ``~/Documents/Developments``.
+    """
+    repos: list[RepoInfo] = []
+    seen_paths: set[str] = set()
+    for dev_root in _candidate_dev_roots():
+        for r in _discover_repos(dev_root):
+            if r.fs_path in seen_paths:
+                continue
+            seen_paths.add(r.fs_path)
+            repos.append(r)
     name_to_canonical = _group_repos(repos)
     slug_index = _build_slug_index(repos)
     fragment_index = _build_fragment_index(repos, name_to_canonical)
