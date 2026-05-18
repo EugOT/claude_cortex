@@ -22,7 +22,6 @@ from mcp_server.core.wiki_stub_detector import (
     is_shallow,
     is_stub,
     placeholder_count,
-    prose_char_count,
     stub_score,
 )
 from mcp_server.infrastructure.config import WIKI_ROOT

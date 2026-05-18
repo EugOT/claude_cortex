@@ -35,7 +35,6 @@ from __future__ import annotations
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from typing import Any
 
 # 2026-05-17: thresholds tuned to mirror the cluster-quality bar of the
 # hand-authored pages from this session. Below these, a cluster doesn't

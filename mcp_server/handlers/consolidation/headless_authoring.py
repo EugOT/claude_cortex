@@ -593,12 +593,16 @@ def _build_page_prompt(
     source_path = page_meta.get("source_file_path", "")
     language = page_meta.get("language", "")
 
+    # ``sections_block`` is built for clarity / future use but the
+    # final prompt assembles its own "Sections to author" listing
+    # below, so we don't render the bare block — leaving the assembly
+    # loop in place keeps the gap-iteration logic next to the gap
+    # data, which makes future edits less error-prone.
     sections_block: list[str] = []
     for gap_name in gaps:
         heading = _gap_heading(gap_name)
         desc = _GAP_DESCRIPTIONS.get(gap_name) or gap_name
         sections_block.append(f"### {heading}\n{desc}")
-    section_list = "\n\n".join(sections_block)
 
     src_block = (
         f"\n## Source file content (file: {source_path})\n\n"

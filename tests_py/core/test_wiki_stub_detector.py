@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from mcp_server.core.wiki_stub_detector import (
-    DEFAULT_STUB_THRESHOLD,
     is_stub,
     placeholder_count,
     stub_score,

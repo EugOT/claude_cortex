@@ -35,14 +35,12 @@ The user directive this satisfies:
 
 from __future__ import annotations
 
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from mcp_server.core.auto_curator import (
-    MAX_MEMORIES_PER_PROMPT,
     MIN_AVG_HEAT_FOR_PAGE,
     MIN_MEMORIES_PER_CLUSTER,
     build_clusters,

@@ -11,7 +11,7 @@ from mcp_server.core.auto_curator import (
     build_coverage_prompt,
     sort_coverage_jobs,
 )
-from mcp_server.core.wiki_coverage import DomainCoverage, Scope, ScopeCoverage, SCOPES
+from mcp_server.core.wiki_coverage import DomainCoverage, ScopeCoverage, SCOPES
 
 
 def _cluster(kind: str = "adr") -> CurationCluster:

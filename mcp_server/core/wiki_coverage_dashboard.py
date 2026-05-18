@@ -18,13 +18,11 @@ Generated content — NOT human-authored. Regenerated on every
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
 from mcp_server.core.wiki_coverage import (
-    SCOPES,
     audit_domain,
     audit_files,
 )
