@@ -160,7 +160,11 @@ def _section_how(inputs: TaskRecordInputs) -> str:
         lines.append("Implementation moves (commit-by-commit):\n")
         for c in inputs.commits[:10]:
             hsh = (c.get("hash") or "")[:8]
-            msg = (c.get("message") or "").splitlines()[0] if c.get("message") else "(no message)"
+            msg = (
+                (c.get("message") or "").splitlines()[0]
+                if c.get("message")
+                else "(no message)"
+            )
             lines.append(f"- `{hsh}` — {msg}")
         if len(inputs.commits) > 10:
             lines.append(f"- … and {len(inputs.commits) - 10} more commits.")
@@ -258,7 +262,9 @@ def build_task_record(
         "updated": today,
         "last_reviewed": today,
     }
-    fm_lines = "---\n" + "\n".join(f"{k}: {v}" for k, v in frontmatter.items()) + "\n---\n"
+    fm_lines = (
+        "---\n" + "\n".join(f"{k}: {v}" for k, v in frontmatter.items()) + "\n---\n"
+    )
 
     body_parts: list[str] = [
         fm_lines,

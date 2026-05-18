@@ -334,9 +334,7 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
         # Reserve space for coverage + reauthor jobs in the user-specified limit.
         already_used = len(coverage_payload) + len(reauthor_payload)
         cluster_budget = max(0, limit - already_used)
-        cluster_payload = [
-            _serialise_job(j) for j in cluster_jobs[:cluster_budget]
-        ]
+        cluster_payload = [_serialise_job(j) for j in cluster_jobs[:cluster_budget]]
 
     # Order: coverage → reauthor → cluster. Coverage anchors the
     # structural backbone, reauthor fixes existing pages, cluster fills

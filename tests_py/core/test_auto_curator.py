@@ -84,11 +84,25 @@ class TestCoveragePrompt:
         assert "[[reference/cortex/api.md]]" in prompt
 
 
+def _scope_by_name(name: str):
+    """Look up a Scope by name — robust to catalogue reorder.
+
+    The SCOPES tuple grew from 6 to 15 entries when more canonical
+    documentation slots were added; positional indexing broke the
+    tests. Lookup by name keeps assertions stable across catalogue
+    additions.
+    """
+    for s in SCOPES:
+        if s.name == name:
+            return s
+    raise KeyError(f"no scope named {name!r}")
+
+
 class TestCoverageJobBuilder:
     def test_emits_one_job_per_missing_scope(self):
         # Domain with 2 missing scopes → 2 jobs.
         missing_arch = ScopeCoverage(
-            scope=SCOPES[0],
+            scope=_scope_by_name("architecture"),
             domain="cortex",
             covered=False,
             page_count=0,
@@ -96,7 +110,7 @@ class TestCoverageJobBuilder:
             suggested_path="reference/cortex/architecture-overview.md",
         )
         missing_api = ScopeCoverage(
-            scope=SCOPES[2],
+            scope=_scope_by_name("api"),
             domain="cortex",
             covered=False,
             page_count=0,
@@ -110,9 +124,10 @@ class TestCoverageJobBuilder:
 
     def test_sort_by_structural_primacy(self):
         # Mix of architecture, api, data-flow — architecture must come first.
-        scopes = [SCOPES[3], SCOPES[2], SCOPES[0]]  # data-flow, api, architecture
+        scope_names = ["data-flow", "api", "architecture"]
         covs = []
-        for s in scopes:
+        for name in scope_names:
+            s = _scope_by_name(name)
             sc = ScopeCoverage(
                 scope=s,
                 domain="cortex",

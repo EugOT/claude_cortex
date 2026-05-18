@@ -65,9 +65,7 @@ def _next_adr_number(wiki_root: Path, domain: str) -> int:
     return highest + 1
 
 
-def _git_commits_in_window(
-    cwd: str, since_minutes: float
-) -> list[dict]:
+def _git_commits_in_window(cwd: str, since_minutes: float) -> list[dict]:
     """Return commits authored under ``cwd`` in the trailing window.
 
     Each entry: ``{"hash", "message", "files", "timestamp"}``. Returns
@@ -132,9 +130,7 @@ def _git_commits_in_window(
     return commits
 
 
-def _session_memories(
-    store, session_id: str, domain: str
-) -> list[dict]:
+def _session_memories(store, session_id: str, domain: str) -> list[dict]:
     """Pull memories captured during this session.
 
     Uses a simple recent-memories fetch and filters by session_id tag.
@@ -181,9 +177,7 @@ def maybe_write_task_record(
     # Look back over the session duration plus a small margin, so any
     # commit made during the session lands in the window even if the
     # duration arg is slightly under-counted.
-    window_minutes = (
-        (duration_seconds / 60.0 + 5.0) if duration_seconds else 60.0
-    )
+    window_minutes = (duration_seconds / 60.0 + 5.0) if duration_seconds else 60.0
     commits = _git_commits_in_window(cwd or "", window_minutes)
     memories = _session_memories(store, session_id, domain) if store else []
 

@@ -173,7 +173,11 @@ def _build_memory_content(
     # Output is already Markdown-formatted (Bash/Edit/etc.) — don't
     # wrap. Otherwise wrap raw string output in a code fence so newlines
     # render as newlines.
-    already_formatted = "**stdout:**" in output or "**before:**" in output or output.startswith("**file:**")
+    already_formatted = (
+        "**stdout:**" in output
+        or "**before:**" in output
+        or output.startswith("**file:**")
+    )
     if already_formatted:
         parts.append(f"\n## Output\n\n{output}")
     else:

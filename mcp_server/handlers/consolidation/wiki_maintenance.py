@@ -149,9 +149,7 @@ def run_wiki_maintenance(
         )
         out["stub"]["purged"] = r.get("purged", 0)
         out["stub"]["deferred"] = r.get("deferred", 0)
-        out["stub"]["placeholder_lines_purged"] = r.get(
-            "placeholder_lines_purged", 0
-        )
+        out["stub"]["placeholder_lines_purged"] = r.get("placeholder_lines_purged", 0)
     except Exception as exc:
         logger.warning("wiki_maintenance: stub purge failed (non-fatal): %s", exc)
         out["status"] = f"stub_error: {type(exc).__name__}: {exc}"
@@ -166,9 +164,7 @@ def run_wiki_maintenance(
         out["classifier"]["purged"] = r.get("purged", 0)
         out["classifier"]["deferred"] = r.get("deferred", 0)
     except Exception as exc:
-        logger.warning(
-            "wiki_maintenance: classifier purge failed (non-fatal): %s", exc
-        )
+        logger.warning("wiki_maintenance: classifier purge failed (non-fatal): %s", exc)
         if out["status"] == "ok":
             out["status"] = f"classifier_error: {type(exc).__name__}: {exc}"
 
@@ -210,9 +206,7 @@ def run_wiki_maintenance(
             "projects": sorted(dashboards.keys())[:20],
         }
     except Exception as exc:
-        logger.debug(
-            "wiki_maintenance: dashboard render failed (non-fatal): %s", exc
-        )
+        logger.debug("wiki_maintenance: dashboard render failed (non-fatal): %s", exc)
         out["dashboards"] = {"status": f"error: {type(exc).__name__}: {exc}"}
 
     # Curation backlog.
@@ -226,9 +220,7 @@ def run_wiki_maintenance(
         from mcp_server.core.wiki_drift import audit_wiki_drift
         from mcp_server.infrastructure.config import WIKI_ROOT
 
-        out["cluster_jobs"] = count_pending_clusters(
-            memories, wiki_root=str(WIKI_ROOT)
-        )
+        out["cluster_jobs"] = count_pending_clusters(memories, wiki_root=str(WIKI_ROOT))
         coverages = audit_all_domains(str(WIKI_ROOT))
         out["coverage_gaps"] = sum(c.missing_count for c in coverages)
         # File-level coverage: count files that aren't referenced
@@ -253,9 +245,7 @@ def run_wiki_maintenance(
         # backlog doesn't need to materialise in full here; the
         # curate_wiki call can re-enumerate when it needs the actual
         # job set.
-        drifts = audit_wiki_drift(
-            str(WIKI_ROOT), _project_source_root, limit=1000
-        )
+        drifts = audit_wiki_drift(str(WIKI_ROOT), _project_source_root, limit=1000)
         out["drifted_pages"] = len(drifts)
         out["pending_total"] = (
             out["cluster_jobs"]

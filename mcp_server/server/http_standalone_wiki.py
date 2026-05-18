@@ -119,9 +119,7 @@ def serve_wiki_projects(handler) -> None:
 
         # Layer scope and file coverage onto each domain.
         scope_audits = {c.domain: c for c in audit_all_domains(str(wiki_root))}
-        file_audits = {
-            r.domain: r for r in audit_all_file_coverage(str(wiki_root))
-        }
+        file_audits = {r.domain: r for r in audit_all_file_coverage(str(wiki_root))}
 
         projects: list[dict] = []
         for domain, kinds in sorted(by_domain.items()):
@@ -134,17 +132,13 @@ def serve_wiki_projects(handler) -> None:
                 "page_counts_by_kind": counts,
                 "scope_covered": cov.covered_count if cov else 0,
                 "scope_total": len(cov.scopes) if cov else 0,
-                "scope_coverage_ratio": (
-                    round(cov.coverage_ratio, 3) if cov else None
-                ),
+                "scope_coverage_ratio": (round(cov.coverage_ratio, 3) if cov else None),
                 "missing_scopes": (
                     [s.scope.name for s in cov.missing_scopes()] if cov else []
                 ),
                 "file_covered": fc.covered_file_count if fc else None,
                 "file_total": fc.source_file_count if fc else None,
-                "file_coverage_ratio": (
-                    round(fc.coverage_ratio, 3) if fc else None
-                ),
+                "file_coverage_ratio": (round(fc.coverage_ratio, 3) if fc else None),
             }
             projects.append(project)
 

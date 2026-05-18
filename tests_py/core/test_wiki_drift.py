@@ -72,27 +72,19 @@ class TestAuditPageDrift:
     def test_no_drift_when_source_exists_and_recent(self, tmp_path):
         wiki = tmp_path / "wiki"
         src = tmp_path / "src"
-        _write(
-            str(wiki / "adr" / "p" / "0001-foo.md"), ADR_BODY_WITH_SOURCE
-        )
+        _write(str(wiki / "adr" / "p" / "0001-foo.md"), ADR_BODY_WITH_SOURCE)
         _write(str(src / "mcp_server" / "core" / "foo.py"), "x")
         # All sections present, source exists, mtime is "now".
-        d = audit_page_drift(
-            str(wiki), "adr/p/0001-foo.md", str(src), max_age_days=365
-        )
+        d = audit_page_drift(str(wiki), "adr/p/0001-foo.md", str(src), max_age_days=365)
         assert d is None
 
     def test_missing_source_file_flagged(self, tmp_path):
         wiki = tmp_path / "wiki"
         src = tmp_path / "src"
         src.mkdir()
-        _write(
-            str(wiki / "adr" / "p" / "0001-foo.md"), ADR_BODY_WITH_SOURCE
-        )
+        _write(str(wiki / "adr" / "p" / "0001-foo.md"), ADR_BODY_WITH_SOURCE)
         # Source root exists but foo.py is missing.
-        d = audit_page_drift(
-            str(wiki), "adr/p/0001-foo.md", str(src), max_age_days=365
-        )
+        d = audit_page_drift(str(wiki), "adr/p/0001-foo.md", str(src), max_age_days=365)
         assert d is not None
         assert REASON_MISSING_SOURCE in d.reasons
         assert "mcp_server/core/foo.py" in d.missing_source_files
@@ -106,9 +98,7 @@ class TestAuditPageDrift:
         # Backdate page by 120 days.
         old = time.time() - 120 * 86400
         os.utime(str(page), (old, old))
-        d = audit_page_drift(
-            str(wiki), "adr/p/0001-foo.md", str(src), max_age_days=60
-        )
+        d = audit_page_drift(str(wiki), "adr/p/0001-foo.md", str(src), max_age_days=60)
         assert d is not None
         assert REASON_STALE in d.reasons
 
@@ -120,9 +110,7 @@ class TestAuditPageDrift:
             str(wiki / "adr" / "p" / "0001-foo.md"),
             SHORT_ADR_BODY,
         )
-        d = audit_page_drift(
-            str(wiki), "adr/p/0001-foo.md", str(src), max_age_days=365
-        )
+        d = audit_page_drift(str(wiki), "adr/p/0001-foo.md", str(src), max_age_days=365)
         assert d is not None
         assert REASON_OFF_TEMPLATE in d.reasons
 
@@ -153,21 +141,15 @@ class TestAuditWikiDrift:
         src_a.mkdir()
         src_b.mkdir()
         # Page A: missing source → drifted.
-        _write(
-            str(wiki / "adr" / "a" / "0001-foo.md"), ADR_BODY_WITH_SOURCE
-        )
+        _write(str(wiki / "adr" / "a" / "0001-foo.md"), ADR_BODY_WITH_SOURCE)
         # Page B: source exists → clean.
-        _write(
-            str(wiki / "adr" / "b" / "0001-foo.md"), ADR_BODY_WITH_SOURCE
-        )
+        _write(str(wiki / "adr" / "b" / "0001-foo.md"), ADR_BODY_WITH_SOURCE)
         _write(str(src_b / "mcp_server" / "core" / "foo.py"), "x")
 
         def resolver(domain):
             return {"a": str(src_a), "b": str(src_b)}.get(domain)
 
-        drifts = audit_wiki_drift(
-            str(wiki), resolver, max_age_days=365
-        )
+        drifts = audit_wiki_drift(str(wiki), resolver, max_age_days=365)
         # Only page A drifts.
         paths = {d.wiki_path for d in drifts}
         assert "adr/a/0001-foo.md" in paths
@@ -186,7 +168,5 @@ class TestAuditWikiDrift:
         def resolver(_):
             return str(src)
 
-        drifts = audit_wiki_drift(
-            str(wiki), resolver, max_age_days=365, limit=3
-        )
+        drifts = audit_wiki_drift(str(wiki), resolver, max_age_days=365, limit=3)
         assert len(drifts) == 3

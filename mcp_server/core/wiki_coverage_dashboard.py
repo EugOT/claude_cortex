@@ -43,9 +43,7 @@ class SlotStatus:
     pages_count: int
 
 
-def _scope_slot_statuses(
-    wiki_root: str, domain: str
-) -> list[SlotStatus]:
+def _scope_slot_statuses(wiki_root: str, domain: str) -> list[SlotStatus]:
     """Convert a domain's ``DomainCoverage`` into typed slot statuses."""
     cov = audit_domain(wiki_root, domain)
     out: list[SlotStatus] = []
@@ -109,9 +107,7 @@ def _kind_page_counts(wiki_root: Path, domain: str) -> dict[str, int]:
         target = kind_dir / domain
         if not target.is_dir():
             continue
-        counts[kind_dir.name] = sum(
-            1 for p in target.rglob("*.md") if p.is_file()
-        )
+        counts[kind_dir.name] = sum(1 for p in target.rglob("*.md") if p.is_file())
     return counts
 
 
@@ -177,7 +173,9 @@ def render_dashboard(wiki_root: str, domain: str) -> str:
             f"* **Source files referenced somewhere:** {f_cov}/{f_total} ({f_pct}%)"
         )
     else:
-        lines.append("* **Source files referenced somewhere:** _(no source root resolved)_")
+        lines.append(
+            "* **Source files referenced somewhere:** _(no source root resolved)_"
+        )
     lines.append(f"* **Total wiki pages for this project:** {total_pages}")
     lines.append(f"* **Open curation gaps awaiting LLM authoring:** {total_gaps}")
     lines.append("")
@@ -190,7 +188,11 @@ def render_dashboard(wiki_root: str, domain: str) -> str:
     for s in slot_statuses:
         if s.covered:
             badge = "✅ filled"
-            anchor = f"[`{s.anchor_path}`](../{s.anchor_path})" if s.anchor_path else f"({s.pages_count} pages)"
+            anchor = (
+                f"[`{s.anchor_path}`](../{s.anchor_path})"
+                if s.anchor_path
+                else f"({s.pages_count} pages)"
+            )
         else:
             badge = "✗ **missing — queued**"
             anchor = f"_(will be authored at `{s.suggested_path}`)_"
@@ -275,18 +277,25 @@ def write_dashboards(
         except OSError:
             continue
     # Also write an index pointing at each dashboard.
-    index = ["---", "title: Coverage dashboards", "kind: reference",
-             "scope: coverage-index", "provenance: auto-generated", "---",
-             "", "# Coverage dashboards",
-             "",
-             "_One page per project, regenerated on every consolidate cycle._",
-             "", "| Project | Dashboard |", "|---|---|"]
+    index = [
+        "---",
+        "title: Coverage dashboards",
+        "kind: reference",
+        "scope: coverage-index",
+        "provenance: auto-generated",
+        "---",
+        "",
+        "# Coverage dashboards",
+        "",
+        "_One page per project, regenerated on every consolidate cycle._",
+        "",
+        "| Project | Dashboard |",
+        "|---|---|",
+    ]
     for d in sorted(out.keys()):
         index.append(f"| {d} | [`_dashboards/{d}.md`](_dashboards/{d}.md) |")
     try:
-        (target_dir / "_index.md").write_text(
-            "\n".join(index) + "\n", encoding="utf-8"
-        )
+        (target_dir / "_index.md").write_text("\n".join(index) + "\n", encoding="utf-8")
     except OSError:
         pass
     return out

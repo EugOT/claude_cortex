@@ -79,7 +79,5 @@ def write_process_pages(processes: list[dict[str, Any]]) -> list[str]:
         except Exception as exc:
             logger.debug("process page write failed: %s", exc)
     if skipped_empty:
-        logger.info(
-            "skipped %d empty process pages (symbol_count=0)", skipped_empty
-        )
+        logger.info("skipped %d empty process pages (symbol_count=0)", skipped_empty)
     return written

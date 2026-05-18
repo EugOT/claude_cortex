@@ -158,8 +158,8 @@ FILE_DOC_SECTIONS: Final[tuple[CurationSection, ...]] = (
             "involving this file — caller → this file → callees → "
             "return. Render with ```mermaid sequenceDiagram fences. "
             "For files that participate in no sequence (pure data "
-            "types, constants), explicitly write \"Not applicable — "
-            "this file participates in no sequence flow\" and explain "
+            'types, constants), explicitly write "Not applicable — '
+            'this file participates in no sequence flow" and explain '
             "why."
         ),
     ),
@@ -173,8 +173,8 @@ FILE_DOC_SECTIONS: Final[tuple[CurationSection, ...]] = (
             "file's public entry points. Columns: name | type | "
             "required | default | description. For files with no "
             "external parameter surface (internal helpers, pure "
-            "data), write \"Not applicable — this file exposes no "
-            "external parameters.\""
+            'data), write "Not applicable — this file exposes no '
+            'external parameters."'
         ),
     ),
     CurationSection(
@@ -195,8 +195,8 @@ FILE_DOC_SECTIONS: Final[tuple[CurationSection, ...]] = (
             "library functions, the call site as it would appear "
             "in client code. Show headers explicitly — never omit "
             "them. For files that don't sit on a request boundary, "
-            "write \"Not applicable — this file is not invoked "
-            "directly by callers; see [[Callers]] for the call chain.\""
+            'write "Not applicable — this file is not invoked '
+            'directly by callers; see [[Callers]] for the call chain."'
         ),
     ),
     CurationSection(
@@ -216,8 +216,8 @@ FILE_DOC_SECTIONS: Final[tuple[CurationSection, ...]] = (
             "field annotated with one line explaining what it "
             "means. Include both success and the most common "
             "error shape if applicable. For files that produce "
-            "no response surface, write \"Not applicable — this "
-            "file does not produce a response artifact.\""
+            'no response surface, write "Not applicable — this '
+            'file does not produce a response artifact."'
         ),
     ),
 )
@@ -315,9 +315,7 @@ def gap_report(body: str) -> dict:
         "missing": [s.name for s in missing],
         "missing_titles": [s.heading for s in missing],
         "missing_descriptions": [s.description for s in missing],
-        "completion_pct": round((total - len(missing)) / total, 2)
-        if total
-        else 1.0,
+        "completion_pct": round((total - len(missing)) / total, 2) if total else 1.0,
         "total_sections": total,
         "covered_sections": total - len(missing),
     }

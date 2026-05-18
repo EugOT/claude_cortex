@@ -134,6 +134,7 @@ def is_transient_seed_root(path: str) -> bool:
     p = str(path)
     return any(marker in p for marker in TEST_FIXTURE_PATH_MARKERS)
 
+
 EXT_MAP = {
     ".py": "Python",
     ".js": "JavaScript",

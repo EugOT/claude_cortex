@@ -86,12 +86,12 @@ class CycleSummary:
     results: list[DrainResult]
 
 
-_CURATION_BANNER_RE = re.compile(
-    r"_\(missing — needs:\s*([^)]+?)\s*\)_", re.DOTALL
-)
+_CURATION_BANNER_RE = re.compile(r"_\(missing — needs:\s*([^)]+?)\s*\)_", re.DOTALL)
 
 
-def _find_gap_marker(body: str, gap_name: str, gap_description: str) -> tuple[int, int] | None:
+def _find_gap_marker(
+    body: str, gap_name: str, gap_description: str
+) -> tuple[int, int] | None:
     """Locate the ``_(missing — needs: <gap_description>)_`` marker in body.
 
     Returns the ``(start, end)`` char range when found, or ``None``
@@ -107,9 +107,7 @@ def _find_gap_marker(body: str, gap_name: str, gap_description: str) -> tuple[in
     # *starts with* the canonical prefix of this gap. Handles minor
     # whitespace drift.
     pat = re.compile(
-        r"_\(missing — needs:\s*"
-        + re.escape(gap_description[:60])
-        + r"[^)]*\)_"
+        r"_\(missing — needs:\s*" + re.escape(gap_description[:60]) + r"[^)]*\)_"
     )
     m = pat.search(body)
     if m:
@@ -153,7 +151,9 @@ def _claude_invoke(prompt: str, *, cwd: str | None = None) -> str | None:
     return out or None
 
 
-def _project_source_for_page(page_meta: dict[str, Any]) -> tuple[str | None, str | None]:
+def _project_source_for_page(
+    page_meta: dict[str, Any],
+) -> tuple[str | None, str | None]:
     """Resolve the source file path for a file-doc page and read it.
 
     Returns ``(absolute_path, source_text)`` or ``(None, None)`` when
@@ -447,8 +447,7 @@ _GAP_DESCRIPTIONS: dict[str, str] = {
         "failure from a stack trace or log line."
     ),
     "tests": (
-        "Which test files exercise this file. Path + brief on what "
-        "each test covers."
+        "Which test files exercise this file. Path + brief on what each test covers."
     ),
     "see-also": (
         "cross-links to the project's architecture / services / api "
@@ -459,14 +458,14 @@ _GAP_DESCRIPTIONS: dict[str, str] = {
         "involving this file — caller → this file → callees → "
         "return. Render with ```mermaid sequenceDiagram fences. "
         "For files that participate in no sequence flow (pure "
-        "data types, constants), explicitly write \"Not applicable\" "
+        'data types, constants), explicitly write "Not applicable" '
         "and explain why."
     ),
     "parameters": (
         "Exhaustive table of every parameter exposed by this "
         "file's public entry points. Columns: name | type | "
         "required | default | description. For files with no "
-        "external parameter surface, write \"Not applicable.\""
+        'external parameter surface, write "Not applicable."'
     ),
     "request-example": (
         "A concrete request example — for HTTP handlers, the full "
@@ -475,7 +474,7 @@ _GAP_DESCRIPTIONS: dict[str, str] = {
         "JSON-RPC envelope with `method` and `params`; for library "
         "functions, the call site as it appears in client code. "
         "Show headers explicitly. For files not on a request "
-        "boundary, write \"Not applicable.\""
+        'boundary, write "Not applicable."'
     ),
     "response-example": (
         "A concrete response example showing every field the "
@@ -483,7 +482,7 @@ _GAP_DESCRIPTIONS: dict[str, str] = {
         "structure for library functions. Annotate non-obvious "
         "fields with one-line explanations. Include both success "
         "and the most common error shape if applicable. For files "
-        "with no response surface, write \"Not applicable.\""
+        'with no response surface, write "Not applicable."'
     ),
 }
 
@@ -659,8 +658,7 @@ def _build_page_prompt(
         f"```\n\n"
         f"## Sections to author (in order — match these slugs)\n\n"
         + "\n\n".join(
-            f"### <<<{name}>>>\n{_GAP_DESCRIPTIONS.get(name) or name}"
-            for name in gaps
+            f"### <<<{name}>>>\n{_GAP_DESCRIPTIONS.get(name) or name}" for name in gaps
         )
         + f"\n\n## Source context (truncated — use Read for full)\n\n{src_block}"
     )
@@ -907,22 +905,18 @@ def _scope_anchor_prompt(
         ],
         cap=3000,
     )
-    claude_md = _read_first([src / "CLAUDE.md", src / ".claude" / "CLAUDE.md"], cap=4000)
-
-    extra = (
-        f"\n\n## Project README (truncated)\n\n```\n{readme}\n```"
-        if readme
-        else ""
+    claude_md = _read_first(
+        [src / "CLAUDE.md", src / ".claude" / "CLAUDE.md"], cap=4000
     )
+
+    extra = f"\n\n## Project README (truncated)\n\n```\n{readme}\n```" if readme else ""
     extra += (
         f"\n\n## Project manifest (truncated)\n\n```\n{manifest}\n```"
         if manifest
         else ""
     )
     extra += (
-        f"\n\n## CLAUDE.md (truncated)\n\n```\n{claude_md}\n```"
-        if claude_md
-        else ""
+        f"\n\n## CLAUDE.md (truncated)\n\n```\n{claude_md}\n```" if claude_md else ""
     )
     if len(extra) > _CONTEXT_BYTES_CAP:
         extra = extra[:_CONTEXT_BYTES_CAP] + "\n…[truncated]…"
@@ -960,8 +954,8 @@ def _scope_anchor_prompt(
         f"* Structured: lead paragraph saying what the page is for, "
         f"then 4-7 substantive sections.\n"
         f"* Honest: if the project genuinely has nothing for this scope "
-        f"(e.g. no MCP integration), write a one-paragraph \"this "
-        f"project does not currently expose this surface\" page; "
+        f'(e.g. no MCP integration), write a one-paragraph "this '
+        f'project does not currently expose this surface" page; '
         f"don't fabricate.\n"
         f"* Cross-link to siblings using `[[reference/{domain}/<other>]]` "
         f"notation when relevant.\n\n"
@@ -1019,7 +1013,9 @@ def _write_anchor_page(
         "---\n\n"
     )
     try:
-        page_path.write_text(frontmatter + body_markdown.strip() + "\n", encoding="utf-8")
+        page_path.write_text(
+            frontmatter + body_markdown.strip() + "\n", encoding="utf-8"
+        )
         return page_path
     except OSError:
         return None
@@ -1126,9 +1122,7 @@ def run_headless_authoring_cycle(
         wiki_root = Path(WIKI_ROOT)
 
     # Phase 1: anchors.
-    anchor_results = drain_missing_anchors(
-        wiki_root, max_drains=max_anchor_drains
-    )
+    anchor_results = drain_missing_anchors(wiki_root, max_drains=max_anchor_drains)
 
     # Phase 2: file-doc curation gaps. One claude -p call per page
     # fills ALL the page's missing sections at once — about 7x faster

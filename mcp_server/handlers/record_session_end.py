@@ -384,7 +384,10 @@ async def handler(args: dict) -> dict:
     # User directive 2026-05-18: every task / bug / feature gets the
     # same detailed approach. Non-fatal on any failure — the session
     # log + memory store + profile update have already happened above.
-    task_record_status: dict[str, Any] = {"status": "skipped", "reason": "not_attempted"}
+    task_record_status: dict[str, Any] = {
+        "status": "skipped",
+        "reason": "not_attempted",
+    }
     try:
         from mcp_server.handlers.auto_task_record_writer import (
             maybe_write_task_record,
@@ -401,7 +404,10 @@ async def handler(args: dict) -> dict:
             store=MemoryStore(),
         )
     except Exception as exc:
-        task_record_status = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"}
+        task_record_status = {
+            "status": "error",
+            "reason": f"{type(exc).__name__}: {exc}",
+        }
 
     return {
         "domain": domain_id,

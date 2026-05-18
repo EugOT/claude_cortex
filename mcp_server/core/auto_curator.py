@@ -109,12 +109,57 @@ def is_path_recently_authored(
 
 _TOPIC_STOPWORDS = frozenset(
     {
-        "the", "a", "an", "and", "or", "but", "is", "are", "was", "were",
-        "be", "been", "being", "have", "has", "had", "do", "does", "did",
-        "will", "would", "could", "should", "may", "might", "can", "this",
-        "that", "these", "those", "to", "of", "for", "in", "on", "at",
-        "by", "with", "from", "as", "into", "user", "tool", "command",
-        "file", "output", "error", "input", "result", "decision", "lesson",
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "but",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "can",
+        "this",
+        "that",
+        "these",
+        "those",
+        "to",
+        "of",
+        "for",
+        "in",
+        "on",
+        "at",
+        "by",
+        "with",
+        "from",
+        "as",
+        "into",
+        "user",
+        "tool",
+        "command",
+        "file",
+        "output",
+        "error",
+        "input",
+        "result",
+        "decision",
+        "lesson",
     }
 )
 
@@ -124,9 +169,7 @@ def _slugify(text: str, max_len: int = 60) -> str:
     return s[:max_len].rstrip("-")
 
 
-_FILE_EXT_RE = re.compile(
-    r"\b([\w./_-]+)\.(py|ts|js|md|sql|yml|yaml|toml|rs|go)\b"
-)
+_FILE_EXT_RE = re.compile(r"\b([\w./_-]+)\.(py|ts|js|md|sql|yml|yaml|toml|rs|go)\b")
 _CAMEL_RE = re.compile(r"\b[A-Z][a-zA-Z]+(?:[A-Z][a-z]+)+\b")
 _SNAKE_RE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
 
@@ -223,7 +266,9 @@ def build_clusters(
     for entity, mems in buckets.items():
         if len(mems) < min_memories:
             continue
-        avg_heat = sum(m.get("effective_heat", m.get("heat", 0.0)) for m in mems) / len(mems)
+        avg_heat = sum(m.get("effective_heat", m.get("heat", 0.0)) for m in mems) / len(
+            mems
+        )
         if avg_heat < min_avg_heat:
             continue
         # Aggregate all entities across cluster memories for richer context
@@ -261,7 +306,8 @@ def build_clusters(
     # for tests).
     if skip_recently_authored and wiki_root:
         clusters = [
-            c for c in clusters
+            c
+            for c in clusters
             if not is_path_recently_authored(c.suggested_path, wiki_root)
         ]
 
@@ -311,7 +357,9 @@ def _infer_kind(memories: list[dict]) -> str:
 
 
 def _kind_dir(kind: str) -> str:
-    return {"adr": "adr", "lesson": "lessons", "reference": "reference"}.get(kind, "reference")
+    return {"adr": "adr", "lesson": "lessons", "reference": "reference"}.get(
+        kind, "reference"
+    )
 
 
 # ── Authoring-prompt construction ──────────────────────────────────────
@@ -548,9 +596,7 @@ def build_authoring_prompt(
         n_memories=len(cluster.memory_ids),
         entities=", ".join(cluster.entities[:8]) or "(none extracted)",
         related_pages_block=_related_block(related_pages),
-        memories_block=_memories_block(
-            cluster.memory_contents, cluster.memory_tags
-        ),
+        memories_block=_memories_block(cluster.memory_contents, cluster.memory_tags),
         kind_specific_sections=_kind_specific_sections(cluster.suggested_kind),
     )
 

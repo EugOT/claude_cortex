@@ -57,9 +57,7 @@ class TestBuildTaskRecord:
     def test_title_derived_from_first_commit_subject(self):
         r = build_task_record(
             _inputs(
-                commits=[
-                    {"hash": "h1", "message": "feat(wiki): autonomous purge"}
-                ]
+                commits=[{"hash": "h1", "message": "feat(wiki): autonomous purge"}]
             ),
             adr_number=1,
         )

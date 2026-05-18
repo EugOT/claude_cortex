@@ -128,6 +128,7 @@ class TestPurgeCap:
 
     def _make_stub_pages(self, root, n):
         import os
+
         body = "_(to be filled)_\n_To be written._\n"
         for i in range(n):
             path = os.path.join(root, "lessons", "p", f"stub-{i:03d}.md")
@@ -184,11 +185,7 @@ class TestPurgeCap:
 class TestPlaceholderCount:
     def test_counts_all_marker_variants(self):
         body = (
-            "_(to be filled)_\n"
-            "_To be written._\n"
-            "_(none identified)_\n"
-            "TBD\n"
-            "real prose\n"
+            "_(to be filled)_\n_To be written._\n_(none identified)_\nTBD\nreal prose\n"
         )
         assert placeholder_count(body) == 4
 

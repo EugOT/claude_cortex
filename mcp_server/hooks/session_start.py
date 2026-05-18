@@ -245,6 +245,7 @@ def _count_pending_curations(conn) -> int:
         # clusters by filesystem mtime.
         try:
             from mcp_server.infrastructure.config import WIKI_ROOT
+
             wiki_root = str(WIKI_ROOT)
         except Exception:
             wiki_root = None
@@ -663,9 +664,9 @@ def _maybe_background_consolidate() -> None:
         try:
             STAMP_PATH.parent.mkdir(parents=True, exist_ok=True)
             STAMP_PATH.write_text(
-                __import__("datetime").datetime.now(
-                    __import__("datetime").timezone.utc
-                ).isoformat(timespec="seconds")
+                __import__("datetime")
+                .datetime.now(__import__("datetime").timezone.utc)
+                .isoformat(timespec="seconds")
                 + " (in-flight)",
                 encoding="utf-8",
             )
@@ -850,7 +851,10 @@ def main() -> None:
     conn.close()
 
     context = _build_context(
-        anchors, hot, checkpoint, team_decisions,
+        anchors,
+        hot,
+        checkpoint,
+        team_decisions,
         pending_curations=pending_curations,
     )
 

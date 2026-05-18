@@ -204,7 +204,7 @@ def _route_unified_get(
         # to the CDN URL when this 404s, so removing files here only
         # degrades to the older behaviour.
         serve_static(
-            handler, vendor_dir, path_no_qs[len("/vendor/"):], "application/javascript"
+            handler, vendor_dir, path_no_qs[len("/vendor/") :], "application/javascript"
         )
     else:
         # Cache-bust every local JS/CSS load in the HTML so hard-reloads
@@ -287,9 +287,7 @@ def _build_unified_handler(ui_root: Path, store) -> type:
             if not self._guard_host():
                 return
             touch()
-            _route_unified_get(
-                self, store, js_dir, css_dir, html_path, vendor_dir
-            )
+            _route_unified_get(self, store, js_dir, css_dir, html_path, vendor_dir)
 
         def log_message(self, format, *args):
             pass

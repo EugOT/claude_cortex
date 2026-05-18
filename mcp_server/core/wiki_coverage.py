@@ -498,9 +498,7 @@ def audit_domain(
             scope.anchor_filenames,
             max_age_days=max_age_days,
         )
-        page_count = _count_substantive_pages(
-            wiki_root, scope.directories, domain
-        )
+        page_count = _count_substantive_pages(wiki_root, scope.directories, domain)
         threshold = _COVERAGE_THRESHOLDS.get(scope.name, 1)
         covered = anchor is not None or (
             not scope.anchor_filenames and page_count >= threshold
@@ -840,7 +838,5 @@ def audit_all_file_coverage(wiki_root: str) -> list[FileCoverage]:
         roll = audit_files(wiki_root, domain)
         if roll.source_root is not None:
             out.append(roll)
-    out.sort(
-        key=lambda r: r.source_file_count - r.covered_file_count, reverse=True
-    )
+    out.sort(key=lambda r: r.source_file_count - r.covered_file_count, reverse=True)
     return out

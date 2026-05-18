@@ -119,11 +119,15 @@ def _frontmatter(
     today: str,
     extra_tags: tuple[str, ...] = (),
 ) -> str:
-    tags = list(_DEFAULT_TAGS) + [
-        f"lang:{language}",
-        f"file:{rel_source_path}",
-        f"domain:{domain}",
-    ] + list(extra_tags)
+    tags = (
+        list(_DEFAULT_TAGS)
+        + [
+            f"lang:{language}",
+            f"file:{rel_source_path}",
+            f"domain:{domain}",
+        ]
+        + list(extra_tags)
+    )
     tag_block = "\n".join(f"  - {t}" for t in tags)
     gap_block = "\n".join(f"  - {g}" for g in gap_names)
     return (
@@ -185,20 +189,17 @@ def build_file_doc(
     # heading as "needs curation" if there are imports we can't annotate.
     if imports:
         deps = "\n".join(f"* `{i}`" for i in imports)
-        auto_populated[
-            "dependencies"
-        ] = (
+        auto_populated["dependencies"] = (
             f"_The following imports are declared at the top of "
             f"`{rel_source_path}`. The curation step is to explain "
-            "what each one is for and why this file depends on it._\n\n"
-            + deps
+            "what each one is for and why this file depends on it._\n\n" + deps
         )
 
     if symbols:
-        api_lines = "\n".join(f"* `{s}` — _(missing — needs: one-line semantic)_" for s in symbols)
-        auto_populated[
-            "public-api"
-        ] = (
+        api_lines = "\n".join(
+            f"* `{s}` — _(missing — needs: one-line semantic)_" for s in symbols
+        )
+        auto_populated["public-api"] = (
             "_The exported / top-level symbols below were extracted "
             "automatically. The curation step is to write what each "
             "one does._\n\n" + api_lines
@@ -227,10 +228,12 @@ def build_file_doc(
             gaps.append(section.name)
 
     body_parts.append("\n## See also\n")
-    body_parts.append(_missing_marker(
-        "cross-links to the project's architecture / services / api "
-        "anchor pages and any sibling files in the same module"
-    ))
+    body_parts.append(
+        _missing_marker(
+            "cross-links to the project's architecture / services / api "
+            "anchor pages and any sibling files in the same module"
+        )
+    )
     if "see-also" not in {s.name for s in FILE_DOC_SECTIONS}:
         gaps.append("see-also")
 

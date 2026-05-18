@@ -308,9 +308,7 @@ def audit_wiki_drift(
             if domain_filter and domain != domain_filter:
                 continue
             src_root = source_root_resolver(domain) if domain else None
-            d = audit_page_drift(
-                wiki_root, rel, src_root, max_age_days=max_age_days
-            )
+            d = audit_page_drift(wiki_root, rel, src_root, max_age_days=max_age_days)
             if d is not None:
                 drifts.append(d)
                 if limit is not None and len(drifts) >= limit:
