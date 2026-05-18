@@ -588,6 +588,101 @@ def _auto_wire_pipeline() -> None:
         _log(f"pipeline auto-wire skipped: {exc}")
 
 
+_CONSOLIDATE_TTL_HOURS: float = float(
+    os.environ.get("CORTEX_CONSOLIDATE_TTL_HOURS", "6")
+)
+
+
+def _maybe_background_consolidate() -> None:
+    """Spawn a detached ``consolidate`` cycle when the stamp is stale.
+
+    The consolidate handler must NEVER be invoked manually by the user
+    (directive 2026-05-18). SessionStart owns the trigger: if the last
+    successful run was more than ``CORTEX_CONSOLIDATE_TTL_HOURS`` ago
+    (default 6h), spawn a detached subprocess that:
+
+      * Runs decay, compression, CLS, memify, cascade, homeostatic,
+        emergence cycles.
+      * Runs autonomous wiki maintenance (stub purge + classifier-reject
+        purge + coverage / drift audit).
+      * Updates the stamp at ``~/.claude/methodology/.last_consolidate``.
+      * Logs to ``~/.claude/methodology/consolidate.log``.
+
+    Spawn is fully detached (own process group, stdio redirected to the
+    log) so SessionStart returns immediately. The user opens a session,
+    Cortex catches up silently in the background. The next session sees
+    the freshly-consolidated state.
+
+    Failure is silent: a consolidate that crashes leaves the stamp
+    untouched so the next session retries. A persistent failure surfaces
+    in the log file (operators can `tail -f` it).
+    """
+    try:
+        from mcp_server.hooks.consolidate_background import (
+            STAMP_PATH,
+            read_stamp,
+        )
+
+        last = read_stamp()
+        if last is not None:
+            from datetime import datetime as _dt, timezone as _tz
+
+            age_hours = (_dt.now(_tz.utc) - last).total_seconds() / 3600.0
+            if age_hours < _CONSOLIDATE_TTL_HOURS:
+                return  # Fresh enough; skip.
+
+        # Locate the launcher (same as background reanalyze).
+        plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or str(
+            Path(__file__).resolve().parents[2]
+        )
+        launcher = Path(plugin_root) / "scripts" / "launcher.py"
+        if not launcher.exists():
+            # Fall back to direct python invocation with PYTHONPATH —
+            # works when the dev source is the package root.
+            launcher = None
+
+        py = (
+            __import__("shutil").which("python3")
+            or __import__("shutil").which("python")
+            or sys.executable
+        )
+        if launcher is not None:
+            cmd = [
+                py,
+                str(launcher),
+                "mcp_server.hooks.consolidate_background",
+            ]
+        else:
+            cmd = [py, "-m", "mcp_server.hooks.consolidate_background"]
+
+        log_path = Path.home() / ".claude" / "methodology" / "consolidate.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        # Touch the stamp so a *second* SessionStart racing this one
+        # doesn't spawn a duplicate worker. The background worker
+        # overwrites the stamp on its own completion.
+        try:
+            STAMP_PATH.parent.mkdir(parents=True, exist_ok=True)
+            STAMP_PATH.write_text(
+                __import__("datetime").datetime.now(
+                    __import__("datetime").timezone.utc
+                ).isoformat(timespec="seconds")
+                + " (in-flight)",
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+        subprocess.Popen(  # noqa: S603 — cmd built from trusted sources
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=open(log_path, "a"),
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        _log(f"background consolidate spawned → {log_path}")
+    except Exception as exc:
+        _log(f"background consolidate skipped: {exc}")
+
+
 def _maybe_background_reanalyze() -> None:
     """Spawn background ``ingest_codebase`` when the graph is stale.
 
@@ -694,6 +789,13 @@ def main() -> None:
     # need the DB — the spawned process will connect independently. If
     # the pipeline isn't installed OR the graph is fresh, this is a no-op.
     _maybe_background_reanalyze()
+
+    # Background consolidate: same pattern, different worker. Runs the
+    # full maintenance cycle (decay / compression / CLS / wiki purge /
+    # coverage audit) detached when the stamp is older than the TTL
+    # (default 6h). The user never invokes consolidate manually — every
+    # session opens against a freshly-consolidated store.
+    _maybe_background_consolidate()
 
     # Try connecting to PostgreSQL directly first
     conn = _connect_pg()

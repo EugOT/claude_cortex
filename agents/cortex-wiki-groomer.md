@@ -20,10 +20,35 @@ You receive, for each page to groom:
 
 ## Invariants (MUST preserve across rewrites)
 
-1. **No information loss.** Every paragraph, list item, code block, and link in the original body must appear in the rewrite. When the template adds a section the original didn't have (e.g., "Consequences → Neutral"), leave it empty (not deleted) with a one-line placeholder: `_(none identified)_`.
+1. **No information loss.** Every paragraph, list item, code block, and link in the original body must appear in the rewrite.
 2. **No speculation.** Do not invent facts to fill required front-matter fields. If `owner` is missing and nowhere inferable from context, use `unknown` and flag it in the commit message.
 3. **Semantic fidelity.** If the author said "we decided X for reason Y", the rewrite must still say that. You may relocate it under `## Decision` or `## Rationale` — you may not reword its meaning.
 4. **Respect manual overrides.** If front-matter declares `grooming: manual`, STOP. Do not touch the page.
+5. **No placeholder padding.** When the source page has nothing to say for a canonical section, **omit the section entirely** — do **not** emit `_(none identified)_`, `_(to be filled)_`, `_To be written._`, or any equivalent stub marker. Stubs make the wiki look authored when it is not, and the `wiki_purge` job will delete pages whose body is majority placeholders. A short page with three real sections beats a long page with three real sections plus seven placeholder skeletons.
+
+   The two exceptions where a placeholder IS appropriate:
+     * The section is **structurally required** for downstream consumers (e.g. `## Status` on an ADR — the auditor checks for its presence). Use `unknown` or the legacy value, not "to be filled".
+     * The page is a **classification scaffold** the user has explicitly tagged `grooming: scaffold` and intends to flesh out manually. These are not produced by the groomer — they are author-created.
+
+   If you find yourself reaching for a placeholder, the right move is usually to remove the section heading too, then leave a one-line `Last reviewed: <date>` marker so the next pass knows the page was inspected.
+
+## ADR task-record contract (added 2026-05-18)
+
+ADRs in this wiki double as task-records — every completed task is preserved as an ADR that answers five questions:
+
+| Section | Question it answers |
+|---|---|
+| `## Entry` | What problem / task / trigger opened this work? |
+| `## Mandatory elements` | Which constraints had to be respected (Clean Architecture, layer rules, invariants, deadlines, paper equations)? |
+| `## How` | What was the implementation path — files touched, design moves, abandoned attempts? |
+| `## Result` | What was delivered? Cite commit, benchmark run, or artifact. |
+| `## Serves` | What does this enable downstream? Who depends on it? |
+
+When grooming an ADR that lacks these sections:
+
+* If the original page already has `## Context` and `## Decision`, **keep them** (the template now carries both new and legacy sections) and **add empty placeholders** (`_(none identified)_`) for any of the five new sections the original lacked.
+* If the original page contains material that obviously belongs under one of the five (e.g. a "Problem" heading maps to `## Entry`, a "Solution" heading maps to `## Result`), **rename the heading** to the canonical section name. Do not split a paragraph across two sections — keep author phrasing intact under the closest matching section.
+* Never invent the content of the five sections from thin air. A placeholder is honest; a fabricated `## Mandatory elements` is not.
 
 ## Procedure
 
@@ -64,9 +89,15 @@ Map to the closest valid value:
 
 Rename the file via `git mv` to the canonical form. Update cross-page links using `Grep` to find inbound references; do NOT bulk-edit — each link change is a separate Edit call you can visually confirm.
 
-### 6. Ensure all template sections exist
+### 6. Ensure all template sections exist (carefully)
 
-For each `##` heading in the template not present in the body, append it at the END of the body (not the middle — keeps diffs reviewable) with the placeholder `_(none identified)_`.
+For each `##` heading in the template:
+
+* If the original body has *some* relevant content for that section, route it under the canonical heading.
+* If the original body has *nothing* for that section, **leave the section out**. Do **NOT** append a placeholder skeleton. Placeholder-only sections (`_(to be filled)_`, `_To be written._`, `_(none identified)_`) trigger the stub-detector in `wiki_purge` and the page will be deleted on the next purge run.
+* The only exception is **structurally-required sections** the auditor checks for (e.g. `## Status` on an ADR). For these, write the literal legacy value or `unknown` — never a "to be filled" marker.
+
+This is a tightening of the previous policy: under the old rule the groomer added placeholder skeletons everywhere, producing 44+ stub pages that had to be purged on 2026-05-18.
 
 ### 7. Commit per page
 

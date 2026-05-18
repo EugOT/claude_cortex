@@ -12,9 +12,21 @@
 (function () {
   'use strict';
 
-  var DECKGL_URL = 'https://unpkg.com/deck.gl@9.0.27/dist.min.js';
-  var ARROW_URL  = 'https://unpkg.com/apache-arrow@17.0.0/Arrow.es2015.min.js';
-  var FLATBUSH_URL = 'https://unpkg.com/flatbush@4.4.0/flatbush.min.js';
+  // Tilemap third-party deps. Served from the standalone (vendored under
+  // ``ui/unified/vendor/`` so the view never depends on a CDN being
+  // reachable — unpkg/jsdelivr outages, restricted networks, or air-gapped
+  // installs all worked previously by accident; now they work by design.
+  //
+  // Fallback: if a vendored file is unexpectedly missing (e.g. a partial
+  // sync), the loader falls back to the original CDN URL so the view
+  // still works on a developer machine. In production / sandboxed
+  // environments the local path resolves first.
+  var DECKGL_URL = '/vendor/deck.gl.min.js';
+  var ARROW_URL  = '/vendor/apache-arrow.min.js';
+  var FLATBUSH_URL = '/vendor/flatbush.min.js';
+  var DECKGL_FALLBACK = 'https://unpkg.com/deck.gl@9.0.27/dist.min.js';
+  var ARROW_FALLBACK  = 'https://unpkg.com/apache-arrow@17.0.0/Arrow.es2015.min.js';
+  var FLATBUSH_FALLBACK = 'https://unpkg.com/flatbush@4.4.0/flatbush.js';
 
   var KIND_COLOR = {
     domain:    [252, 211,  77, 230],
@@ -31,13 +43,24 @@
     symbol:    [100, 116, 139, 230],
   };
 
-  function loadScript(url) {
+  function loadScriptOne(url) {
     return new Promise(function (resolve, reject) {
       var s = document.createElement('script');
       s.src = url; s.crossOrigin = 'anonymous';
       s.onload = function () { resolve(); };
       s.onerror = function () { reject(new Error('failed to load ' + url)); };
       document.head.appendChild(s);
+    });
+  }
+
+  // Try the local (vendored) URL first; on failure, fall back to the
+  // upstream CDN. Either succeeds → the dep is on window. Both fail →
+  // reject with the CDN error so the caller's message stays
+  // informative for offline diagnostics.
+  function loadScript(localUrl, fallbackUrl) {
+    return loadScriptOne(localUrl).catch(function () {
+      if (!fallbackUrl) throw new Error('failed to load ' + localUrl);
+      return loadScriptOne(fallbackUrl);
     });
   }
 
@@ -124,7 +147,11 @@
     container.appendChild(status);
 
     try {
-      await Promise.all([loadScript(DECKGL_URL), loadScript(ARROW_URL), loadScript(FLATBUSH_URL)]);
+      await Promise.all([
+        loadScript(DECKGL_URL, DECKGL_FALLBACK),
+        loadScript(ARROW_URL, ARROW_FALLBACK),
+        loadScript(FLATBUSH_URL, FLATBUSH_FALLBACK),
+      ]);
     } catch (err) {
       status.textContent = 'Failed to load tilemap deps: ' + err.message;
       status.style.color = '#ff8888';

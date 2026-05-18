@@ -58,12 +58,21 @@ class TestInferKind:
 
 
 class TestAuditADR:
+    # Canonical ADR after the task-record contract (2026-05-18): the body
+    # carries Entry / Mandatory elements / How / Result / Serves as
+    # sections, and the frontmatter mirrors them as keys so the auditor
+    # can verify presence without parsing the body.
     CANONICAL_ADR = """---
 id: 0042
 title: Use lazy heat
 status: accepted
 date: 2026-04-17
 supersedes:
+entry: heat updates dominated CPU
+mandatory: must respect Clean Architecture
+how: switch hot writes to a deferred queue
+result: 3x throughput on benchmarks
+serves: keeps consolidation off the request path
 context: We need lazy heat
 decision: Switch to effective_heat()
 consequences: positive

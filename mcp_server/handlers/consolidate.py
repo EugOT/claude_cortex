@@ -21,6 +21,7 @@ from mcp_server.handlers.consolidation.plasticity import run_plasticity_cycle
 from mcp_server.handlers.consolidation.pruning import run_pruning_cycle
 from mcp_server.handlers.consolidation.sleep import run_deep_sleep
 from mcp_server.handlers.consolidation.transfer import run_two_stage_transfer
+from mcp_server.handlers.consolidation.wiki_maintenance import run_wiki_maintenance
 from mcp_server.infrastructure.embedding_engine import (
     EmbeddingEngine,
     get_embedding_engine,
@@ -102,6 +103,53 @@ schema = {
                 ),
                 "default": False,
             },
+            "wiki": {
+                "type": "boolean",
+                "description": (
+                    "Run autonomous wiki maintenance: purge stub pages, "
+                    "report classifier-reject count, and update the "
+                    "curation backlog. Default true — the wiki must stay "
+                    "up-to-date without a human in the loop. Set false "
+                    "only when debugging consolidate."
+                ),
+                "default": True,
+            },
+            "wiki_apply_stubs": {
+                "type": "boolean",
+                "description": (
+                    "Delete stub pages (body is majority placeholder "
+                    "markers) during the autonomous wiki cycle. Default "
+                    "true — stubs are unambiguous noise."
+                ),
+                "default": True,
+            },
+            "wiki_apply_classifier_rejects": {
+                "type": "boolean",
+                "description": (
+                    "Delete pages that fail the current classifier (audit "
+                    "tags, hard negatives) during the autonomous wiki "
+                    "cycle. Default true — the system decides; "
+                    "non-technical users cannot be expected to classify "
+                    "pages by hand. Per-cycle deletion is capped by "
+                    "`wiki_max_purges_per_axis` so a buggy classifier "
+                    "change cannot wipe the wiki in one shot."
+                ),
+                "default": True,
+            },
+            "wiki_max_purges_per_axis": {
+                "type": "integer",
+                "minimum": 0,
+                "description": (
+                    "Cap on how many pages each purge axis (stubs, "
+                    "classifier rejects) may delete in a single "
+                    "consolidate cycle. Acts as a safety rail: a buggy "
+                    "classifier change costs at most one cap's worth "
+                    "of pages before the next cycle exposes the "
+                    "regression. Default 500. Pass 0 to disable the "
+                    "cap (one-shot full sweep)."
+                ),
+                "default": 500,
+            },
         },
     },
 }
@@ -152,24 +200,32 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
     stats = _run_cycles(args, store, settings, embeddings, memories)
     stats = _run_always_cycles(args, store, stats, memories)
 
-    # 2026-05-17: surface pending curation count so the SessionStart
-    # preamble and any downstream caller can see how much authoring
-    # work the auto-curator has queued up. ``consolidate`` is the right
-    # place to compute this — it already has the full memory snapshot
-    # in memory and runs on the maintenance cadence anyway. Failure
-    # here is non-fatal: a missing curation count must never break
-    # consolidate itself.
-    try:
-        from mcp_server.core.auto_curator import count_pending_clusters
-        from mcp_server.infrastructure.config import WIKI_ROOT
-        pending = count_pending_clusters(
+    # 2026-05-18: autonomous wiki maintenance. The wiki has to stay up
+    # to date without a human in the loop, so every consolidation cycle
+    # purges stale + stub pages and reports the curation backlog
+    # (coverage gaps + cluster jobs). Existing pages get the same
+    # treatment as freshly authored ones — nothing the system produced
+    # gets a free pass once policy tightens. Failure here is non-fatal:
+    # a wiki edge case must never block memory consolidation.
+    if args.get("wiki", True):
+        cap_raw = args.get("wiki_max_purges_per_axis", 500)
+        cap = int(cap_raw) if cap_raw is not None and int(cap_raw) > 0 else None
+        wiki_stats = _timed(
+            run_wiki_maintenance,
             memories,
-            wiki_root=str(WIKI_ROOT),
+            apply_stubs=bool(args.get("wiki_apply_stubs", True)),
+            apply_classifier_rejects=bool(
+                args.get("wiki_apply_classifier_rejects", True)
+            ),
+            max_purges_per_axis=cap,
         )
-        stats["pending_curations"] = pending
-    except Exception as exc:
-        logger.debug("pending curation count failed (non-fatal): %s", exc)
-        stats["pending_curations"] = None
+        stats["wiki"] = wiki_stats
+        # Back-compat: keep ``pending_curations`` populated for callers
+        # that read the legacy key (SessionStart preamble pre-2026-05-18).
+        if isinstance(wiki_stats, dict) and "pending_total" in wiki_stats:
+            stats["pending_curations"] = wiki_stats["pending_total"]
+        else:
+            stats["pending_curations"] = None
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
     stats["duration_ms"] = elapsed_ms
@@ -182,6 +238,17 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
     stats["status"] = "ok" if not failed else "partial"
 
     _log_consolidation(store, stats, elapsed_ms)
+
+    # Update the autonomy stamp so SessionStart's TTL gate sees this run.
+    # User directive 2026-05-18: consolidate must never require manual
+    # invocation; the stamp closes the loop with the SessionStart hook.
+    try:
+        from mcp_server.hooks.consolidate_background import _write_stamp
+
+        _write_stamp()
+    except Exception as exc:
+        logger.debug("consolidate stamp write failed (non-fatal): %s", exc)
+
     return stats
 
 

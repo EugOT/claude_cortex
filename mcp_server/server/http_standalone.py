@@ -51,6 +51,7 @@ from mcp_server.server.http_standalone_wiki import (
     serve_wiki_export,
     serve_wiki_list,
     serve_wiki_page,
+    serve_wiki_projects,
     serve_wiki_save,
 )
 
@@ -117,7 +118,12 @@ _WIKI_DB_OPS = {
 
 
 def _route_unified_get(
-    handler, store, js_dir: Path, css_dir: Path, html_path: Path
+    handler,
+    store,
+    js_dir: Path,
+    css_dir: Path,
+    html_path: Path,
+    vendor_dir: Path | None = None,
 ) -> None:
     """Resolve a GET request for the unified server."""
     path = handler.path
@@ -157,6 +163,8 @@ def _route_unified_get(
         serve_wiki_list(handler)
     elif path_no_qs == "/api/wiki/page":
         serve_wiki_page(handler)
+    elif path_no_qs == "/api/wiki/projects":
+        serve_wiki_projects(handler)
     elif path_no_qs in _WIKI_DB_OPS:
         serve_wiki_db(handler, _WIKI_DB_OPS[path_no_qs])
     elif path_no_qs == "/api/wiki/export":
@@ -184,6 +192,20 @@ def _route_unified_get(
         serve_static(handler, js_dir, path_no_qs[4:], "application/javascript")
     elif path.startswith("/css/") and path_no_qs.endswith(".css"):
         serve_static(handler, css_dir, path_no_qs[5:], "text/css")
+    elif (
+        path.startswith("/vendor/")
+        and path_no_qs.endswith(".js")
+        and vendor_dir is not None
+    ):
+        # Vendored third-party JS (deck.gl, apache-arrow, flatbush, …).
+        # Served from ui/unified/vendor/ so the tilemap view doesn't
+        # break when the CDN is unreachable (offline dev, sandboxed
+        # environments, unpkg outages). The tilemap loader falls back
+        # to the CDN URL when this 404s, so removing files here only
+        # degrades to the older behaviour.
+        serve_static(
+            handler, vendor_dir, path_no_qs[len("/vendor/"):], "application/javascript"
+        )
     else:
         # Cache-bust every local JS/CSS load in the HTML so hard-reloads
         # actually fetch fresh code. Without this, Chrome / Safari will
@@ -221,6 +243,7 @@ def _build_unified_handler(ui_root: Path, store) -> type:
     html_path = ui_root / "unified-viz.html"
     js_dir = ui_root / "unified" / "js"
     css_dir = ui_root / "unified"
+    vendor_dir = ui_root / "unified" / "vendor"
 
     class Handler(BaseHTTPRequestHandler):
         # HTTP/1.1 — required for Server-Sent Events. BaseHTTPRequestHandler
@@ -264,7 +287,9 @@ def _build_unified_handler(ui_root: Path, store) -> type:
             if not self._guard_host():
                 return
             touch()
-            _route_unified_get(self, store, js_dir, css_dir, html_path)
+            _route_unified_get(
+                self, store, js_dir, css_dir, html_path, vendor_dir
+            )
 
         def log_message(self, format, *args):
             pass

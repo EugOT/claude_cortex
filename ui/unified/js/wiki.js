@@ -151,126 +151,131 @@
       });
     }
 
-    // Group by kind
-    var byKind = {};
+    // \u2500\u2500 Project-first grouping: Domain \u2192 Kind \u2192 Pages \u2500\u2500
+    // The user opens the wiki and sees every project as the top axis;
+    // inside each project, kinds (architecture/services/api/adr/lesson\u2026)
+    // expand to the pages. This replaces the older kind-first layout
+    // which buried project structure under taxonomy.
+    var byDomain = {};
     filtered.forEach(function(p) {
-      var k = p.kind || 'misc';
-      if (!byKind[k]) byKind[k] = [];
-      byKind[k].push(p);
+      var d = extractDomain(p) || '_general';
+      if (!byDomain[d]) byDomain[d] = [];
+      byDomain[d].push(p);
     });
 
-    var kindKeys = KIND_ORDER.filter(function(k) { return byKind[k]; });
-    Object.keys(byKind).forEach(function(k) {
-      if (kindKeys.indexOf(k) < 0) kindKeys.push(k);
+    var domainKeys = Object.keys(byDomain).sort(function(a, b) {
+      // Push catch-all buckets to the bottom so real projects surface first.
+      var aLow = (a === '_general' || /^\d{4}$/.test(a)) ? 1 : 0;
+      var bLow = (b === '_general' || /^\d{4}$/.test(b)) ? 1 : 0;
+      if (aLow !== bLow) return aLow - bLow;
+      return a.localeCompare(b);
     });
 
-    if (kindKeys.length === 0) {
+    if (domainKeys.length === 0) {
       var emptyMsg = el('div', 'wiki-tree-empty');
       emptyMsg.textContent = searchQuery ? 'No pages match "' + searchQuery + '"' : 'No pages found';
       tree.appendChild(emptyMsg);
       return;
     }
 
-    kindKeys.forEach(function(kind) {
+    domainKeys.forEach(function(domain) {
       var section = el('div', 'wiki-tree-section');
-      var kindPages = byKind[kind];
+      var domainPages = byDomain[domain];
 
-      // Kind header
-      var kindHeader = el('div', 'wiki-tree-kind');
-      var isExpanded = expandedKinds[kind] !== false;
+      // Domain header \u2014 the primary expander.
+      var domHeader = el('div', 'wiki-tree-kind');
+      var domExpanded = expandedDomains[domain] !== false;
 
-      var arrow = el('span', 'wiki-tree-arrow');
-      arrow.textContent = '\u25B6';
-      if (isExpanded) arrow.classList.add('expanded');
+      var domArrow = el('span', 'wiki-tree-arrow');
+      domArrow.textContent = '\u25B6';
+      if (domExpanded) domArrow.classList.add('expanded');
 
-      var label = el('span', 'wiki-tree-kind-label');
-      label.textContent = KIND_LABELS[kind] || kind;
+      var domLabel = el('span', 'wiki-tree-kind-label');
+      domLabel.textContent = domain;
 
-      var count = el('span', 'wiki-tree-count');
-      count.textContent = kindPages.length;
+      var domCount = el('span', 'wiki-tree-count');
+      domCount.textContent = domainPages.length;
 
-      kindHeader.appendChild(arrow);
-      kindHeader.appendChild(label);
-      kindHeader.appendChild(count);
+      domHeader.appendChild(domArrow);
+      domHeader.appendChild(domLabel);
+      domHeader.appendChild(domCount);
 
-      var items = el('div', 'wiki-tree-items');
-      if (!isExpanded) items.classList.add('collapsed');
+      var kindContainer = el('div', 'wiki-tree-items');
+      if (!domExpanded) kindContainer.classList.add('collapsed');
 
-      kindHeader.addEventListener('click', function() {
-        var nowExpanded = items.classList.contains('collapsed');
+      domHeader.addEventListener('click', function() {
+        var nowExpanded = kindContainer.classList.contains('collapsed');
         if (nowExpanded) {
-          items.classList.remove('collapsed');
-          arrow.classList.add('expanded');
-          expandedKinds[kind] = true;
+          kindContainer.classList.remove('collapsed');
+          domArrow.classList.add('expanded');
+          expandedDomains[domain] = true;
         } else {
-          items.classList.add('collapsed');
-          arrow.classList.remove('expanded');
-          expandedKinds[kind] = false;
+          kindContainer.classList.add('collapsed');
+          domArrow.classList.remove('expanded');
+          expandedDomains[domain] = false;
         }
       });
 
-      section.appendChild(kindHeader);
+      section.appendChild(domHeader);
 
-      // Group by domain within kind
-      var byDomain = {};
-      kindPages.forEach(function(p) {
-        var d = extractDomain(p) || '_root';
-        if (!byDomain[d]) byDomain[d] = [];
-        byDomain[d].push(p);
+      // Inside the domain, group by kind.
+      var byKindInDomain = {};
+      domainPages.forEach(function(p) {
+        var k = p.kind || 'misc';
+        if (!byKindInDomain[k]) byKindInDomain[k] = [];
+        byKindInDomain[k].push(p);
       });
 
-      var domainKeys = Object.keys(byDomain).sort();
-      domainKeys.forEach(function(d) {
-        if (d !== '_root' && domainKeys.length > 1) {
-          var domKey = kind + '/' + d;
-          var domExpanded = expandedDomains[domKey] !== false;
-
-          var domHeader = el('div', 'wiki-tree-domain');
-          var domArrow = el('span', 'wiki-tree-arrow wiki-tree-arrow-sm');
-          domArrow.textContent = '\u25B6';
-          if (domExpanded) domArrow.classList.add('expanded');
-
-          var domLabel = el('span', 'wiki-tree-domain-label');
-          domLabel.textContent = d;
-
-          var domCount = el('span', 'wiki-tree-count');
-          domCount.textContent = byDomain[d].length;
-
-          domHeader.appendChild(domArrow);
-          domHeader.appendChild(domLabel);
-          domHeader.appendChild(domCount);
-
-          var domItems = el('div', 'wiki-tree-domain-items');
-          if (!domExpanded) domItems.classList.add('collapsed');
-
-          domHeader.addEventListener('click', function(e) {
-            e.stopPropagation();
-            var nowOpen = domItems.classList.contains('collapsed');
-            if (nowOpen) {
-              domItems.classList.remove('collapsed');
-              domArrow.classList.add('expanded');
-              expandedDomains[domKey] = true;
-            } else {
-              domItems.classList.add('collapsed');
-              domArrow.classList.remove('expanded');
-              expandedDomains[domKey] = false;
-            }
-          });
-
-          items.appendChild(domHeader);
-
-          _renderCollapsedList(byDomain[d]).forEach(function(row) {
-            domItems.appendChild(buildTreeItem(row));
-          });
-          items.appendChild(domItems);
-        } else {
-          _renderCollapsedList(byDomain[d]).forEach(function(row) {
-            items.appendChild(buildTreeItem(row));
-          });
-        }
+      var kindsInOrder = KIND_ORDER.filter(function(k) { return byKindInDomain[k]; });
+      Object.keys(byKindInDomain).forEach(function(k) {
+        if (kindsInOrder.indexOf(k) < 0) kindsInOrder.push(k);
       });
 
-      section.appendChild(items);
+      kindsInOrder.forEach(function(kind) {
+        var kindPages = byKindInDomain[kind];
+        var kindKey = domain + '/' + kind;
+        var kindExpanded = expandedKinds[kindKey] !== false;
+
+        var kindHeader = el('div', 'wiki-tree-domain');
+        var kindArrow = el('span', 'wiki-tree-arrow wiki-tree-arrow-sm');
+        kindArrow.textContent = '\u25B6';
+        if (kindExpanded) kindArrow.classList.add('expanded');
+
+        var kindLabel = el('span', 'wiki-tree-domain-label');
+        kindLabel.textContent = KIND_LABELS[kind] || kind;
+
+        var kindCount = el('span', 'wiki-tree-count');
+        kindCount.textContent = kindPages.length;
+
+        kindHeader.appendChild(kindArrow);
+        kindHeader.appendChild(kindLabel);
+        kindHeader.appendChild(kindCount);
+
+        var kindItems = el('div', 'wiki-tree-domain-items');
+        if (!kindExpanded) kindItems.classList.add('collapsed');
+
+        kindHeader.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var nowOpen = kindItems.classList.contains('collapsed');
+          if (nowOpen) {
+            kindItems.classList.remove('collapsed');
+            kindArrow.classList.add('expanded');
+            expandedKinds[kindKey] = true;
+          } else {
+            kindItems.classList.add('collapsed');
+            kindArrow.classList.remove('expanded');
+            expandedKinds[kindKey] = false;
+          }
+        });
+
+        kindContainer.appendChild(kindHeader);
+        _renderCollapsedList(kindPages).forEach(function(row) {
+          kindItems.appendChild(buildTreeItem(row));
+        });
+        kindContainer.appendChild(kindItems);
+      });
+
+      section.appendChild(kindContainer);
       tree.appendChild(section);
     });
 
@@ -386,6 +391,101 @@
     header.appendChild(title);
     header.appendChild(subtitle);
     wrap.appendChild(header);
+
+    // ── Projects landing grid ──
+    // The primary organizing axis: every project the user has, what's
+    // documented under it, what's still missing. Fetched from
+    // /api/wiki/projects so coverage stats stay in sync with the
+    // server-side audit (wiki_coverage). Renders as a card grid.
+    var projectsSection = el('div', 'wiki-welcome-section');
+    var projectsTitle = el('h2', 'wiki-welcome-section-title');
+    projectsTitle.textContent = 'Projects';
+    var projectsSub = el('p', 'wiki-welcome-section-sub');
+    projectsSub.textContent = 'Every project with its documented coverage. Click to drill in.';
+    projectsSection.appendChild(projectsTitle);
+    projectsSection.appendChild(projectsSub);
+
+    var projectsGrid = el('div', 'wiki-welcome-kinds');
+    projectsGrid.id = 'wiki-projects-grid';
+    var projectsLoading = el('div', 'wiki-welcome-kind-card');
+    projectsLoading.textContent = 'Loading projects…';
+    projectsGrid.appendChild(projectsLoading);
+    projectsSection.appendChild(projectsGrid);
+    wrap.appendChild(projectsSection);
+
+    // Fire and forget — the grid populates async without blocking the
+    // rest of the welcome render.
+    fetch('/api/wiki/projects')
+      .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+      .then(function(data) {
+        var grid = document.getElementById('wiki-projects-grid');
+        if (!grid) return;
+        grid.innerHTML = '';
+        var projects = (data && data.projects) || [];
+        // Sort: real projects (with scope coverage data) first, by
+        // scope ratio ascending (most-uncovered surface to the top so
+        // the user sees what needs work). Buckets with null coverage
+        // (e.g. `_general`, year buckets) trail.
+        projects.sort(function(a, b) {
+          var ar = a.scope_coverage_ratio;
+          var br = b.scope_coverage_ratio;
+          if (ar === null && br === null) return a.domain.localeCompare(b.domain);
+          if (ar === null) return 1;
+          if (br === null) return -1;
+          return ar - br;
+        });
+        projects.forEach(function(p) {
+          var card = el('div', 'wiki-welcome-kind-card');
+          card.style.cursor = 'pointer';
+          card.addEventListener('click', function() {
+            searchQuery = p.domain;
+            var search = document.querySelector('.wiki-search');
+            if (search) search.value = p.domain;
+            rebuildTree();
+          });
+          var info = el('div', 'wiki-welcome-kind-info');
+          var ct = el('span', 'wiki-welcome-kind-count');
+          ct.textContent = p.page_total;
+          var lb = el('span', 'wiki-welcome-kind-label');
+          lb.textContent = p.domain;
+          info.appendChild(ct);
+          info.appendChild(lb);
+          card.appendChild(info);
+          // Coverage badges line — scope ratio + file ratio + missing scopes.
+          var badges = el('div', 'wiki-welcome-kind-badges');
+          badges.style.fontSize = '11px';
+          badges.style.marginTop = '6px';
+          badges.style.opacity = '0.8';
+          var lines = [];
+          if (p.scope_coverage_ratio !== null && p.scope_coverage_ratio !== undefined) {
+            lines.push('scope: ' + Math.round(p.scope_coverage_ratio * 100) + '%');
+          }
+          if (p.file_coverage_ratio !== null && p.file_coverage_ratio !== undefined) {
+            lines.push('files: ' + Math.round(p.file_coverage_ratio * 100) + '% (' + p.file_covered + '/' + p.file_total + ')');
+          }
+          if (p.missing_scopes && p.missing_scopes.length) {
+            lines.push('missing: ' + p.missing_scopes.slice(0, 3).join(', ') + (p.missing_scopes.length > 3 ? '…' : ''));
+          }
+          badges.textContent = lines.join(' • ');
+          card.appendChild(badges);
+          grid.appendChild(card);
+        });
+        if (!projects.length) {
+          var empty = el('div', 'wiki-welcome-kind-card');
+          empty.textContent = 'No projects detected yet.';
+          grid.appendChild(empty);
+        }
+      })
+      .catch(function(err) {
+        console.warn('[cortex] wiki projects fetch error:', err.message);
+        var grid = document.getElementById('wiki-projects-grid');
+        if (grid) {
+          grid.innerHTML = '';
+          var card = el('div', 'wiki-welcome-kind-card');
+          card.textContent = 'Could not load project index.';
+          grid.appendChild(card);
+        }
+      });
 
     // Kind breakdown
     var kindGrid = el('div', 'wiki-welcome-kinds');
@@ -639,6 +739,61 @@
 
     article.appendChild(pageHeader);
 
+    // ── Curation gap banner ──
+    // For file-doc pages produced by the skeleton generator, the
+    // frontmatter carries ``curation_gaps: [...]`` — the canonical
+    // sections that still need a real explanation. Render a visible
+    // banner above the body so the reader sees what's not yet
+    // documented and the in-session LLM has a concrete queue. Deletion
+    // is not curation; visibility is.
+    var gaps = meta.curation_gaps;
+    if (Array.isArray(gaps) && gaps.length > 0) {
+      var totalSections = 13;  // matches FILE_DOC_SECTIONS (incl. sequence-diagram, parameters, request/response-example)
+      var coveredCount = Math.max(0, totalSections - gaps.length);
+      var pct = Math.round(100 * coveredCount / totalSections);
+      var banner = el('aside', 'wiki-curation-banner');
+      banner.style.cssText = (
+        'border:1px solid #b58900;background:rgba(181,137,0,0.08);' +
+        'padding:14px 18px;border-radius:6px;margin:14px 0 18px;' +
+        'font-size:14px;line-height:1.55;'
+      );
+      var summary = el('div', 'wiki-curation-summary');
+      summary.style.cssText = 'margin-bottom:8px;color:#b58900;font-weight:600;';
+      summary.textContent =
+        '⚠ Page ' + pct + '% curated — ' + gaps.length + ' of ' +
+        totalSections + ' canonical sections are still missing or thin.';
+      banner.appendChild(summary);
+      var listIntro = el('div');
+      listIntro.style.cssText = 'opacity:0.85;margin-bottom:6px;';
+      listIntro.textContent =
+        'The autonomous re-author loop will fill these; a human author can also write them now:';
+      banner.appendChild(listIntro);
+      var ul = el('ul');
+      ul.style.cssText = 'margin:0;padding-left:22px;';
+      var gapLabels = {
+        purpose:            'Purpose — what this file is responsible for',
+        'public-api':       'Public API — semantics of each exported symbol',
+        dependencies:       'Dependencies — why each import is here',
+        callers:            'Callers — which files in the project use this one',
+        behaviour:          'How it works — entry point + main flow',
+        invariants:         'Invariants — what must always be true',
+        'failure-modes':    'What can go wrong — failure modes + symptoms',
+        tests:              'Tests — which test files exercise this',
+        'see-also':         'See also — cross-links to architecture / services / api',
+        'sequence-diagram': 'Sequence diagram — mermaid flow of caller → this file → callees',
+        parameters:         'Parameters — exhaustive table (name, type, required, default, description)',
+        'request-example':  'Request example — curl + headers / JSON-RPC envelope / call site',
+        'response-example': 'Response example — every field annotated, success + error shapes',
+      };
+      gaps.forEach(function(g) {
+        var li = el('li');
+        li.textContent = gapLabels[g] || g;
+        ul.appendChild(li);
+      });
+      banner.appendChild(ul);
+      article.appendChild(banner);
+    }
+
     // Body
     var bodyEl = el('div', 'wiki-body');
     bodyEl.innerHTML = renderMarkdown(body);
@@ -650,7 +805,18 @@
       _ensureMermaid().then(function(mermaid) {
         if (!mermaid) return;
         try {
-          mermaid.run({ querySelector: '.wiki-mermaid', suppressErrors: false });
+          var p = mermaid.run({ querySelector: '.wiki-mermaid', suppressErrors: false });
+          // After mermaid finishes rendering, attach a lens button to
+          // every diagram so a reader can pop it into a full-viewport
+          // overlay with zoom + pan controls. ``mermaid.run`` returns
+          // a Promise in v10+; attaching the buttons after it resolves
+          // guarantees the SVGs exist.
+          if (p && typeof p.then === 'function') {
+            p.then(function() { _attachMermaidLenses(bodyEl); }).catch(function() {});
+          } else {
+            // v9 / older — best-effort retry.
+            setTimeout(function() { _attachMermaidLenses(bodyEl); }, 50);
+          }
         } catch (e) { /* mermaid optional; swallow failures */ }
       });
     }
@@ -675,11 +841,34 @@
     // the body is visible immediately, citations appear when loaded.
     applyAcademicPasses(bodyEl, meta);
 
-    // Wire internal wiki links
+    // Wire internal wiki links. `[[path]]` references render as
+    // `.wiki-link` spans with a data-path attribute. Click flow:
+    //   1. If the path looks resolvable (contains '/'), load it.
+    //   2. Otherwise treat the raw token as a search query so a bare
+    //      `[[adr]]` or `[[code-walkthrough]]` lands the user on a
+    //      filtered tree view rather than a dead 404.
     bodyEl.querySelectorAll('.wiki-link').forEach(function(link) {
       link.addEventListener('click', function() {
-        var target = link.getAttribute('data-path');
-        if (target) loadPage(target);
+        var target = link.getAttribute('data-path') || '';
+        var raw = link.getAttribute('data-raw') || target;
+        // Bare slug — route to search.
+        if (!target || target.indexOf('/') < 0) {
+          searchQuery = raw;
+          var searchInput = document.querySelector('.wiki-search');
+          if (searchInput) searchInput.value = raw;
+          rebuildTree();
+          return;
+        }
+        // Check the page exists; fall back to search if not.
+        var exists = (pages || []).some(function(p) { return (p.path || '') === target; });
+        if (exists) {
+          loadPage(target);
+        } else {
+          searchQuery = raw;
+          var si = document.querySelector('.wiki-search');
+          if (si) si.value = raw;
+          rebuildTree();
+        }
       });
     });
 
@@ -828,24 +1017,293 @@
           theme: 'dark',
           themeVariables: {
             primaryColor: '#1a1a1a',
-            primaryTextColor: '#e0e0e0',
+            primaryTextColor: '#f0e6d2',
             primaryBorderColor: '#c9a96e',
-            lineColor: '#c9a96e',
+            lineColor: '#daa520',
             secondaryColor: '#2a2a2a',
+            secondaryTextColor: '#f0e6d2',
+            secondaryBorderColor: '#c9a96e',
             tertiaryColor: '#0f0f0f',
+            tertiaryTextColor: '#f0e6d2',
+            tertiaryBorderColor: '#c9a96e',
             background: '#0a0a0a',
             mainBkg: '#1a1a1a',
             secondBkg: '#2a2a2a',
+            // Edge label readability — opaque dark pill behind the
+            // gold text so the label never blends into a node fill.
+            edgeLabelBackground: '#0a0a0a',
+            // For nodes whose mermaid source forces a light fill via
+            // `style X fill:#ffe4b5`, the LLM-authored diagrams need
+            // the node text to stay readable. We bump font size and
+            // weight globally and use a high-contrast text colour
+            // that works on both dark and light fills (CSS layer
+            // overrides below tighten this further).
             fontFamily: 'system-ui, -apple-system, sans-serif',
+            fontSize: '18px',
+            nodeTextColor: '#1a1a1a',
           },
-          flowchart: { htmlLabels: true, curve: 'basis' },
-          sequence: { mirrorActors: false, actorMargin: 50 },
+          flowchart: { htmlLabels: true, curve: 'basis', useMaxWidth: false },
+          sequence: { mirrorActors: false, actorMargin: 60, messageFontSize: 15 },
           securityLevel: 'loose',
         });
+        // Inject a CSS layer that fixes the contrast issues mermaid's
+        // theme variables can't fully reach (edge labels, nodes with
+        // custom fills, font sizing). Idempotent — only added once.
+        if (!document.getElementById('wiki-mermaid-style-overrides')) {
+          var style = document.createElement('style');
+          style.id = 'wiki-mermaid-style-overrides';
+          style.textContent = [
+            '.wiki-mermaid svg { font-size: 16px !important; }',
+            '.wiki-mermaid .nodeLabel, .wiki-mermaid .label foreignObject div',
+            '  { color: #f0e6d2 !important; font-weight: 500; }',
+            // Light-fill nodes (orange / pale-green custom styles) get
+            // dark text for contrast. Mermaid sets these via inline
+            // style attribute; we target them with attribute selectors.
+            '.wiki-mermaid g.node[style*="fill:#ff"] .nodeLabel,',
+            '.wiki-mermaid g.node[style*="fill:#dd"] .nodeLabel,',
+            '.wiki-mermaid g.node[style*="fill:#ee"] .nodeLabel,',
+            '.wiki-mermaid g.node[style*="fill:#fa"] .nodeLabel,',
+            '.wiki-mermaid g.node[style*="fill:#f0"] .nodeLabel,',
+            '.wiki-mermaid g.node[style*="fill:#e0"] .nodeLabel,',
+            '.wiki-mermaid g.node[style*="fill:#cc"] .nodeLabel,',
+            '.wiki-mermaid g.node[style*="fill:#bb"] .nodeLabel,',
+            '.wiki-mermaid g.node[style*="fill:#aa"] .nodeLabel',
+            '  { color: #0a0a0a !important; font-weight: 600 !important; }',
+            // Edge labels — solid dark pill with gold text for contrast.
+            '.wiki-mermaid .edgeLabel, .wiki-mermaid .edgeLabel span,',
+            '.wiki-mermaid .edgeLabel foreignObject div',
+            '  { background: #0a0a0a !important; color: #daa520 !important;',
+            '    padding: 2px 6px !important; border-radius: 3px !important;',
+            '    font-size: 14px !important; font-weight: 500 !important; }',
+            // Sequence-diagram message text + actor labels.
+            '.wiki-mermaid .messageText { fill: #daa520 !important; font-size: 14px !important; }',
+            '.wiki-mermaid .actor { stroke: #c9a96e !important; }',
+            '.wiki-mermaid text.actor, .wiki-mermaid .actor text',
+            '  { fill: #f0e6d2 !important; font-size: 15px !important;',
+            '    font-weight: 600 !important; }',
+            // Lens hint that the inline diagram is interactive.
+            '.wiki-mermaid { padding: 8px; border: 1px solid rgba(218,165,32,0.15);',
+            '  border-radius: 6px; background: rgba(10,10,10,0.4); }',
+          ].join('\n');
+          document.head.appendChild(style);
+        }
         return mermaid;
       })
       .catch(function() { return null; });
     return _mermaidPromise;
+  }
+
+  // ── Mermaid lens overlay ──
+  // After mermaid renders a diagram, attach a small magnifier button
+  // in the diagram's top-right corner. Clicking it opens a viewport-
+  // sized modal with the same SVG cloned in, plus zoom (+ / - /
+  // mouse-wheel) and pan (drag) controls. Esc / click-outside closes.
+  // Implementation notes:
+  //   * No external libraries — vanilla DOM + a CSS transform.
+  //   * The modal is created lazily on first open and reused.
+  //   * Each click clones the source SVG into the modal so the inline
+  //     diagram's layout never changes.
+
+  function _attachMermaidLenses(scope) {
+    var diagrams = scope.querySelectorAll('.wiki-mermaid');
+    diagrams.forEach(function(diagramEl) {
+      if (diagramEl.dataset.lensAttached === '1') return;
+      if (!diagramEl.querySelector('svg')) return;
+      diagramEl.dataset.lensAttached = '1';
+      // Wrap the diagram so the button can position absolutely
+      // relative to it.
+      diagramEl.style.position = 'relative';
+      var btn = document.createElement('button');
+      btn.className = 'wiki-mermaid-lens';
+      btn.title = 'Open diagram (zoom + pan)';
+      btn.setAttribute('aria-label', 'Open diagram in full-viewport viewer');
+      // Inline styles keep this self-contained — no CSS file edits.
+      btn.style.cssText = (
+        'position:absolute;top:8px;right:8px;z-index:2;' +
+        'width:32px;height:32px;border-radius:6px;' +
+        'border:1px solid rgba(218,165,32,0.4);' +
+        'background:rgba(20,20,20,0.85);color:#daa520;' +
+        'cursor:pointer;display:flex;align-items:center;' +
+        'justify-content:center;font-size:16px;line-height:1;' +
+        'transition:background 0.15s;'
+      );
+      btn.innerHTML = (
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" ' +
+        'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+        'stroke-linejoin="round">' +
+        '<circle cx="11" cy="11" r="8"/>' +
+        '<line x1="21" y1="21" x2="16.65" y2="16.65"/>' +
+        '<line x1="11" y1="8" x2="11" y2="14"/>' +
+        '<line x1="8" y1="11" x2="14" y2="11"/>' +
+        '</svg>'
+      );
+      btn.addEventListener('mouseenter', function() {
+        btn.style.background = 'rgba(40,40,40,0.95)';
+      });
+      btn.addEventListener('mouseleave', function() {
+        btn.style.background = 'rgba(20,20,20,0.85)';
+      });
+      btn.addEventListener('click', function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        _openMermaidLens(diagramEl);
+      });
+      diagramEl.appendChild(btn);
+    });
+  }
+
+  // Singleton modal — created on first open, reused thereafter.
+  var _lensModal = null;
+  var _lensState = { scale: 1, tx: 0, ty: 0, dragging: false, dragX: 0, dragY: 0 };
+
+  function _ensureLensModal() {
+    if (_lensModal) return _lensModal;
+    var overlay = document.createElement('div');
+    overlay.className = 'wiki-mermaid-lens-overlay';
+    overlay.style.cssText = (
+      'position:fixed;inset:0;background:rgba(0,0,0,0.92);' +
+      'z-index:9999;display:none;cursor:grab;' +
+      'align-items:center;justify-content:center;'
+    );
+    // Inner viewport that holds the cloned SVG. We translate/scale this.
+    var stage = document.createElement('div');
+    stage.className = 'wiki-mermaid-lens-stage';
+    stage.style.cssText = (
+      'transform-origin:center center;transition:transform 0.05s linear;' +
+      'will-change:transform;user-select:none;'
+    );
+    overlay.appendChild(stage);
+
+    // Controls toolbar (zoom +, zoom -, reset, close).
+    var toolbar = document.createElement('div');
+    toolbar.className = 'wiki-mermaid-lens-toolbar';
+    toolbar.style.cssText = (
+      'position:absolute;top:18px;right:18px;display:flex;gap:8px;' +
+      'background:rgba(20,20,20,0.92);padding:8px 10px;border-radius:8px;' +
+      'border:1px solid rgba(218,165,32,0.3);'
+    );
+    function ctrlBtn(label, title, onClick) {
+      var b = document.createElement('button');
+      b.textContent = label;
+      b.title = title;
+      b.style.cssText = (
+        'background:transparent;border:1px solid rgba(218,165,32,0.4);' +
+        'color:#daa520;width:32px;height:32px;border-radius:4px;' +
+        'cursor:pointer;font-size:16px;font-family:monospace;'
+      );
+      b.addEventListener('click', function(ev) {
+        ev.stopPropagation();
+        onClick();
+      });
+      return b;
+    }
+    var btnIn = ctrlBtn('+', 'Zoom in', function() { _lensZoom(1.25); });
+    var btnOut = ctrlBtn('−', 'Zoom out', function() { _lensZoom(0.8); });
+    var btnReset = ctrlBtn('⟲', 'Reset zoom / pan', _lensReset);
+    var btnClose = ctrlBtn('×', 'Close (Esc)', _lensClose);
+    btnClose.style.color = '#ff6b6b';
+    btnClose.style.borderColor = 'rgba(255,107,107,0.4)';
+    toolbar.appendChild(btnOut);
+    toolbar.appendChild(btnIn);
+    toolbar.appendChild(btnReset);
+    toolbar.appendChild(btnClose);
+    overlay.appendChild(toolbar);
+
+    // Hint at bottom: pan / zoom shortcuts.
+    var hint = document.createElement('div');
+    hint.textContent = 'Drag to pan · scroll to zoom · Esc to close';
+    hint.style.cssText = (
+      'position:absolute;bottom:18px;left:50%;transform:translateX(-50%);' +
+      'color:rgba(218,165,32,0.7);font-size:12px;font-family:monospace;'
+    );
+    overlay.appendChild(hint);
+
+    // Mouse-wheel zoom anywhere on the overlay.
+    overlay.addEventListener('wheel', function(ev) {
+      ev.preventDefault();
+      var delta = -ev.deltaY;
+      _lensZoom(delta > 0 ? 1.1 : 0.9);
+    }, { passive: false });
+
+    // Drag-to-pan.
+    overlay.addEventListener('mousedown', function(ev) {
+      if (ev.target.closest('.wiki-mermaid-lens-toolbar')) return;
+      _lensState.dragging = true;
+      _lensState.dragX = ev.clientX - _lensState.tx;
+      _lensState.dragY = ev.clientY - _lensState.ty;
+      overlay.style.cursor = 'grabbing';
+    });
+    window.addEventListener('mousemove', function(ev) {
+      if (!_lensState.dragging) return;
+      _lensState.tx = ev.clientX - _lensState.dragX;
+      _lensState.ty = ev.clientY - _lensState.dragY;
+      _lensApply();
+    });
+    window.addEventListener('mouseup', function() {
+      if (_lensState.dragging) {
+        _lensState.dragging = false;
+        overlay.style.cursor = 'grab';
+      }
+    });
+
+    // Close on Esc or click on the empty overlay background.
+    overlay.addEventListener('click', function(ev) {
+      if (ev.target === overlay) _lensClose();
+    });
+    window.addEventListener('keydown', function(ev) {
+      if (_lensModal && overlay.style.display !== 'none') {
+        if (ev.key === 'Escape') _lensClose();
+        else if (ev.key === '+' || ev.key === '=') _lensZoom(1.25);
+        else if (ev.key === '-' || ev.key === '_') _lensZoom(0.8);
+        else if (ev.key === '0') _lensReset();
+      }
+    });
+
+    document.body.appendChild(overlay);
+    _lensModal = { overlay: overlay, stage: stage };
+    return _lensModal;
+  }
+
+  function _lensApply() {
+    if (!_lensModal) return;
+    var s = _lensState;
+    _lensModal.stage.style.transform =
+      'translate(' + s.tx + 'px,' + s.ty + 'px) scale(' + s.scale + ')';
+  }
+
+  function _lensZoom(factor) {
+    _lensState.scale = Math.max(0.25, Math.min(8, _lensState.scale * factor));
+    _lensApply();
+  }
+
+  function _lensReset() {
+    // Default to 1.5× so the diagram is comfortably readable on the
+    // first open without the user needing to zoom; reset key (`0`)
+    // also lands here so it stays consistent.
+    _lensState.scale = 1.5;
+    _lensState.tx = 0;
+    _lensState.ty = 0;
+    _lensApply();
+  }
+
+  function _lensClose() {
+    if (_lensModal) _lensModal.overlay.style.display = 'none';
+  }
+
+  function _openMermaidLens(diagramEl) {
+    var modal = _ensureLensModal();
+    var svg = diagramEl.querySelector('svg');
+    if (!svg) return;
+    // Clone the rendered SVG so the inline diagram remains unaffected.
+    var clone = svg.cloneNode(true);
+    // Strip width/height so the SVG can scale up to the viewport.
+    clone.removeAttribute('width');
+    clone.removeAttribute('height');
+    clone.style.cssText = 'max-width:90vw;max-height:88vh;display:block;';
+    modal.stage.innerHTML = '';
+    modal.stage.appendChild(clone);
+    _lensReset();
+    modal.overlay.style.display = 'flex';
   }
 
   // ── Markdown Renderer ──
@@ -1076,6 +1534,26 @@
 
     // Images ![alt](url)
     s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="wiki-img" loading="lazy">');
+
+    // ── Wikilinks [[path]] and [[path|label]] ──
+    // The pages everyone writes use this notation for cross-references
+    // (e.g. ``[[reference/cortex/architecture-overview]]``). Without
+    // this rule the page renders the literal ``[[…]]`` text, which
+    // looks like a broken link. The replacement runs BEFORE the
+    // regular ``[text](url)`` rule because the wikilink syntax is a
+    // strict subset and uses different delimiters; running it earlier
+    // guarantees the regular rule never sees these tokens.
+    s = s.replace(/\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g, function(_match, raw, label) {
+      var path = raw.trim();
+      var display = (label || raw).trim();
+      // Normalise: append .md if no extension and it looks like a path.
+      // A bare slug like ``adr`` stays unchanged so the click handler
+      // can route it to a search instead of a 404.
+      if (path.indexOf('/') >= 0 && !/\.[a-z]{2,4}$/i.test(path)) {
+        path = path + '.md';
+      }
+      return '<span class="wiki-link" data-path="' + path + '" data-raw="' + raw + '">' + display + '</span>';
+    });
 
     // Links [text](url)
     s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, text, url) {

@@ -26,7 +26,22 @@ from typing import Final
 
 REQUIRED_FRONTMATTER: Final[dict[str, tuple[str, ...]]] = {
     # Legacy kinds — kept readable; values match pre-ADR-2244 contracts.
-    "adr": ("id", "title", "status", "date", "context", "decision", "consequences"),
+    # 2026-05-18: ADRs now double as task-records. The body MUST carry the
+    # five mandatory sections (entry/mandatory/how/result/serves) so every
+    # completed task has the same causal-chain documentation. Existing
+    # context/decision/consequences fields are preserved for back-compat.
+    "adr": (
+        "id",
+        "title",
+        "status",
+        "date",
+        "entry",
+        "mandatory",
+        "how",
+        "result",
+        "serves",
+        "consequences",
+    ),
     "specs": ("title", "status", "owner", "created", "updated"),
     "guides": ("title", "audience", "prerequisites", "updated"),
     "reference": ("title", "scope", "updated"),
@@ -109,11 +124,65 @@ supersedes: {{supersedes}}
 
 {{status}}
 
+## Entry
+
+> Problem, task, or trigger that opened this work — the situation as it
+> existed before any change. State the symptom, the user request, or the
+> external event that put this on the table. Avoid speculation about
+> root causes; that belongs in How.
+
+{{entry}}
+
+## Mandatory elements
+
+> Constraints that had to be respected: architectural rules (Clean
+> Architecture layer boundaries, SOLID), invariants (no SQLite, layer
+> dependency rule, source-citation discipline), compatibility windows,
+> deadlines, regulatory or security gates, paper-grounded equations,
+> contracts with upstream/downstream systems.
+
+{{mandatory}}
+
+## How
+
+> Approach taken — implementation path, technical choices, the sequence
+> of moves. Reference specific files (with full paths) and the design
+> reasoning. If alternatives were tried and abandoned, name them here;
+> if formally considered and rejected, capture them under Alternatives.
+
+{{how}}
+
+## Result
+
+> What was actually delivered. Concrete outcome — code shipped, tests
+> passing, regression avoided, latency or accuracy delta measured. Cite
+> the commit, the benchmark run, or the artifact that proves the
+> outcome. If the work is partial, state precisely what is and is not
+> done.
+
+{{result}}
+
+## Serves
+
+> What this enables — purpose and downstream role. Who depends on it,
+> which system invariant it upholds, which user-visible behaviour it
+> supports. This is the "why it stays in the codebase" answer.
+
+{{serves}}
+
 ## Context
+
+> Legacy section — kept for ADRs authored before 2026-05-18. New ADRs
+> may merge Context into Entry. The grooming agent preserves any
+> existing Context content here.
 
 {{context}}
 
 ## Decision
+
+> Legacy section — kept for ADRs authored before 2026-05-18. New ADRs
+> express the decision through Result + How. The grooming agent
+> preserves any existing Decision content here.
 
 {{decision}}
 

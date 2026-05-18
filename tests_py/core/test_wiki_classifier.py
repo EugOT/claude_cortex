@@ -256,7 +256,20 @@ def test_classifier_detects_journal_from_dated_heading() -> None:
 # ── ADR-2244: provenance and audience inference ────────────────────────
 
 
-def test_codebase_tag_marks_auto_generated_provenance() -> None:
+def test_codebase_tag_is_rejected_from_wiki() -> None:
+    """Policy 2026-05-17 (superseded ADR-2244 Phase 6 admission):
+    ``codebase`` / ``code-reference`` tags mark per-file extractor output
+    from ``codebase_analyze``. They are valuable in PG memory (recall
+    substrate, halo retrieval) but bloat the wiki — a single scan
+    repeats one page per file per invocation (8734-page incident).
+
+    Coverage of the codebase now flows through the structural scope
+    pages (``architecture-overview``, ``services``, ``api``,
+    ``data-flow`` per project) written via ``curate_wiki``'s
+    coverage-driven jobs — not per-file dumps. The classifier
+    rejects ``codebase``-tagged content here so the wiki layer never
+    re-accumulates per-file pages.
+    """
     content = (
         "## Process — packages/codebase-rust/src/parser/mod.rs::parse_file\n"
         "Decision: this function parses a single source file via tree-sitter "
@@ -267,9 +280,7 @@ def test_codebase_tag_marks_auto_generated_provenance() -> None:
         content,
         tags=["code-reference", "codebase"],
     )
-    assert result is not None
-    assert result.provenance == "auto-generated"
-    assert result.generator is not None  # required when provenance is auto-gen
+    assert result is None
 
 
 def test_security_tag_routes_to_security_audience() -> None:
@@ -322,12 +333,15 @@ def test_architecture_tag_alone_does_not_route_to_adr() -> None:
         assert result.kind != "adr"
 
 
-def test_codebase_analyze_output_routes_to_reference_kind() -> None:
-    """Producer audit (ADR-2244 Phase 6): a page tagged ``codebase``
-    (the bare tag written by ``codebase_analyze``) must route to
-    ``kind=reference``, not ``kind=explanation``. Without this contract
-    the 8734-page file-doc misroute Phase 4.2 cleaned up would simply
-    keep happening on every new ``codebase_analyze`` run.
+def test_codebase_analyze_output_is_rejected_from_wiki() -> None:
+    """Policy 2026-05-17 (superseded ADR-2244 Phase 6 admission):
+    output of ``codebase_analyze`` carries the ``codebase`` audit tag
+    and stays in PG memory only. The wiki documents code structurally
+    (architecture, services, api, data-flow per project, written by
+    ``curate_wiki`` coverage jobs) — not via one page per scanned file.
+
+    The 8734-page misroute the original ADR-2244 Phase 6 test guarded
+    against is now prevented at admission, not at kind-routing.
     """
     content = (
         "# Process — packages/codebase-rust/src/parser/mod.rs::parse_file\n\n"
@@ -347,10 +361,7 @@ def test_codebase_analyze_output_routes_to_reference_kind() -> None:
             "symbol:parse_file",
         ],
     )
-    assert result is not None
-    assert result.kind == "reference"
-    assert result.provenance == "auto-generated"
-    assert result.generator is not None  # auto-generated requires it
+    assert result is None
 
 
 def test_crypto_module_name_does_not_flag_security_audience() -> None:

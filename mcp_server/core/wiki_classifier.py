@@ -574,11 +574,12 @@ def _classify_to_legacy_kind(content: str, tags: list[str] | None = None) -> str
         "rfc",
         "proposal",
         "journal",
-        # Auto-gen producer markers (provenance flips to auto-generated
-        # downstream; bypassing positive score is correct here because
-        # the producer has already filtered to high-signal content).
-        "code-reference",
-        "codebase",
+        # 2026-05-18: ``code-reference`` / ``codebase`` removed from this
+        # set — they are audit tags (see ``_AUDIT_TAGS``) and rejected at
+        # Gate -1, so listing them here was dead code and a footgun. The
+        # wiki documents code structurally through scope pages
+        # (architecture / services / api / data-flow per project), not
+        # via per-file dumps.
     }
     has_explicit_tag = bool(tag_set & _EXPLICIT_KNOWLEDGE_TAGS)
 

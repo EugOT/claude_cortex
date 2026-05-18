@@ -70,6 +70,89 @@ def serve_wiki_page(handler) -> None:
         send_json_error(handler, e)
 
 
+def serve_wiki_projects(handler) -> None:
+    """GET /api/wiki/projects → project-organized index of the wiki.
+
+    Returns one entry per project (domain) with:
+      * Page counts split by kind (architecture, services, api, adr…).
+      * Scope coverage ratio (how many of the six structural scopes are
+        documented).
+      * File coverage ratio (how many source files appear in any page).
+      * Sample missing scopes for the UI to surface as "needs work".
+
+    This is the landing-page endpoint: a non-technical user opens the
+    wiki, sees every project they have at a glance with what's covered
+    and what's missing — and clicks into each to drill down.
+    """
+    try:
+        from mcp_server.core.wiki_coverage import (
+            audit_all_domains,
+            audit_all_file_coverage,
+        )
+        from mcp_server.handlers.wiki_api import list_wiki_pages
+        from mcp_server.infrastructure.config import METHODOLOGY_DIR
+
+        wiki_root = METHODOLOGY_DIR / "wiki"
+        pages = list_wiki_pages(wiki_root)
+
+        # Group pages by domain (path segment 1) and kind (segment 0).
+        # Pages stored at ``<kind>/<domain>/<slug>.md`` produce both
+        # fields; anything else lands under ``_general``.
+        by_domain: dict[str, dict[str, list[dict]]] = {}
+        for p in pages:
+            path = p.get("rel_path") or p.get("path") or ""
+            parts = path.split("/")
+            if len(parts) >= 3:
+                kind, domain = parts[0], parts[1]
+            elif len(parts) == 2:
+                kind, domain = parts[0], "_general"
+            else:
+                continue
+            if domain.startswith("_") and domain != "_general":
+                continue
+            by_domain.setdefault(domain, {}).setdefault(kind, []).append(
+                {
+                    "path": path,
+                    "title": p.get("title") or "",
+                }
+            )
+
+        # Layer scope and file coverage onto each domain.
+        scope_audits = {c.domain: c for c in audit_all_domains(str(wiki_root))}
+        file_audits = {
+            r.domain: r for r in audit_all_file_coverage(str(wiki_root))
+        }
+
+        projects: list[dict] = []
+        for domain, kinds in sorted(by_domain.items()):
+            cov = scope_audits.get(domain)
+            fc = file_audits.get(domain)
+            counts = {kind: len(items) for kind, items in kinds.items()}
+            project = {
+                "domain": domain,
+                "page_total": sum(counts.values()),
+                "page_counts_by_kind": counts,
+                "scope_covered": cov.covered_count if cov else 0,
+                "scope_total": len(cov.scopes) if cov else 0,
+                "scope_coverage_ratio": (
+                    round(cov.coverage_ratio, 3) if cov else None
+                ),
+                "missing_scopes": (
+                    [s.scope.name for s in cov.missing_scopes()] if cov else []
+                ),
+                "file_covered": fc.covered_file_count if fc else None,
+                "file_total": fc.source_file_count if fc else None,
+                "file_coverage_ratio": (
+                    round(fc.coverage_ratio, 3) if fc else None
+                ),
+            }
+            projects.append(project)
+
+        send_json_ok(handler, {"projects": projects})
+    except Exception as e:
+        send_json_error(handler, e)
+
+
 def _dispatch_wiki_db(op: str, qs: dict[str, str]) -> dict:
     """Resolve a DB-backed op name to a wiki_api call result."""
     from mcp_server.handlers import wiki_api

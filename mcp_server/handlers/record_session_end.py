@@ -380,6 +380,29 @@ async def handler(args: dict) -> dict:
         category=category,
     )
 
+    # Auto-spawn a task-record ADR if the session was substantive.
+    # User directive 2026-05-18: every task / bug / feature gets the
+    # same detailed approach. Non-fatal on any failure — the session
+    # log + memory store + profile update have already happened above.
+    task_record_status: dict[str, Any] = {"status": "skipped", "reason": "not_attempted"}
+    try:
+        from mcp_server.handlers.auto_task_record_writer import (
+            maybe_write_task_record,
+        )
+        from mcp_server.infrastructure.memory_store import MemoryStore
+
+        task_record_status = maybe_write_task_record(
+            session_id=session_id,
+            domain=domain_id,
+            cwd=cwd,
+            duration_seconds=duration,
+            turn_count=turn_count,
+            tools_used=tools_used or [],
+            store=MemoryStore(),
+        )
+    except Exception as exc:
+        task_record_status = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"}
+
     return {
         "domain": domain_id,
         "profileUpdated": profile_updated,
@@ -387,4 +410,5 @@ async def handler(args: dict) -> dict:
         "newPatterns": [],
         "confidence": dp.get("confidence", 0) if dp else 0,
         "critique": _try_generate_critique(tools_used or [], duration, turn_count),
+        "task_record": task_record_status,
     }

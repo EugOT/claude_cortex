@@ -45,6 +45,17 @@ class TestTemplateBodies:
         assert "## Context" in t
         assert "## Decision" in t
 
+    def test_adr_contains_task_record_sections(self):
+        """ADRs double as task-records (2026-05-18). Body must carry the
+        five mandatory sections so every completed task documents
+        Entry, Mandatory elements, How, Result, and Serves."""
+        t = TEMPLATES["adr"]
+        assert "## Entry" in t
+        assert "## Mandatory elements" in t
+        assert "## How" in t
+        assert "## Result" in t
+        assert "## Serves" in t
+
     def test_spec_contains_core_sections(self):
         t = TEMPLATES["specs"]
         for section in ("## Problem", "## Goals", "## Non-goals", "## Invariants"):

@@ -59,7 +59,16 @@ def _strip_inline_list(value: str) -> list[str]:
 
 
 def parse_page(text: str) -> PageDocument:
-    """Parse a page's frontmatter + body. Tolerant of missing frontmatter."""
+    """Parse a page's frontmatter + body. Tolerant of missing frontmatter.
+
+    Handles two YAML list forms:
+
+      * Inline:  ``tags: [a, b, c]``
+      * Block:   ``tags:\\n  - a\\n  - b``
+
+    Block-style is required for ``curation_gaps`` and other multi-value
+    metadata the file-doc skeletons emit.
+    """
     if not text.startswith("---\n") and not text.startswith("---\r\n"):
         return PageDocument(body=text)
     lines = text.splitlines()
@@ -67,19 +76,47 @@ def parse_page(text: str) -> PageDocument:
         return PageDocument(body=text)
     fm: dict[str, object] = {}
     body_start = len(lines)
-    for idx in range(1, len(lines)):
+    idx = 1
+    while idx < len(lines):
         if lines[idx].strip() == "---":
             body_start = idx + 1
             break
         line = lines[idx]
         if ":" not in line:
+            idx += 1
             continue
-        key, _, raw = line.partition(":")
-        raw = raw.strip()
-        if raw.startswith("[") and raw.endswith("]"):
-            fm[key.strip()] = _strip_inline_list(raw)
+        # Block-list detection: a key with no value followed by indented
+        # ``  - item`` lines collects into a list.
+        key_part, _, raw = line.partition(":")
+        key = key_part.strip()
+        raw_stripped = raw.strip()
+        if raw_stripped == "":
+            # Possibly a block list. Peek ahead.
+            items: list[str] = []
+            j = idx + 1
+            while j < len(lines):
+                peek = lines[j]
+                if peek.strip() == "---":
+                    break
+                stripped = peek.lstrip()
+                if peek.startswith((" ", "\t")) and stripped.startswith("- "):
+                    items.append(stripped[2:].strip().strip("\"'"))
+                    j += 1
+                    continue
+                break
+            if items:
+                fm[key] = items
+                idx = j
+                continue
+            # Empty value, no list — keep as empty string.
+            fm[key] = ""
+            idx += 1
+            continue
+        if raw_stripped.startswith("[") and raw_stripped.endswith("]"):
+            fm[key] = _strip_inline_list(raw_stripped)
         else:
-            fm[key.strip()] = raw
+            fm[key] = raw_stripped
+        idx += 1
     body_lines = lines[body_start:]
     while body_lines and body_lines[0] == "":
         body_lines.pop(0)

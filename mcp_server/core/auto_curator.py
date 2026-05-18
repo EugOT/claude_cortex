@@ -317,6 +317,36 @@ def _kind_dir(kind: str) -> str:
 # ── Authoring-prompt construction ──────────────────────────────────────
 
 
+_ADR_TASK_RECORD_SECTIONS = """\
+For kind = `adr` (task-record): the body MUST carry these sections in this exact order. They are mandatory — no skipping:
+
+1. **## Status** — `proposed` / `accepted` / `rejected` / `superseded`. New task-records default to `accepted` (the work is done).
+2. **## Entry** — the problem, task, or trigger as it stood before the work began. State the symptom or the request; do not speculate about root cause yet.
+3. **## Mandatory elements** — constraints that had to be respected: Clean Architecture / SOLID rules, layer dependency rule, project invariants (no SQLite, source-citation discipline, file-size limits), compatibility windows, security gates, paper-grounded equations, contracts with upstream/downstream systems. Be specific. List, not prose.
+4. **## How** — the approach taken: implementation steps, technical choices, the sequence of moves. Reference specific source files with full paths. Name alternatives that were tried and abandoned.
+5. **## Result** — what was actually delivered. Cite the commit hash, the benchmark run, or the artifact that proves the outcome. If partial, state precisely what is and is not done.
+6. **## Serves** — what this enables downstream. Which subsystem depends on it, which invariant it upholds, which user-visible behaviour it supports. The "why it stays in the codebase" answer.
+7. **## Alternatives considered** — formally-considered-and-rejected designs (distinct from "things we tried"; those go in How).
+8. **## References** — paper citations, ADR cross-refs as `[[adr/...]]`, related task-records.
+"""
+
+_GENERIC_STRUCTURE_SECTIONS = """\
+For kind = `reference` / `explanation` / other: the body should follow this conventional shape:
+
+1. **# <title>** — H1 matching frontmatter title.
+2. **Lead paragraph** — one paragraph saying what the page is and why a reader should care.
+3. **Sections explaining the topic**:
+   - Use ```mermaid``` fences for flowcharts, sequence diagrams, state diagrams when the topic involves dataflow or state transitions.
+   - Use tables for taxonomies, parameter lists, comparisons.
+   - Use ``` fences with language for code snippets.
+   - Cite specific source files with full paths (e.g. ``mcp_server/core/predictive_coding_gate.py``).
+4. **## Why this design and not the alternatives** — explain the architectural choice. What was considered, what was rejected, why.
+5. **## What can go wrong** — failure modes the next reader should know about, with concrete symptoms.
+6. **## See also** — cross-links to related pages using `[[wiki/path]]` notation, plus specific source files.
+7. **## Primary sources** — if the topic touches research literature, cite the actual papers with full citations.
+"""
+
+
 WIKI_AUTHORING_PROMPT = """You are Opus 4.7 authoring a single wiki page for the Cortex persistent-memory MCP server.
 
 You are given a topic-cohesive cluster of PG memories (tool events, decisions, lessons, notes) plus the suggested wiki path and any existing related wiki pages for cross-linking.
@@ -324,6 +354,8 @@ You are given a topic-cohesive cluster of PG memories (tool events, decisions, l
 # Your task
 
 Author **one** curated wiki page in Markdown that follows the Cortex documentation conventions below. The page must be substantive (target 8-15 KB), with structure, prose, diagrams, and citations. Do **not** produce a mechanical template. Do **not** dump raw memory content; synthesise.
+
+The wiki is the durable record of how this project works AND of every task done on it. Pages of kind `adr` are the canonical task-record format — every completed task gets one, structured so a future reader can reconstruct: what triggered the work, what constraints applied, how it was solved, what was delivered, and what it enables. Pages of kind `reference` / `explanation` cover stable scopes (architecture, services, api, data-flow, operations) so a reader opening the wiki cold can understand the codebase end-to-end.
 
 # Output format
 
@@ -344,33 +376,25 @@ audience: [developer, ...]
 ---
 ```
 
-# Required structural sections (in this order)
+# Required structural sections
 
-1. **# <title>** — H1 matching frontmatter title.
-2. **Lead paragraph** — one paragraph that says what the page is and why a reader should care.
-3. **Sections explaining the topic**:
-   - Use ```mermaid fences for flowcharts, sequence diagrams, state diagrams when the topic involves dataflow or state transitions.
-   - Use tables for taxonomies, parameter lists, comparisons.
-   - Use ``` fences with language for code snippets.
-   - Cite specific source files with full paths (e.g. ``mcp_server/core/predictive_coding_gate.py``).
-4. **## Why this design and not the alternatives** — explain the architectural choice. What was considered, what was rejected, why.
-5. **## What can go wrong** — failure modes the next reader should know about, with concrete symptoms.
-6. **## See also** — cross-links to related pages using `[[wiki/path]]` notation, plus specific source files.
-7. **## Primary sources** — if the topic touches research literature, cite the actual papers with full citations.
+{kind_specific_sections}
 
 # Conventions
 
 - Write authoritative declarative prose. No filler ("It's worth noting that..."). State facts directly.
 - When a number is given, name its source ("p50 latency 125ms — measured in benchmarks/longmemeval/run_benchmark.py 2026-04").
 - When the topic has biological inspiration, name the paper that motivated the design.
-- Don't repeat what's already in [[reference/cortex/architecture-overview]] — link to it.
+- Don't repeat what's already in [[reference/{domain}/architecture-overview]] — link to it.
 - Each diagram must add information that the table or prose cannot convey efficiently.
 - No phrases like "in this section we will" — just say it.
+- Mandatory elements means *constraints*, not steps. A constraint says "MUST honour X"; a step says "did X".
 
 # The cluster
 
 **Topic**: {topic}
 **Suggested wiki path**: {suggested_path}
+**Suggested kind**: {kind}
 **Domain**: {domain}
 **Memory count**: {n_memories}
 **Top entities in cluster**: {entities}
@@ -388,6 +412,114 @@ Author the wiki page now. Output only the Markdown body, frontmatter first.
 """
 
 
+WIKI_COVERAGE_PROMPT = """You are Opus 4.7 authoring a structural wiki page for the Cortex persistent-memory MCP server.
+
+This is a **coverage-driven** job, not a cluster-driven one: the auto-curator found that the project `{domain}` has no substantive page for the scope `{scope_name}` ("{scope_title}"), and the wiki contract says every project must document this scope. Author the page from the source tree, the existing related pages, and any memories provided.
+
+# What this scope is
+
+{scope_description}
+
+# Output format
+
+Output **only** the wiki page body, starting with YAML frontmatter, then the body. No preamble, no explanation, no surrounding fences.
+
+# Frontmatter (required)
+
+```yaml
+---
+title: <short specific title — e.g. "{scope_title}: {domain}">
+kind: {kind}
+domain: {domain}
+status: living
+authored_by: Opus 4.7
+created: {today}
+last_reviewed: {today}
+audience: [developer, ...]
+scope: {scope_name}
+---
+```
+
+# Required structural sections (in this order)
+
+1. **# <title>** — H1 matching frontmatter title.
+2. **Lead paragraph** — one paragraph that states the scope of this page and what a reader will learn.
+3. **Body sections** specific to the scope. For:
+   - `architecture` — layers + dependency rule + a Mermaid diagram of the major subsystems; cite the directories that map to each layer.
+   - `services` — table or list of every major component / handler / module, with one-line responsibility statements and the file paths that define each.
+   - `api` — exhaustive enumeration of the public surface (CLI flags, HTTP endpoints, MCP tools, library functions) with one-line semantics and a stability flag.
+   - `data-flow` — a Mermaid sequence or flow diagram of one record's lifecycle through the system, with prose explaining each hop and the file that performs it.
+   - `operations` — how to deploy, monitor, and recover. Triggers → diagnosis → recovery → rollback. Failure modes with symptoms.
+4. **## See also** — cross-links to related pages using `[[wiki/path]]` notation.
+5. **## Source files** — the files in the codebase a reader should open to verify what this page says. Full paths.
+
+# Conventions
+
+- Walk the source tree if you need to ground the content; the wiki must reflect the codebase as it is, not as it was.
+- When a number is given, name its source.
+- Don't invent components that don't exist in the repo.
+- If a scope has nothing yet (e.g. the project has no HTTP API), say so explicitly with a one-paragraph "currently none" page rather than fabricating endpoints.
+
+# The job
+
+**Domain**: {domain}
+**Scope**: {scope_name} — {scope_title}
+**Suggested wiki path**: {suggested_path}
+**Suggested kind**: {kind}
+
+**Existing related wiki pages** (for cross-linking via `[[path]]`):
+{related_pages_block}
+
+**Supporting memories** (use as ground truth where they exist; otherwise consult the source tree):
+
+{memories_block}
+
+---
+
+Author the wiki page now. Output only the Markdown body, frontmatter first.
+"""
+
+
+def _memories_block(
+    contents: list[str], tags: list[list[str]], cap: int = MAX_MEMORIES_PER_PROMPT
+) -> str:
+    """Format a list of memory contents as labelled markdown sub-sections.
+
+    Each memory is capped at 1200 chars to keep the prompt within budget
+    while preserving enough context for the LLM to synthesise. The cap
+    is generous — a curated cluster of 20 memories at full size would
+    blow the context window of even Opus 4.7.
+    """
+    capped = contents[:cap]
+    mem_blocks: list[str] = []
+    for idx, content in enumerate(capped, 1):
+        t = tags[idx - 1] if idx - 1 < len(tags) else []
+        head = content[:1200].rstrip()
+        if len(content) > 1200:
+            head += "\n...[memory truncated, full content available via recall]"
+        tag_str = ", ".join(t) if t else "(no tags)"
+        mem_blocks.append(f"### Memory {idx} (tags: {tag_str})\n\n{head}")
+    return "\n\n".join(mem_blocks) if mem_blocks else "(none — cluster filtered out)"
+
+
+def _related_block(related_pages: list[str]) -> str:
+    if not related_pages:
+        return "(none yet — this is a fresh topic)"
+    return "\n".join(f"- [[{p}]]" for p in related_pages)
+
+
+def _kind_specific_sections(kind: str) -> str:
+    """Return the structural-sections instructions for the given kind.
+
+    ADR / task-record pages get the Entry/Mandatory/How/Result/Serves
+    requirement; everything else gets the generic Diátaxis-shaped
+    explanation/reference structure.
+    """
+    if kind == "adr":
+        return _ADR_TASK_RECORD_SECTIONS
+    return _GENERIC_STRUCTURE_SECTIONS
+
+
 def build_authoring_prompt(
     cluster: CurationCluster,
     related_pages: list[str],
@@ -401,25 +533,12 @@ def build_authoring_prompt(
     integration: ``curate_wiki`` returns the prompts for the in-session
     LLM, or a future ``llm_client.author_page(prompt)`` adapter sends
     them directly to the Anthropic API.
+
+    ADR clusters get the task-record section block (Entry / Mandatory /
+    How / Result / Serves) — this is how every completed task becomes a
+    durable causal record.
     """
-    today = today or "2026-05-17"
-    # Build memories block — truncate each memory body to fit within
-    # the prompt budget, but never to a misleading degree.
-    capped = cluster.memory_contents[:MAX_MEMORIES_PER_PROMPT]
-    mem_blocks: list[str] = []
-    for idx, content in enumerate(capped, 1):
-        tags = cluster.memory_tags[idx - 1] if idx - 1 < len(cluster.memory_tags) else []
-        head = content[:1200].rstrip()
-        if len(content) > 1200:
-            head += "\n...[memory truncated, full content available via recall]"
-        tag_str = (", ".join(tags) if tags else "(no tags)")
-        mem_blocks.append(f"### Memory {idx} (tags: {tag_str})\n\n{head}")
-    memories_block = "\n\n".join(mem_blocks) if mem_blocks else "(none — cluster filtered out)"
-
-    related_block = (
-        "\n".join(f"- [[{p}]]" for p in related_pages) if related_pages else "(none yet — this is a fresh topic)"
-    )
-
+    today = today or "2026-05-18"
     return WIKI_AUTHORING_PROMPT.format(
         kind=cluster.suggested_kind,
         domain=cluster.domain,
@@ -428,8 +547,45 @@ def build_authoring_prompt(
         suggested_path=cluster.suggested_path,
         n_memories=len(cluster.memory_ids),
         entities=", ".join(cluster.entities[:8]) or "(none extracted)",
-        related_pages_block=related_block,
-        memories_block=memories_block,
+        related_pages_block=_related_block(related_pages),
+        memories_block=_memories_block(
+            cluster.memory_contents, cluster.memory_tags
+        ),
+        kind_specific_sections=_kind_specific_sections(cluster.suggested_kind),
+    )
+
+
+def build_coverage_prompt(
+    scope_name: str,
+    scope_title: str,
+    scope_description: str,
+    suggested_kind: str,
+    suggested_path: str,
+    domain: str,
+    related_pages: list[str],
+    supporting_memories: list[str],
+    supporting_tags: list[list[str]],
+    today: str = "",
+) -> str:
+    """Prompt for a coverage-driven job (missing structural scope).
+
+    Coverage-driven jobs ask the LLM to author the architecture /
+    services / api / data-flow / operations page that *should* exist
+    for a project but doesn't. Unlike cluster-driven jobs, the memory
+    set is small or empty — the LLM is expected to consult the source
+    tree to ground the page.
+    """
+    today = today or "2026-05-18"
+    return WIKI_COVERAGE_PROMPT.format(
+        scope_name=scope_name,
+        scope_title=scope_title,
+        scope_description=scope_description,
+        kind=suggested_kind,
+        suggested_path=suggested_path,
+        domain=domain,
+        today=today,
+        related_pages_block=_related_block(related_pages),
+        memories_block=_memories_block(supporting_memories, supporting_tags),
     )
 
 
@@ -446,6 +602,287 @@ def build_jobs(
         prompt = build_authoring_prompt(cl, related, today=today)
         jobs.append(CurationJob(cluster=cl, prompt=prompt, related_pages=related))
     return jobs
+
+
+WIKI_REAUTHOR_PROMPT = """You are Opus 4.7 re-authoring an existing wiki page for the Cortex persistent-memory MCP server.
+
+The auto-curator detected drift between this page and the codebase. Your job is to refine, verify, and update the existing page so it once again matches the current source tree. Preserve every accurate claim; replace stale ones; fill gaps; do NOT delete sections the author wrote unless they are demonstrably false.
+
+# What drifted
+
+{drift_summary}
+
+# Your task
+
+Re-author the page in Markdown so:
+
+1. Every cited source file path resolves to an actual file in the codebase. Replace moved paths with current ones; remove citations of deleted files only when the referenced behaviour no longer exists; otherwise update to the new file path.
+2. The body matches the current code behaviour — read the cited files (and any new files that have appeared in the same module) before rewriting.
+3. Required sections for kind `{kind}` are present and substantive. For `adr`: Status, Entry, Mandatory elements, How, Result, Serves, Alternatives, References.
+4. Update the frontmatter `updated:` field to today, and `last_reviewed: {today}`.
+
+# Output format
+
+Output ONLY the wiki page body, starting with YAML frontmatter, then the body. No preamble, no surrounding fences, no explanation.
+
+# Existing page (for context — synthesise, do not blindly copy)
+
+```markdown
+{existing_body}
+```
+
+# Conventions
+
+- Same conventions as a fresh authoring job: authoritative declarative prose, citations with full paths, mermaid diagrams where dataflow benefits from one, no filler phrases.
+- "Refine and verify and update" means: cross-check claims against the current source. If a paragraph says "implemented via X" and X no longer exists, the paragraph is wrong — rewrite it from what actually exists.
+- If the page covers a removed feature in its entirety, do NOT silently delete the page. Instead, prefix the title with "(deprecated)" and add a one-paragraph note pointing to whatever replaced it. Pages with historical value stay.
+
+# The job
+
+**Wiki page**: `{wiki_path}`
+**Kind**: {kind}
+**Domain**: {domain}
+**Existing `updated`**: {last_updated}
+**Drift reasons**: {reasons}
+**Source root for verification**: {source_root}
+
+---
+
+Re-author the page now. Output only the Markdown body, frontmatter first.
+"""
+
+
+@dataclass
+class ReauthorJob:
+    """One re-authoring task for an existing wiki page.
+
+    Produced by ``build_reauthor_jobs`` from drift records. Shares the
+    wire shape of CurationJob / CoverageJob so the handler serialises
+    all three with one helper.
+    """
+
+    wiki_path: str
+    domain: str
+    kind: str
+    reasons: list[str]
+    prompt: str
+    cited_source_files: list[str] = field(default_factory=list)
+    missing_source_files: list[str] = field(default_factory=list)
+
+
+def build_reauthor_prompt(
+    drift,
+    existing_body: str,
+    source_root: str | None,
+    today: str = "",
+) -> str:
+    """Build the LLM prompt for a single drift case."""
+    today = today or "2026-05-18"
+    drift_lines: list[str] = []
+    for r in drift.reasons:
+        if r == "missing_source_file":
+            missing = ", ".join(drift.missing_source_files[:5]) or "(none listed)"
+            drift_lines.append(
+                f"- **Missing source files** — the page cites these but they "
+                f"don't exist under the current source root: {missing}"
+            )
+        elif r == "stale_content":
+            drift_lines.append(
+                f"- **Stale content** — page mtime is {drift.age_days:.0f} days "
+                "old and the page cites source files that may have changed."
+            )
+        elif r == "off_template":
+            drift_lines.append(
+                f"- **Off-template** — the body is missing one or more sections "
+                f"required for kind `{drift.kind}`. Restore the canonical structure."
+            )
+    summary = "\n".join(drift_lines) if drift_lines else "(none recorded)"
+
+    return WIKI_REAUTHOR_PROMPT.format(
+        drift_summary=summary,
+        wiki_path=drift.wiki_path,
+        kind=drift.kind or "explanation",
+        domain=drift.domain,
+        last_updated=drift.last_updated or "(unknown)",
+        reasons=", ".join(drift.reasons),
+        source_root=source_root or "(unresolved — verify against memory + repo)",
+        existing_body=existing_body[:4000]
+        + ("\n…[truncated]" if len(existing_body) > 4000 else ""),
+        today=today,
+    )
+
+
+def build_reauthor_jobs(
+    drifts: list,
+    wiki_root: str,
+    source_root_resolver,
+    today: str = "",
+) -> list[ReauthorJob]:
+    """Build authoring jobs for every drifted page.
+
+    ``source_root_resolver`` is a callable ``domain -> str | None``
+    (matches ``wiki_coverage._project_source_root``). Returns jobs in
+    input order — callers can sort by reason severity if desired.
+    """
+    import os as _os
+
+    jobs: list[ReauthorJob] = []
+    for d in drifts:
+        full = _os.path.join(wiki_root, d.wiki_path)
+        try:
+            with open(full, encoding="utf-8", errors="ignore") as fp:
+                text = fp.read()
+        except OSError:
+            continue
+        src_root = source_root_resolver(d.domain) if d.domain else None
+        prompt = build_reauthor_prompt(d, text, src_root, today=today)
+        jobs.append(
+            ReauthorJob(
+                wiki_path=d.wiki_path,
+                domain=d.domain,
+                kind=d.kind,
+                reasons=list(d.reasons),
+                prompt=prompt,
+                cited_source_files=list(d.cited_source_files),
+                missing_source_files=list(d.missing_source_files),
+            )
+        )
+    return jobs
+
+
+@dataclass
+class CoverageJob:
+    """One coverage-driven authoring task.
+
+    A coverage job exists when a project (domain) is missing a page for
+    a canonical structural scope (architecture / services / api /
+    data-flow / operations / decisions). The downstream LLM authors the
+    missing page from the source tree and any supporting memories.
+
+    Coverage jobs share the wire shape of ``CurationJob`` so the handler
+    serialises them uniformly. They differ in semantics: a coverage job
+    is *structural* (something every project needs) while a curation
+    job is *empirical* (this is what the user has been working on).
+    """
+
+    domain: str
+    scope_name: str
+    scope_title: str
+    suggested_kind: str
+    suggested_path: str
+    prompt: str
+    related_pages: list[str] = field(default_factory=list)
+    supporting_memory_ids: list[int] = field(default_factory=list)
+
+
+def build_coverage_jobs(
+    coverages: list,
+    existing_pages_by_topic: dict[str, list[str]] | None = None,
+    supporting_memories_by_domain: dict[str, list[dict]] | None = None,
+    today: str = "",
+) -> list[CoverageJob]:
+    """Build authoring jobs for every missing scope across every audited domain.
+
+    Inputs:
+      * ``coverages`` — list of ``DomainCoverage`` from
+        ``mcp_server.core.wiki_coverage.audit_all_domains``.
+      * ``existing_pages_by_topic`` — index used to suggest cross-links
+        (same shape as for ``build_jobs``).
+      * ``supporting_memories_by_domain`` — optional map of domain →
+        memories the LLM can use to ground the scope page. Coverage
+        jobs work even with no memories (the LLM consults source);
+        memories are a lift when available.
+
+    Returns coverage jobs sorted so the most structurally primary
+    scopes (architecture first, decisions last) are authored ahead of
+    derived ones — a reader benefits most from architecture being
+    written before services, which must be written before api, etc.
+    """
+    existing_pages_by_topic = existing_pages_by_topic or {}
+    supporting_memories_by_domain = supporting_memories_by_domain or {}
+    jobs: list[CoverageJob] = []
+    for cov in coverages:
+        domain = cov.domain
+        mems = supporting_memories_by_domain.get(domain, [])
+        mem_contents = [m.get("content") or "" for m in mems[:MAX_MEMORIES_PER_PROMPT]]
+        mem_tags = [m.get("tags") or [] for m in mems[:MAX_MEMORIES_PER_PROMPT]]
+        mem_ids = [m["id"] for m in mems if "id" in m]
+        for missing in cov.missing_scopes():
+            scope = missing.scope
+            related = _find_related_pages_for_scope(
+                domain, scope.name, existing_pages_by_topic
+            )
+            prompt = build_coverage_prompt(
+                scope_name=scope.name,
+                scope_title=scope.title,
+                scope_description=scope.description,
+                suggested_kind=scope.suggested_kind,
+                suggested_path=missing.suggested_path,
+                domain=domain,
+                related_pages=related,
+                supporting_memories=mem_contents,
+                supporting_tags=mem_tags,
+                today=today,
+            )
+            jobs.append(
+                CoverageJob(
+                    domain=domain,
+                    scope_name=scope.name,
+                    scope_title=scope.title,
+                    suggested_kind=scope.suggested_kind,
+                    suggested_path=missing.suggested_path,
+                    prompt=prompt,
+                    related_pages=related,
+                    supporting_memory_ids=mem_ids,
+                )
+            )
+    return jobs
+
+
+# Order of structural primacy — architecture first so a reader can
+# anchor every other scope against it. ``decisions`` last because it
+# accumulates organically from task-records.
+_SCOPE_PRIMACY: dict[str, int] = {
+    "architecture": 0,
+    "services": 1,
+    "api": 2,
+    "data-flow": 3,
+    "operations": 4,
+    "decisions": 5,
+}
+
+
+def sort_coverage_jobs(jobs: list[CoverageJob]) -> list[CoverageJob]:
+    """Return ``jobs`` sorted by (scope primacy, domain) so the most
+    foundational scopes are authored first.
+    """
+    return sorted(
+        jobs,
+        key=lambda j: (_SCOPE_PRIMACY.get(j.scope_name, 99), j.domain),
+    )
+
+
+def _find_related_pages_for_scope(
+    domain: str,
+    scope_name: str,
+    existing_pages_by_topic: dict[str, list[str]],
+) -> list[str]:
+    """Find existing wiki pages that mention the domain or the scope name.
+
+    Coverage pages benefit from cross-linking to the project's existing
+    pages so the new page integrates rather than floating alone.
+    """
+    keys = {domain.lower(), scope_name.lower()}
+    related: list[str] = []
+    seen: set[str] = set()
+    for topic, paths in existing_pages_by_topic.items():
+        t = topic.lower()
+        if any(k in t for k in keys):
+            for p in paths:
+                if p not in seen:
+                    related.append(p)
+                    seen.add(p)
+    return related[:6]
 
 
 def _find_related_pages(

@@ -77,11 +77,40 @@ def _cache_roots() -> list[Path]:
     return roots
 
 
+# Subtrees that must propagate from the dev source into every plugin /
+# marketplace cache so the running plugin picks up code, UI, prompts,
+# slash-commands, and lifecycle hooks. Without this list, edits to
+# ``agents/cortex-wiki-groomer.md`` or new skill files would land in
+# the repo but never reach the plugin Claude Code actually loads.
+#
+# 2026-05-18 (user direction: "update marketplace cache sync"): added
+# ``agents``, ``skills``, ``commands``, and ``hooks.json`` to the
+# previously code+ui-only sync. The groomer policy change earlier this
+# turn was invisible to the live plugin until this expansion landed.
+_SYNC_SUBTREES: tuple[str, ...] = (
+    "mcp_server",
+    "ui",
+    "agents",
+    "skills",
+    "commands",
+    "scripts",
+)
+
+# Single-file artefacts that also need to propagate (Claude Code reads
+# these from the plugin root).
+_SYNC_FILES: tuple[str, ...] = (
+    "hooks.json",
+    "plugin.json",
+    "CLAUDE.md",
+    "README.md",
+)
+
+
 def _sync(src: Path) -> int:
     rsync = shutil.which("rsync")
     count = 0
     for dst in _cache_roots():
-        for sub in ("mcp_server", "ui"):
+        for sub in _SYNC_SUBTREES:
             s = src / sub
             d = dst / sub
             if not s.is_dir():
@@ -98,6 +127,15 @@ def _sync(src: Path) -> int:
                     if d.exists():
                         shutil.rmtree(d, ignore_errors=True)
                     shutil.copytree(s, d, symlinks=True)
+            except Exception:
+                continue
+        for fname in _SYNC_FILES:
+            s = src / fname
+            d = dst / fname
+            if not s.is_file():
+                continue
+            try:
+                shutil.copy2(s, d)
             except Exception:
                 continue
         count += 1
