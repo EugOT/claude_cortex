@@ -1,62 +1,99 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 340" font-family="Inter, -apple-system, system-ui, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 540" font-family="Inter, -apple-system, system-ui, sans-serif">
   <defs>
     <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
       <path d="M0,0 L8,3 L0,6" fill="#64748b"/>
     </marker>
+    <marker id="arr-pink" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#ec4899"/>
+    </marker>
+    <marker id="arr-gold" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#daa520"/>
+    </marker>
   </defs>
 
-  <rect width="500" height="340" rx="12" fill="#0f172a"/>
+  <rect width="720" height="540" rx="12" fill="#0f172a"/>
+
+  <!-- Title -->
+  <text x="360" y="28" text-anchor="middle" fill="#e2e8f0" font-size="14" font-weight="600">Cortex Clean Architecture — 3.17.0</text>
+  <text x="360" y="46" text-anchor="middle" fill="#64748b" font-size="10">Inner layers never import outer layers; handlers compose core + infrastructure</text>
 
   <!-- server/ -->
-  <rect x="185" y="16" width="130" height="36" rx="4" fill="#1e293b" stroke="#94a3b8" stroke-width="1"/>
-  <text x="250" y="39" text-anchor="middle" fill="#94a3b8" font-size="12" font-weight="500">server/</text>
+  <rect x="270" y="62" width="180" height="42" rx="5" fill="#1e293b" stroke="#94a3b8" stroke-width="1"/>
+  <text x="360" y="80" text-anchor="middle" fill="#cbd5e1" font-size="13" font-weight="600">server/</text>
+  <text x="360" y="96" text-anchor="middle" fill="#64748b" font-size="9">HTTP standalone · wiki API · viz · 4 modules</text>
 
-  <line x1="250" y1="52" x2="250" y2="72" stroke="#64748b" stroke-width="1.2" marker-end="url(#arr)"/>
-  <text x="268" y="65" fill="#64748b" font-size="8">dispatch</text>
+  <!-- arrow down -->
+  <line x1="360" y1="104" x2="360" y2="128" stroke="#64748b" stroke-width="1.4" marker-end="url(#arr)"/>
+  <text x="378" y="119" fill="#64748b" font-size="8">dispatch</text>
 
   <!-- handlers/ -->
-  <rect x="165" y="76" width="170" height="40" rx="4" fill="#1e293b" stroke="#f59e0b" stroke-width="1.5"/>
-  <text x="250" y="101" text-anchor="middle" fill="#fbbf24" font-size="13" font-weight="600">handlers/</text>
+  <rect x="250" y="132" width="220" height="46" rx="5" fill="#1e293b" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="360" y="153" text-anchor="middle" fill="#fbbf24" font-size="13" font-weight="600">handlers/ (composition roots)</text>
+  <text x="360" y="170" text-anchor="middle" fill="#64748b" font-size="9">91+ tool / cycle handlers · 49 MCP-exposed</text>
 
   <!-- Two arrows from handlers -->
-  <line x1="210" y1="116" x2="140" y2="155" stroke="#64748b" stroke-width="1.2" marker-end="url(#arr)"/>
-  <text x="155" y="138" fill="#64748b" font-size="8">compose</text>
+  <line x1="290" y1="178" x2="180" y2="220" stroke="#64748b" stroke-width="1.4" marker-end="url(#arr)"/>
+  <text x="200" y="205" fill="#64748b" font-size="8">compose pure logic</text>
 
-  <line x1="290" y1="116" x2="360" y2="155" stroke="#64748b" stroke-width="1.2" marker-end="url(#arr)"/>
-  <text x="310" y="138" fill="#64748b" font-size="8">wire</text>
+  <line x1="430" y1="178" x2="540" y2="220" stroke="#64748b" stroke-width="1.4" marker-end="url(#arr)"/>
+  <text x="455" y="205" fill="#64748b" font-size="8">wire I/O adapters</text>
 
   <!-- core/ -->
-  <rect x="55" y="158" width="170" height="40" rx="4" fill="#1e293b" stroke="#22c55e" stroke-width="1.5"/>
-  <text x="140" y="183" text-anchor="middle" fill="#86efac" font-size="13" font-weight="600">core/</text>
+  <rect x="40" y="224" width="280" height="58" rx="5" fill="#1e293b" stroke="#22c55e" stroke-width="1.6"/>
+  <text x="180" y="246" text-anchor="middle" fill="#86efac" font-size="13" font-weight="600">core/</text>
+  <text x="180" y="262" text-anchor="middle" fill="#64748b" font-size="9">neuroscience · retrieval · wiki curation</text>
+  <text x="180" y="275" text-anchor="middle" fill="#86efac" font-size="10" font-weight="500">175+ modules · pure logic · zero I/O</text>
 
   <!-- infrastructure/ -->
-  <rect x="275" y="158" width="170" height="40" rx="4" fill="#1e293b" stroke="#06b6d4" stroke-width="1.5"/>
-  <text x="360" y="183" text-anchor="middle" fill="#67e8f9" font-size="13" font-weight="600">infrastructure/</text>
+  <rect x="400" y="224" width="280" height="58" rx="5" fill="#1e293b" stroke="#06b6d4" stroke-width="1.6"/>
+  <text x="540" y="246" text-anchor="middle" fill="#67e8f9" font-size="13" font-weight="600">infrastructure/</text>
+  <text x="540" y="262" text-anchor="middle" fill="#64748b" font-size="9">PostgreSQL · pgvector · embeddings · MCP client</text>
+  <text x="540" y="275" text-anchor="middle" fill="#67e8f9" font-size="10" font-weight="500">33 modules · all I/O</text>
 
-  <!-- Both point to shared/ -->
-  <line x1="140" y1="198" x2="220" y2="245" stroke="#64748b" stroke-width="1.2" marker-end="url(#arr)"/>
-  <text x="158" y="228" fill="#64748b" font-size="8">import</text>
+  <!-- Wiki curation subsystem callout (inside core) -->
+  <rect x="60" y="294" width="240" height="80" rx="4" fill="#0a1d10" stroke="#daa520" stroke-width="1.2" stroke-dasharray="3,2"/>
+  <text x="180" y="310" text-anchor="middle" fill="#daa520" font-size="10" font-weight="600">Wiki curation subsystem (3.17.0)</text>
+  <text x="180" y="324" text-anchor="middle" fill="#94a3b8" font-size="8">wiki_coverage · wiki_curation_gaps</text>
+  <text x="180" y="335" text-anchor="middle" fill="#94a3b8" font-size="8">wiki_drift · wiki_file_doc_skeleton</text>
+  <text x="180" y="346" text-anchor="middle" fill="#94a3b8" font-size="8">wiki_coverage_dashboard · auto_task_record</text>
+  <text x="180" y="357" text-anchor="middle" fill="#94a3b8" font-size="8">wiki_stub_detector · auto_curator</text>
+  <text x="180" y="368" text-anchor="middle" fill="#daa520" font-size="8" font-weight="500">42 canonical scopes · 14 file-doc sections</text>
 
-  <line x1="360" y1="198" x2="280" y2="245" stroke="#64748b" stroke-width="1.2" marker-end="url(#arr)"/>
-  <text x="332" y="228" fill="#64748b" font-size="8">import</text>
+  <!-- shared/ + errors/ + validation/ row -->
+  <rect x="200" y="394" width="160" height="40" rx="5" fill="#1e293b" stroke="#64748b" stroke-width="1"/>
+  <text x="280" y="412" text-anchor="middle" fill="#cbd5e1" font-size="12" font-weight="600">shared/</text>
+  <text x="280" y="425" text-anchor="middle" fill="#64748b" font-size="9">11 modules · stdlib only</text>
 
-  <!-- shared/ -->
-  <rect x="175" y="248" width="150" height="36" rx="4" fill="#1e293b" stroke="#64748b" stroke-width="1"/>
-  <text x="250" y="271" text-anchor="middle" fill="#94a3b8" font-size="12" font-weight="500">shared/</text>
+  <rect x="370" y="394" width="160" height="40" rx="5" fill="#1e293b" stroke="#64748b" stroke-width="1"/>
+  <text x="450" y="412" text-anchor="middle" fill="#cbd5e1" font-size="12" font-weight="600">errors/ · validation/</text>
+  <text x="450" y="425" text-anchor="middle" fill="#64748b" font-size="9">exception types · arg schemas</text>
 
-  <!-- hooks/ (separate) -->
-  <rect x="16" y="248" width="120" height="36" rx="4" fill="#1e293b" stroke="#ec4899" stroke-width="1.2"/>
-  <text x="76" y="271" text-anchor="middle" fill="#f9a8d4" font-size="12" font-weight="500">hooks/</text>
+  <!-- arrows into shared -->
+  <line x1="180" y1="282" x2="245" y2="394" stroke="#64748b" stroke-width="1.2" marker-end="url(#arr)"/>
+  <line x1="540" y1="282" x2="315" y2="394" stroke="#64748b" stroke-width="1.2" marker-end="url(#arr)"/>
 
-  <line x1="76" y1="248" x2="100" y2="198" stroke="#ec4899" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arr)"/>
-  <line x1="76" y1="248" x2="325" y2="198" stroke="#ec4899" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arr)"/>
+  <!-- hooks/ (autonomous loop entry) — left side -->
+  <rect x="40" y="394" width="140" height="40" rx="5" fill="#1e293b" stroke="#ec4899" stroke-width="1.5"/>
+  <text x="110" y="412" text-anchor="middle" fill="#f9a8d4" font-size="12" font-weight="600">hooks/</text>
+  <text x="110" y="425" text-anchor="middle" fill="#64748b" font-size="9">9 hooks · SessionStart spawn</text>
 
-  <!-- Annotations -->
-  <text x="140" y="310" text-anchor="middle" fill="#22c55e" font-size="9">108 modules</text>
-  <text x="140" y="322" text-anchor="middle" fill="#64748b" font-size="8">pure logic, zero I/O</text>
+  <!-- dashed pink arrows from hooks into core + infra -->
+  <line x1="110" y1="394" x2="180" y2="284" stroke="#ec4899" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arr-pink)"/>
+  <line x1="110" y1="394" x2="445" y2="284" stroke="#ec4899" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arr-pink)"/>
 
-  <text x="360" y="310" text-anchor="middle" fill="#06b6d4" font-size="9">21 modules</text>
-  <text x="360" y="322" text-anchor="middle" fill="#64748b" font-size="8">PostgreSQL, embeddings</text>
+  <!-- Autonomous loop callout (right side) -->
+  <rect x="550" y="394" width="140" height="40" rx="5" fill="#1e293b" stroke="#daa520" stroke-width="1.5"/>
+  <text x="620" y="411" text-anchor="middle" fill="#daa520" font-size="11" font-weight="600">consolidate_background</text>
+  <text x="620" y="425" text-anchor="middle" fill="#64748b" font-size="9">every 6h · drains queue</text>
 
-  <text x="250" y="298" text-anchor="middle" fill="#94a3b8" font-size="9">11 modules</text>
+  <!-- gold dashed arrow from hooks → consolidate -->
+  <line x1="180" y1="414" x2="550" y2="414" stroke="#daa520" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arr-gold)"/>
+  <text x="365" y="408" text-anchor="middle" fill="#daa520" font-size="8">stamp-gated spawn</text>
+
+  <!-- Dependency rule footer -->
+  <text x="360" y="465" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="500">Dependency rule (enforced by code-reviewer + CI):</text>
+  <text x="360" y="481" text-anchor="middle" fill="#64748b" font-size="9">shared → stdlib only · core → shared · infrastructure → shared · validation → shared+errors</text>
+  <text x="360" y="495" text-anchor="middle" fill="#64748b" font-size="9">handlers → core + infrastructure + shared + validation + errors · server → handlers + errors</text>
+  <text x="360" y="509" text-anchor="middle" fill="#64748b" font-size="9">hooks → infrastructure + core + shared (background-loop entry points)</text>
+  <text x="360" y="525" text-anchor="middle" fill="#94a3b8" font-size="9" font-style="italic">Violations block PR · exceptions require ADR with human approval</text>
 </svg>
