@@ -408,6 +408,191 @@ SCOPES: Final[tuple[Scope, ...]] = (
         directories=("guides", "how-to"),
         suggested_kind="how-to",
     ),
+    Scope(
+        name="configuration-reference",
+        title="Configuration reference",
+        description=(
+            "Exhaustive table of every configurable knob: every "
+            "environment variable, every config-file key, every CLI "
+            "flag, every plugin setting. Columns: name | type | default "
+            "| scope (process/session/global) | what it controls | "
+            "valid values. Distinct from the installation guide (which "
+            "is task-oriented step-by-step); this is the reference for "
+            "people who already know what they're doing."
+        ),
+        anchor_filenames=(
+            "configuration-reference.md",
+            "config-reference.md",
+            "settings.md",
+            "env-vars.md",
+        ),
+        directories=("reference", "guides"),
+        suggested_kind="reference",
+    ),
+    Scope(
+        name="security",
+        title="Security model & hardening",
+        description=(
+            "The project's threat model + security posture. What "
+            "secrets the project handles, how they're stored, what "
+            "isolation guarantees exist, who can do what, the "
+            "attack surface, mitigations in place, and the hardening "
+            "checklist for production deployment. Sourced from "
+            "security ADRs + audit findings. The page security review "
+            "boards consult."
+        ),
+        anchor_filenames=(
+            "security.md",
+            "SECURITY.md",
+            "threat-model.md",
+            "hardening.md",
+        ),
+        directories=("guides", "reference"),
+        suggested_kind="reference",
+    ),
+    Scope(
+        name="performance",
+        title="Performance characteristics & tuning",
+        description=(
+            "Measured throughput / latency / resource consumption "
+            "characteristics, with the benchmarks that produced them. "
+            "Tuning knobs and when to turn each one. Capacity planning "
+            "advice. Profiling instructions. Failure modes under load. "
+            "Distinct from operations (which covers runbook recovery) — "
+            "this covers expected steady-state behaviour and how to "
+            "shape it."
+        ),
+        anchor_filenames=(
+            "performance.md",
+            "benchmarks.md",
+            "tuning.md",
+            "scaling.md",
+        ),
+        directories=("guides", "reference"),
+        suggested_kind="reference",
+    ),
+    Scope(
+        name="migration",
+        title="Migration & upgrade",
+        description=(
+            "Version-to-version upgrade paths: what changed, what's "
+            "deprecated, what breaks, the script or command for each "
+            "transition, rollback procedure. Plus migration FROM "
+            "competing tools (if applicable) — the data-import or "
+            "config-translation paths. Distinct from CI/CD release "
+            "(which covers OUR release process); this is the USER's "
+            "upgrade experience."
+        ),
+        anchor_filenames=(
+            "migration.md",
+            "upgrade.md",
+            "changelog.md",
+            "CHANGELOG.md",
+        ),
+        directories=("guides", "how-to"),
+        suggested_kind="how-to",
+    ),
+    Scope(
+        name="debugging",
+        title="Debugging guide",
+        description=(
+            "How to figure out what's happening at runtime: where logs "
+            "go, log-level controls, the verbose / debug flags, the "
+            "diagnostic commands, how to read a stack trace from this "
+            "project's code, how to attach a debugger, the trace IDs "
+            "/ correlation IDs and how to follow them. Distinct from "
+            "troubleshooting (which is symptom → fix table) — this is "
+            "the methodology of investigation."
+        ),
+        anchor_filenames=(
+            "debugging.md",
+            "diagnostics.md",
+            "logging.md",
+            "observability.md",
+        ),
+        directories=("guides", "how-to"),
+        suggested_kind="how-to",
+    ),
+    Scope(
+        name="testing",
+        title="Testing guide",
+        description=(
+            "How to write and run tests for this project: the test "
+            "layout (unit / integration / e2e), conventions for "
+            "fixtures + mocks + factories, coverage targets per layer, "
+            "the test commands, how to debug a flaky test, how to add "
+            "a new test category. Distinct from CI/CD (which covers "
+            "the pipeline that runs tests) — this is the developer's "
+            "test-authoring workflow."
+        ),
+        anchor_filenames=(
+            "testing.md",
+            "tests.md",
+            "test-strategy.md",
+            "writing-tests.md",
+        ),
+        directories=("guides", "how-to"),
+        suggested_kind="how-to",
+    ),
+    Scope(
+        name="extending",
+        title="Extending the project",
+        description=(
+            "Adding new features, plugins, custom strategies, or "
+            "integrations. Where the extension points are, what the "
+            "interfaces look like, the worked example of adding one. "
+            'For projects with no extension surface, write "this '
+            'project has no extension API" with one sentence on why '
+            "and where to fork instead."
+        ),
+        anchor_filenames=(
+            "extending.md",
+            "plugins.md",
+            "customization.md",
+            "extension-points.md",
+        ),
+        directories=("guides", "how-to"),
+        suggested_kind="how-to",
+    ),
+    Scope(
+        name="recipes",
+        title="Recipes & cookbook",
+        description=(
+            'Common task walkthroughs — "how do I X?" answered with '
+            "the exact commands and code. 8–20 short worked examples "
+            "ordered from beginner to advanced, each one self-"
+            "contained with copy-pasteable steps + expected output. "
+            "The page users land on when they ask the project a "
+            "concrete question."
+        ),
+        anchor_filenames=(
+            "recipes.md",
+            "cookbook.md",
+            "examples.md",
+            "patterns.md",
+        ),
+        directories=("guides", "how-to"),
+        suggested_kind="how-to",
+    ),
+    Scope(
+        name="glossary",
+        title="Glossary",
+        description=(
+            "Every project-specific term + acronym defined in one "
+            "place. Sorted alphabetically. Each entry: term | "
+            "definition | where in the codebase to see it used | "
+            "what it is NOT (when there's a common confusion). The "
+            "page a non-technical reader and a new engineer both "
+            "consult first."
+        ),
+        anchor_filenames=(
+            "glossary.md",
+            "terminology.md",
+            "definitions.md",
+        ),
+        directories=("reference", "guides"),
+        suggested_kind="reference",
+    ),
 )
 
 
