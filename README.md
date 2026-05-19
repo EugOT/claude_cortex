@@ -364,17 +364,21 @@ Each page renders with:
 
 ## Agent Integration
 
-Cortex works with teams of specialized agents. Each agent has scoped memory (`agent_topic`) while sharing critical decisions across the team — based on Wegner's transactive memory theory (1987): teams store more knowledge than individuals because each member specializes.
+Cortex works with teams of specialized agents — and in 3.17.0 it **uses one itself**. The headless authoring worker is a Claude agent that wakes up every six hours and drains the wiki curation queue: it reads page metadata, queries the codebase-intelligence MCP tools to ground each section in real call-graph facts, then invokes `claude -p` (your existing Claude Code credentials, no API key) to author the missing content. The result is autonomous documentation maintained by the same agent infrastructure your team already uses.
+
+Each agent — Cortex's worker included — has scoped memory (`agent_topic`) while sharing critical decisions across the team — based on Wegner's transactive memory theory (1987): teams store more knowledge than individuals because each member specializes.
 
 <p align="center">
 <img src="docs/diagram-team-memory.svg" alt="Transactive Memory System" width="80%"/>
 </p>
 
-**Specialization** — each agent writes to its own topic. Engineer's debugging notes don't clutter tester's recall.
+**Specialization** — each agent writes to its own topic. Engineer's debugging notes don't clutter tester's recall. The headless wiki worker writes to `agent_topic=wiki-curation` so its drafts don't pollute interactive recall.
 
-**Coordination** — decisions auto-protect and propagate. When engineer decides "use Redis over Memcached," every agent sees it at next session start.
+**Coordination** — decisions auto-protect and propagate. When engineer decides "use Redis over Memcached," every agent sees it at next session start. ADRs the worker drafts at session end (Entry / Mandatory / How / Result / Serves) are part of this propagation: the task-record IS the cross-agent shared memory.
 
-**Directory** — entity-based queries span all topics. "What do we know about the reranker?" returns results from engineer, tester, and researcher.
+**Directory** — entity-based queries span all topics. "What do we know about the reranker?" returns results from engineer, tester, researcher, AND the wiki worker's drafts naming the reranker.
+
+**Autonomous wiki maintenance.** SessionStart auto-spawns the consolidate hook every six hours. The hook reads `~/.claude/methodology/.last_consolidate`; if older than the TTL, it spawns a detached subprocess that drains the curation-gap queue. No cron, no daemon, no manual invocation — the agent runs because you open Claude Code, and stops when nothing's left to author.
 
 Works with any custom agents. See [zetetic-team-subagents](https://github.com/cdeust/zetetic-team-subagents) for a ready-made team of **27 specialists** — each with scoped memory that doesn't clutter the others.
 
@@ -382,7 +386,7 @@ Works with any custom agents. See [zetetic-team-subagents](https://github.com/cd
 
 ## Architecture
 
-Clean Architecture with strict dependency rules. Inner layers never import outer layers.
+Clean Architecture with strict dependency rules. Inner layers never import outer layers. The 3.17.0 release added the autonomous wiki-curation subsystem on top of the existing layers without crossing any boundary.
 
 <p align="center">
 <img src="docs/diagram-architecture.svg" alt="Clean Architecture layers" width="80%"/>
@@ -390,18 +394,33 @@ Clean Architecture with strict dependency rules. Inner layers never import outer
 
 | Layer | What lives here | Count |
 |---|---|---|
-| **core/** | Neuroscience + retrieval logic | 118 modules |
+| **shared/** | Pure utilities (text, hash, similarity, types) | 11 modules |
+| **core/** | Neuroscience + retrieval + wiki curation logic | 175+ modules |
 | **context_assembly/** | Structured context assembler | 10 modules |
-| **infrastructure/** | PostgreSQL, embeddings, file I/O | 33 modules |
-| **handlers/** | MCP tools | 62 tools |
-| **hooks/** | Lifecycle automation | 7 hooks |
+| **infrastructure/** | PostgreSQL, embeddings, file I/O, MCP client | 33 modules |
+| **handlers/** | MCP tools + consolidation cycles | 91+ tools / 49 MCP-exposed |
+| **hooks/** | Lifecycle automation (incl. autonomous consolidate spawn) | 9 hooks |
+| **server/** | HTTP standalone + wiki API + viz | 4 modules |
 | **observability/** | Prometheus text-format metrics | 1 module |
+
+**Wiki curation subsystem (3.17.0):**
+
+* `core/wiki_coverage.py` — 42 canonical project scopes, per-domain audit, file-level coverage, anchor freshness window.
+* `core/wiki_curation_gaps.py` — 14 canonical file-doc sections, gap detection.
+* `core/wiki_drift.py` — drift detection (missing source citations, stale mtime, off-template).
+* `core/wiki_stub_detector.py` — placeholder + shallow-content scoring.
+* `core/wiki_file_doc_skeleton.py` — generates skeletons with visible gap markers.
+* `core/wiki_coverage_dashboard.py` — per-project `wiki/_dashboards/<project>.md` regenerated each cycle.
+* `core/auto_task_record.py` + `handlers/auto_task_record_writer.py` — session-end auto-draft of ADRs with Entry/Mandatory/How/Result/Serves.
+* `handlers/consolidation/wiki_maintenance.py` — purge + audit + dashboard generation.
+* `handlers/consolidation/headless_authoring.py` — drains the gap queue via `claude -p` with codebase-intelligence MCP tools grounding each section.
+* `hooks/consolidate_background.py` + `session_start.py` — autonomous 6-hour spawn loop.
 
 **Storage:** PostgreSQL 15+ with pgvector (HNSW) and pg_trgm. All retrieval in PL/pgSQL stored procedures.
 
 **Concurrency (v3.13+):** `psycopg_pool.ConnectionPool` with two latency classes — `interactive_pool` (min=2, max=8) for recall/remember/anchor, `batch_pool` (min=1, max=2) for consolidate/ingest. Tool handlers run on worker threads via `asyncio.to_thread`; per-tool admission semaphores bound fan-out. Heat is a *function* computed at read time by `effective_heat()` — homeostatic writes one scalar per domain per run instead of N rows.
 
-**Configuration:** Set `DATABASE_URL` (default: `postgresql://localhost:5432/cortex`). All parameters use `CORTEX_MEMORY_` prefix — see `mcp_server/infrastructure/memory_config.py` for the full list (~40 parameters).
+**Configuration:** Set `DATABASE_URL` (default: `postgresql://localhost:5432/cortex`). All parameters use `CORTEX_MEMORY_` prefix — see `mcp_server/infrastructure/memory_config.py` for the full list (~40 parameters). Wiki cycle TTL is `CORTEX_CONSOLIDATE_TTL_HOURS` (default 6h).
 
 ---
 
