@@ -219,9 +219,16 @@ def _count_pending_curations(conn) -> int:
     try:
         from mcp_server.core.auto_curator import count_pending_clusters
 
+        # `effective_heat` is a PL/pgSQL function, not a column —
+        # mirror the form used in _fetch_hot_memories above. Without
+        # the (m, NOW()) call form, Postgres rejects with
+        # `column "effective_heat" does not exist` and the schema
+        # integrity test catches it.
         rows = conn.execute(
-            "SELECT id, content, tags, effective_heat, created_at, domain "
-            "FROM memories "
+            "SELECT id, content, tags, "
+            "effective_heat(m, NOW()) AS effective_heat, "
+            "created_at, domain "
+            "FROM memories m "
             "WHERE NOT is_stale "
             "ORDER BY last_accessed DESC NULLS LAST, created_at DESC "
             "LIMIT 500"

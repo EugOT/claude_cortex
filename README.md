@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/tests-2500_passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/citations-45_papers-orange.svg" alt="Citations">
-  <img src="https://img.shields.io/badge/version-3.15.0-brightgreen.svg" alt="Version 3.15.0">
+  <img src="https://img.shields.io/badge/version-3.17.0-brightgreen.svg" alt="Version 3.17.0">
   <a href="https://glama.ai/mcp/servers/cdeust/Cortex"><img src="https://glama.ai/mcp/servers/cdeust/Cortex/badges/score.svg" alt="Glama score: security A, license A"></a>
 </p>
 
@@ -30,7 +30,9 @@ Claude Code forgets you every time you close the tab. Every architecture decisio
 
 Cortex is a persistent memory engine for Claude Code built on computational neuroscience. It remembers what you worked on, how you think, what you decided and why. Not as a dumb text dump shoved into context, but as a living memory system that consolidates, forgets intelligently, and reconstructs the right context at the right time.
 
-**26 biological mechanisms. 47 MCP tools. 9 automatic hooks. Runs entirely on your machine. PostgreSQL + pgvector.**
+**26 biological mechanisms. 49 MCP tools. 9 automatic hooks. Autonomous per-project wiki — 15 canonical scopes × 13 file sections, authored by a headless `claude -p` worker on a 6-hour cycle without you. Runs entirely on your machine. PostgreSQL + pgvector.**
+
+**v3.17.0 — autonomous wiki curation**: the wiki is no longer a memory dump but a self-curating per-project knowledge base. SessionStart auto-spawns a background `consolidate` every 6 hours; a headless authoring worker reads the curation-gap queue, calls codebase-intelligence MCP tools (`codebase_context`, `codebase_impact`, `codebase_query`) to ground the explanation in the actual call graph, then writes each missing section via `claude -p` (your existing credentials, no API key). Missing anchor pages — architecture / services / api / data-flow / operations / decisions / PRD — are authored from the source tree on demand. Every file-doc page exposes its remaining gaps inline with descriptions of what should go in each. Per-project `wiki/_dashboards/<project>.md` shows slot-fill rate every cycle. `[[wiki/path]]` cross-links resolve; mermaid diagrams have a 🔍 lens with zoom + pan. [Release notes →](https://github.com/cdeust/Cortex/releases/tag/v3.17.0)
 
 **v3.15.0 — verification campaign + arXiv-ready papers**: 45 per-mechanism ablation rows across LongMemEval-S (17 rows, n=500) and LoCoMo (14 rows × 2 sweeps, n=1986). Headline numbers stay verified — LongMemEval R@10 = 98.4% / MRR = 0.9124, LoCoMo R@10 = 94.3% / MRR = 0.8279 — and every figure now traces to a JSON in `benchmarks/results/ablation/` with code SHAs, dirty flags, and per-row category breakdowns. The thermodynamic memory paper (`docs/arxiv-thermodynamic/main.pdf`, 30 pages, all 45 citations resolved) and the structured context assembly paper (`docs/arxiv-context-assembly/main.pdf`, 37 pages) are arXiv-ready. Two production fixes surfaced during verification: consolidation cadence is now ingest-relative instead of wall-clock (recovers MRR 0.222 → 0.8264 on backdated corpora), and the plasticity ablation no-op preserves the result-shape contract (no more silent KeyError). HOPFIELD, HDC, SPREADING_ACTIVATION, DENDRITIC_CLUSTERS, EMOTIONAL_RETRIEVAL, MOOD_CONGRUENT_RERANK, and RECONSOLIDATION are now wired end-to-end on the production read path; 23 mechanisms have CORTEX_ABLATE_<MECH> hooks reading at the hot path. BEAM-10M LLM head-to-head harness scaffolded at `benchmarks/llm_head_to_head/`. [Release notes →](https://github.com/cdeust/Cortex/releases/tag/v3.15.0)
 
@@ -260,17 +262,31 @@ Anchored memories get maximum protection. They always survive compaction, no mat
 
 ---
 
-## Auto-generated project wiki
+## Autonomous project wiki
 
-Every time you store a memory, Cortex doesn't just save text — it extracts entities, builds relationships, detects schemas, and links the new memory into a growing knowledge graph. Over time, this becomes a **living wiki of your project**: decisions and their rationale, patterns that emerged, lessons learned, architectural constraints, and how they all connect.
+Cortex's wiki is **a self-curating per-project knowledge base** — not a memory dump. Every project the registry knows about is driven toward **15 canonical documentation slots** (product overview, architecture, services, code walkthrough, public API, data flow, commands, MCP integration, tooling, CI/CD, AI usage, operations, PRDs, decisions, onboarding) and every source file gets **13 canonical sections** (Purpose, Public API, Dependencies, Callers, How it works, Invariants, What can go wrong, Tests, Sequence diagram, Parameters, Request example, Response example, See also).
 
-Explore it through:
-- **`/cortex-visualize`** — opens the interactive workflow graph in your browser (Graph is the default view; Knowledge / Wiki / Board / Pipeline tabs over the same data)
-- **`get_causal_chain`** — trace how one decision led to another
-- **`get_project_story`** — auto-generated narrative of your project's evolution
-- **`detect_gaps`** — find areas where knowledge is thin or isolated
+What makes it autonomous:
 
-This isn't documentation you write. It's documentation that writes itself from how you work.
+- **`SessionStart` hook auto-spawns a background `consolidate` cycle** every 6 hours (stamp at `~/.claude/methodology/.last_consolidate`). You never run consolidate by hand.
+- **Curation-gap detector + headless authoring worker.** Every file-doc page declares the sections it's missing in frontmatter (`curation_gaps:`); a worker drains those gaps by invoking `claude -p` (your existing Claude Code credentials, no API key) which uses the codebase intelligence MCP tools — `codebase_context`, `codebase_impact`, `codebase_ownership`, `codebase_query` — to ground each section in the actual call graph before writing.
+- **Missing-anchor authoring.** When a project has no architecture / services / api / data-flow / operations / ADR / PRD page, the worker authors them from the source tree (top-level structure + README + manifest + `CLAUDE.md`) with the same MCP-tool grounding.
+- **Drift detection.** Pages whose cited source files moved, whose mtime is stale (default >60 days), or whose body is off-template are flagged and re-authored in place.
+- **Visible curation gaps.** Open any file-doc page in the wiki view and a yellow banner shows `⚠ Page N% curated — M sections still missing` listing exactly what's not written and what should go there. Deletion is never the policy; visibility is.
+- **Per-project dashboards** under `wiki/_dashboards/<project>.md` show slot-fill rate, file-coverage %, open gaps, and the queue of pages waiting for the next consolidate cycle.
+- **ADRs as task-records.** Every completed task (≥1 commit at session end) auto-drafts an ADR with the five mandatory sections — Entry / Mandatory elements / How / Result / Serves — filled from commit subjects + the session's memories; the worker refines it on the next cycle.
+- **Wiki view shows project as the top-level axis.** Left panel: Project → Kind → Pages. Welcome screen: a grid of every project with coverage badges. `[[wiki/path]]` cross-links resolve; bare slugs route to filtered search.
+- **Mermaid diagrams have a lens.** Click 🔍 on any rendered diagram to open a viewport-sized viewer with zoom (wheel + buttons + keys) and pan (drag).
+
+Explore it:
+
+- **`/cortex-visualize`** — opens the wiki view (`Wiki` tab) with the project tree and curation banners; same launcher for the Graph / Knowledge / Board / Pipeline views over the same data.
+- **`curate_wiki`** — returns mixed authoring jobs (coverage gaps + drift re-authors + memory clusters) in priority order; the headless worker consumes these.
+- **`get_causal_chain`** — trace how one decision led to another.
+- **`get_project_story`** — auto-generated narrative of your project's evolution.
+- **`detect_gaps`** — find areas where knowledge is thin or isolated.
+
+This isn't documentation you write. It's documentation Cortex authors and verifies for you, every 6 hours, until every project reaches 15/15 slot coverage and every source file has all 13 canonical sections filled.
 
 ---
 
@@ -313,14 +329,18 @@ Everything Claude touches live is visible: Edit, Write, Read, Grep, Glob, Notebo
 
 **Knowledge View** — curated memory cards with heat-based left border, emotion tag, consolidation stage, and evidence file references. Filter by domain or emotion; click any card for a full-screen detail panel with Markdown + JSON pretty-print.
 
-**Wiki View** — every memory admitted by the grounded-theory pipeline lands here as a structured page (ADR / spec / lesson / convention / note) with:
+**Wiki View** — every project organized as Project → Kind → Pages in the left panel, with the welcome screen showing a coverage grid (scope % + file % + missing scopes per project). Each page renders with:
 
 - EB Garamond body, IBM Plex Mono code, centered academic-paper layout
+- **Curation-gap banner** — every file-doc page declares which of its 13 canonical sections are still missing or thin, with the description of what should go in each. The autonomous worker drains the queue every cycle; the banner shrinks visibly.
+- **`[[wiki/path]]` cross-links** resolve to other pages; bare slugs route to filtered search
+- **Mermaid lens** — magnifier button on every rendered diagram opens a viewport viewer with zoom + pan
 - **Heat bar**, lifecycle pill (`active` / `area` / `archived` / `evergreen`), staleness flag, backlinks footer
 - **Inspector drawer** — full audit trail (memos, source claim events, draft history) for every page
 - **Inline CodeMirror 6 editor** + live preview with KaTeX math (see [Write Papers in Cortex](#write-papers-in-cortex) above)
 - **BibTeX citations**, figure/equation/table auto-numbering, cross-references
 - **Pandoc export** → PDF / LaTeX / DOCX / HTML
+- **`wiki/_dashboards/<project>.md`** — per-project coverage scoreboard, regenerated each consolidate cycle
 
 **Pipeline View** — horizontal Sankey flow from domains through the write gate into consolidation stages. Width of each ribbon = memory volume. Makes retention and drop-off across stages visible at a glance.
 

@@ -69,7 +69,10 @@ class TestMain:
         assert "get_telemetry" in tool_names
         # ADR-2244 Phase 3.2 — page rename with redirect stub.
         assert "wiki_rename" in tool_names
-        assert len(tool_names) == 48
+        # 49 tools after the 2026-05-18 wiki-autonomy commit added the
+        # autonomous-curation surface (a new MCP tool registered via
+        # the consolidate cycle / curate_wiki refactor). Bumped from 48.
+        assert len(tool_names) == 49
 
     def test_mcp_server_name_and_version(self):
         assert mcp.name == "methodology-agent"
