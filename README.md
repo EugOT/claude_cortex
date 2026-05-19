@@ -96,19 +96,23 @@ docker run -it \
 
 ## Write papers in Cortex
 
-Cortex doesn't just remember — it authors. Every memory that passes the pipeline becomes a structured wiki page, editable in place with a full scientific writing environment:
+Cortex doesn't just remember — it authors. Every memory that passes the pipeline AND every page the autonomous worker drafts (architecture, services, API, decisions, ADRs as task-records …) becomes a structured wiki page, editable in place with a full scientific writing environment:
 
 <p align="center">
-<img src="docs/wiki-edit.png" width="100%" alt="Cortex Wiki editor — CodeMirror 6 source pane on the left, live-preview pane on the right with headings, lists, and structured sections rendered via the project's LaTeX-inspired typography" />
+<img src="docs/assets/wiki-edit-preview.png" width="100%" alt="Cortex Wiki editor — CodeMirror 6 source pane on the left showing YAML frontmatter (title, kind: explanation, domain: agentic-ai, scope: architecture, status: living, authored_by: headless-authoring-worker, provenance: auto-authored, created/updated/last_reviewed dates) and the `# Architecture overview` body with `[[reference/agentic-ai/packages]]` wikilinks; live preview on the right rendering the same content with EB Garamond typography, hierarchical headings, and resolved cross-references" />
 </p>
 
-- **CodeMirror 6 inline editor** with live preview; save round-trips atomically to the `.md` file on disk (git-diffable).
+- **CodeMirror 6 inline editor** with live preview — split pane, syntax-highlighted markdown source on the left, fully-rendered article on the right. Save round-trips atomically to the `.md` file on disk (git-diffable).
+- **Structured frontmatter** — every page declares `kind` / `domain` / `scope` / `status` / `authored_by` / `provenance` / `created` / `updated` / `last_reviewed`. The autonomous headless worker writes `authored_by: headless-authoring-worker` + `provenance: auto-authored`; human-edited pages flip these. The frontmatter is real metadata: the coverage audit, the dashboards, and the wiki view all read it.
+- **`[[wiki/path]]` cross-references** — rendered as clickable internal links; bare slugs route to filtered search. Backlinks footer shows every page that points at this one.
+- **Mermaid diagrams with a lens** — `mermaid` fenced blocks render inline with a 🔍 button that opens a viewport-sized viewer with mouse-wheel zoom + drag-pan + keyboard shortcuts (`+` / `−` / `0` / `Esc`). Edge labels get a dark pill background; light-fill nodes get dark text — readable on both light and dark theme.
 - **LaTeX math** — `$E=\nabla \cdot F$` and `$$…$$` blocks rendered live via KaTeX.
 - **BibTeX citations** — drop `.bib` files under `wiki/_bibliography/`, use `[@friston2010]` inline, and Citation.js resolves them to `(Friston 2010)` with an auto-generated APA bibliography.
 - **Figure / equation / table auto-numbering** — `{#fig:arch}` labels, `{@fig:arch}` cross-refs, resolved to `Figure 1` / `Equation 3` / `Section 2.1`.
+- **Curation-gap banner** — file-doc pages display a yellow banner naming which of their 14 canonical sections (Purpose, Public API, Dependencies, Callers, How it works, Invariants, What can go wrong, Tests, Sequence diagram, Flow diagram, Parameters, Request example, Response example, See also) are still missing and what should go in each. The autonomous worker drains the queue cycle by cycle; the banner shrinks visibly.
 - **Pandoc export** — one click produces PDF (via LaTeX), TEX, DOCX, or HTML. Journal-submittable from the same markdown that feeds the memory pipeline.
 
-The source stays markdown. Your `.md` files remain grep-able, diffable, and interoperable with any external tool. Cortex adds a rendering + editing + export layer on top without stealing your content into a proprietary format.
+The source stays markdown. Your `.md` files remain grep-able, diffable, and interoperable with any external tool. Cortex adds a rendering + editing + export layer on top without stealing your content into a proprietary format — and the autonomous worker means most pages already have a substantive draft waiting for you when you open them.
 
 ---
 
