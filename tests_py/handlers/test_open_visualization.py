@@ -94,8 +94,15 @@ class TestOpenVisualizationHandler:
             asyncio.run(handler({}))
         mock_open.assert_called_once_with("http://localhost:5555/?viz=tilemap")
 
-    def test_opens_browser_at_legacy_url_when_extras_missing(self):
-        """``viz-tile`` extras unavailable falls back to the legacy URL."""
+    def test_opens_browser_at_tilemap_url_unconditionally(self):
+        """Handler always opens the tilemap URL — graph build happens on
+        demand via the UI's Graph button, not on launch.
+
+        Previously a fallback path opened the legacy URL when
+        ``_prepare_layout`` reported ``igraph_missing``; that branch
+        was removed when the on-launch layout precomputation was
+        dropped (2026-05). The handler now returns immediately after
+        opening ``?viz=tilemap`` regardless of any layout state."""
         with (
             patch(
                 "mcp_server.handlers.open_visualization.launch_server",
@@ -104,11 +111,7 @@ class TestOpenVisualizationHandler:
             patch(
                 "mcp_server.handlers.open_visualization.open_in_browser",
             ) as mock_open,
-            patch(
-                "mcp_server.handlers.open_visualization._prepare_layout",
-                return_value={"status": "error", "reason": "igraph_missing"},
-            ),
         ):
             result = asyncio.run(handler({}))
-        mock_open.assert_called_once_with("http://localhost:5555")
-        assert "viz-tile" in result["message"]
+        mock_open.assert_called_once_with("http://localhost:5555/?viz=tilemap")
+        assert "tilemap" in result["message"]

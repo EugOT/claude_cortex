@@ -13,8 +13,35 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from mcp_server.handlers.seed_project import handler
 from mcp_server.infrastructure.memory_store import MemoryStore
+
+
+@pytest.fixture(autouse=True)
+def _allow_transient_seed_roots(monkeypatch):
+    """Disable the transient-root guard for this module's tests.
+
+    The handler refuses to operate on paths matching ``pytest-of-`` /
+    ``/private/var/folders/`` / ``/var/folders/`` so test runs and
+    worktree creation never pollute the wiki. But this module's tests
+    use ``tmp_path`` (which IS a transient root) by design — they're
+    proving the per-domain purge contract, not validating the
+    transient-root gate. Stub the predicate to ``False`` for the
+    duration of each test so the handler proceeds into the codepath
+    under test.
+    """
+    monkeypatch.setattr(
+        "mcp_server.handlers.seed_project_constants.is_transient_seed_root",
+        lambda _path: False,
+    )
+    # Also patch the import name as seen by ``seed_project`` itself,
+    # since the handler imports the predicate at function-call time.
+    import mcp_server.handlers.seed_project as sp
+
+    if hasattr(sp, "is_transient_seed_root"):
+        monkeypatch.setattr(sp, "is_transient_seed_root", lambda _path: False)
 
 
 def _make_repo(tmp_path: Path, name: str) -> Path:

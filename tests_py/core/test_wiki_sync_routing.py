@@ -165,14 +165,15 @@ def test_each_new_page_gets_a_distinct_id() -> None:
     assert id_a != id_b
 
 
-def test_file_documentation_does_not_route_to_notes() -> None:
-    """Task #8 fix: pages tagged as code references must not land in notes/.
-
-    Before ADR-2244, file documentation produced by codebase_analyze
-    ended up at notes/<domain>/<id>-file-*.md because the old
-    _KIND_TO_DIR had no 'file' mapping. The classifier now marks the
-    provenance as auto-generated and routes to reference/ via the
-    modern kind.
+def test_file_documentation_is_rejected_from_wiki() -> None:
+    """Policy 2026-05-17 (superseded ADR-2244 Phase 6 admission):
+    ``codebase`` / ``code-reference`` tags mark per-file extractor
+    output that bloats the wiki — they stay in PG memory only.
+    Coverage of the codebase flows through the structural scope
+    pages (architecture / services / api / data-flow / code-walkthrough
+    per project) the autonomous worker authors — not via per-file
+    auto-generated dumps. ``build_from_memory`` returns None so no
+    wiki page is written.
     """
     content = (
         "Decision: this module parses a single source file via tree-sitter "
@@ -186,10 +187,8 @@ def test_file_documentation_does_not_route_to_notes() -> None:
         tags=["code-reference", "codebase"],
         domain="cortex",
     )
-    assert result is not None
-    rel, md = result
-    assert not rel.startswith("notes/"), (
-        f"file-documentation still routing to notes/: {rel!r}"
+    assert result is None, (
+        "codebase/code-reference tagged content must be rejected from the "
+        "wiki — it lives in PG memory only; the autonomous worker "
+        "produces curated structural pages instead"
     )
-    fm = _parse_frontmatter(md)
-    assert fm["provenance"] == "auto-generated"
