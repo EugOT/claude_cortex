@@ -266,6 +266,12 @@ Anchored memories get maximum protection. They always survive compaction, no mat
 
 Cortex's wiki is **a self-curating per-project knowledge base** — not a memory dump. Every project the registry knows about is driven toward **15 canonical documentation slots** (product overview, architecture, services, code walkthrough, public API, data flow, commands, MCP integration, tooling, CI/CD, AI usage, operations, PRDs, decisions, onboarding) and every source file gets **13 canonical sections** (Purpose, Public API, Dependencies, Callers, How it works, Invariants, What can go wrong, Tests, Sequence diagram, Parameters, Request example, Response example, See also).
 
+<p align="center">
+<img src="docs/assets/wiki-project-tree.png" width="100%" alt="Cortex Wiki view — left panel organizes pages as Project → Kind → Pages (agentic-ai expanded showing Architecture Decisions, Explanation, Tutorial, Reference sub-trees), breadcrumb `Wiki › agentic-ai › Architecture overview`, page body opens with the auto-authored architecture explanation for the project" />
+</p>
+
+The wiki view organizes everything by **project first** (left panel). Click into any project — its 15 canonical slots become headings with the pages that fill them; everything below is the file-doc layer with its 13 sections per file. Breadcrumbs and `[[wiki/path]]` cross-links make traversal one click. Pages whose canonical sections are still missing carry a yellow banner naming exactly what's not yet written and what the worker will fill next.
+
 What makes it autonomous:
 
 - **`SessionStart` hook auto-spawns a background `consolidate` cycle** every 6 hours (stamp at `~/.claude/methodology/.last_consolidate`). You never run consolidate by hand.
@@ -329,7 +335,13 @@ Everything Claude touches live is visible: Edit, Write, Read, Grep, Glob, Notebo
 
 **Knowledge View** — curated memory cards with heat-based left border, emotion tag, consolidation stage, and evidence file references. Filter by domain or emotion; click any card for a full-screen detail panel with Markdown + JSON pretty-print.
 
-**Wiki View** — every project organized as Project → Kind → Pages in the left panel, with the welcome screen showing a coverage grid (scope % + file % + missing scopes per project). Each page renders with:
+**Wiki View** — every project organized as Project → Kind → Pages in the left panel, with the welcome screen showing a coverage grid (scope % + file % + missing scopes per project). Click **Edit** on any page to open a split-pane editor with the Markdown source on the left and a live-preview pane on the right:
+
+<p align="center">
+<img src="docs/assets/wiki-edit-preview.png" width="100%" alt="Cortex Wiki edit mode — split pane with CodeMirror source on the left showing frontmatter (title, kind, domain, scope, status, authored_by: headless-authoring-worker, provenance: auto-authored, created/updated/last_reviewed dates) plus the architecture-overview body, and the right pane rendering the same Markdown with EB Garamond typography" />
+</p>
+
+Each page renders with:
 
 - EB Garamond body, IBM Plex Mono code, centered academic-paper layout
 - **Curation-gap banner** — every file-doc page declares which of its 13 canonical sections are still missing or thin, with the description of what should go in each. The autonomous worker drains the queue every cycle; the banner shrinks visibly.
