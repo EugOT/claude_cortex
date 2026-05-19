@@ -340,6 +340,74 @@ SCOPES: Final[tuple[Scope, ...]] = (
         directories=("guides", "tutorial"),
         suggested_kind="tutorial",
     ),
+    # ── Task-oriented how-to guides (Diátaxis: how-to quadrant) ────────
+    #
+    # Onboarding above and code-walkthrough cover the learning + reading
+    # axes; what's missing is the *task-oriented* how-to layer — the
+    # guides a user hits when they have a concrete goal already
+    # (install, fix a known error, contribute). Three universal
+    # categories cover the bulk of project-level user demand:
+    Scope(
+        name="installation",
+        title="Installation & configuration",
+        description=(
+            "Step-by-step install + configuration walk-through, OS by OS, "
+            "with every environment variable named and its default. Beyond "
+            "onboarding (which is the day-one path) this is the reference "
+            "for every configuration knob, every install variant (CLI, "
+            "Docker, source clone, plugin marketplace), and the post-"
+            "install verification commands. Include screenshots / sample "
+            "configs where useful."
+        ),
+        anchor_filenames=(
+            "installation.md",
+            "install.md",
+            "configuration.md",
+            "configure.md",
+        ),
+        directories=("guides", "how-to"),
+        suggested_kind="how-to",
+    ),
+    Scope(
+        name="troubleshooting",
+        title="Troubleshooting & known issues",
+        description=(
+            "Symptom → diagnosis → fix table for every known issue, "
+            "common error message, and pitfall. Each entry: the exact "
+            "log line or symptom, root cause, recovery steps, prevention. "
+            "Sourced from runbook incidents + ADR consequences + lessons "
+            "captured in memory. The page a user opens when something "
+            "breaks at 3am."
+        ),
+        anchor_filenames=(
+            "troubleshooting.md",
+            "known-issues.md",
+            "faq.md",
+            "common-errors.md",
+        ),
+        directories=("guides", "how-to", "runbook"),
+        suggested_kind="how-to",
+    ),
+    Scope(
+        name="contributing",
+        title="Contributing guide",
+        description=(
+            "How to land a change in this project: fork / branch policy, "
+            "test commands, lint rules, commit-message convention, PR "
+            "template, code-review expectations, who reviews what, how "
+            "long things typically take. Distinct from onboarding "
+            "(reader is already set up); this is the path from edit to "
+            "merge."
+        ),
+        anchor_filenames=(
+            "contributing.md",
+            "CONTRIBUTING.md",
+            "contribute.md",
+            "development.md",
+        ),
+        directories=("guides", "how-to"),
+        suggested_kind="how-to",
+    ),
 )
 
 
