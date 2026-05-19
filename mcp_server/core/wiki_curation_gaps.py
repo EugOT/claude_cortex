@@ -148,7 +148,6 @@ FILE_DOC_SECTIONS: Final[tuple[CurationSection, ...]] = (
         heading="## Sequence diagram",
         probes=(
             "## Sequence diagram",
-            "## Flow diagram",
             "## Sequence",
             "```mermaid\nsequenceDiagram",
         ),
@@ -161,6 +160,29 @@ FILE_DOC_SECTIONS: Final[tuple[CurationSection, ...]] = (
             'types, constants), explicitly write "Not applicable — '
             'this file participates in no sequence flow" and explain '
             "why."
+        ),
+    ),
+    CurationSection(
+        name="flow-diagram",
+        heading="## Flow diagram",
+        probes=(
+            "## Flow diagram",
+            "## Flowchart",
+            "## State diagram",
+            "```mermaid\nflowchart",
+            "```mermaid\nstateDiagram",
+        ),
+        min_chars_under_heading=120,
+        description=(
+            "A `mermaid` flowchart (or state diagram) of the file's "
+            "branching logic, lifecycle, or decision tree. Use "
+            "```mermaid flowchart TD/LR``` fences for branching, "
+            "```mermaid stateDiagram-v2``` for state machines. "
+            "Distinct from the sequence diagram above (sequenceDiagram "
+            "covers call traces between participants; flowchart covers "
+            "branching / lifecycle / trees within a single component). "
+            'For files with no branching to depict, write "Not '
+            'applicable" and explain why.'
         ),
     ),
     CurationSection(

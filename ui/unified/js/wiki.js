@@ -748,7 +748,7 @@
     // is not curation; visibility is.
     var gaps = meta.curation_gaps;
     if (Array.isArray(gaps) && gaps.length > 0) {
-      var totalSections = 13;  // matches FILE_DOC_SECTIONS (incl. sequence-diagram, parameters, request/response-example)
+      var totalSections = 14;  // matches FILE_DOC_SECTIONS (incl. sequence-diagram + flow-diagram + parameters + request/response-example)
       var coveredCount = Math.max(0, totalSections - gaps.length);
       var pct = Math.round(100 * coveredCount / totalSections);
       var banner = el('aside', 'wiki-curation-banner');
@@ -780,7 +780,8 @@
         'failure-modes':    'What can go wrong — failure modes + symptoms',
         tests:              'Tests — which test files exercise this',
         'see-also':         'See also — cross-links to architecture / services / api',
-        'sequence-diagram': 'Sequence diagram — mermaid flow of caller → this file → callees',
+        'sequence-diagram': 'Sequence diagram — mermaid sequenceDiagram of caller → this file → callees',
+        'flow-diagram':     'Flow diagram — mermaid flowchart/stateDiagram of branching, lifecycle, decision tree',
         parameters:         'Parameters — exhaustive table (name, type, required, default, description)',
         'request-example':  'Request example — curl + headers / JSON-RPC envelope / call site',
         'response-example': 'Response example — every field annotated, success + error shapes',

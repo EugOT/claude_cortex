@@ -461,6 +461,17 @@ _GAP_DESCRIPTIONS: dict[str, str] = {
         'data types, constants), explicitly write "Not applicable" '
         "and explain why."
     ),
+    "flow-diagram": (
+        "A `mermaid` flowchart or state diagram of the file's "
+        "branching logic, lifecycle, or decision tree. Use "
+        "```mermaid flowchart TD``` (or `LR`) for branching, "
+        "```mermaid stateDiagram-v2``` for state machines. "
+        "Distinct from the sequence diagram (sequenceDiagram is "
+        "for call traces between participants; flowchart covers "
+        "branching / lifecycle / trees within one component). For "
+        'files with no branching to depict, write "Not applicable" '
+        "and explain why."
+    ),
     "parameters": (
         "Exhaustive table of every parameter exposed by this "
         "file's public entry points. Columns: name | type | "
@@ -500,6 +511,7 @@ def _gap_heading(name: str) -> str:
         "tests": "Tests",
         "see-also": "See also",
         "sequence-diagram": "Sequence diagram",
+        "flow-diagram": "Flow diagram",
         "parameters": "Parameters",
         "request-example": "Request example",
         "response-example": "Response example",
