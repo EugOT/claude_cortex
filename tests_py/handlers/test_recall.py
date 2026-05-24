@@ -55,6 +55,60 @@ class TestRecallHandler:
         result = asyncio.run(recall_handler({"query": ""}))
         assert result["results"] == []
 
+    def test_issue_46_schema_aligned_keys(self):
+        """Issue #46: every recall response must satisfy the MCP outputSchema.
+
+        Schema requires: ``memories`` (array). Strictly enforced by Claude
+        Code's MCP host, which would otherwise reject the response with
+        ``Output validation error: 'memories' is a required property``.
+
+        Back-compat aliases (``results``/``total``/``query_intent``) stay
+        for one minor release so existing consumers don't break.
+        """
+        # Early-return path (no query)
+        result = asyncio.run(recall_handler(None))
+        assert "memories" in result, "issue #46: schema requires 'memories' key"
+        assert "count" in result, "issue #46: schema declares 'count'"
+        assert "intent" in result, "issue #46: schema declares 'intent'"
+        assert result["memories"] == []
+        assert result["count"] == 0
+        # Back-compat aliases still present
+        assert "results" in result and "total" in result
+
+        # Empty-query path
+        result = asyncio.run(recall_handler({"query": ""}))
+        assert "memories" in result
+        assert result["memories"] == []
+        assert "intent" in result
+
+    def test_issue_46_intent_in_schema_enum(self):
+        """Issue #46 drift 2: any string the classifier emits must be in
+        the schema's intent enum, or MCP validation rejects it. Verify
+        the early-return uses an enum-valid value and that the broadened
+        enum includes every QueryIntent constant (so the GENERAL fallback
+        no longer fails)."""
+        from mcp_server.core.query_intent import QueryIntent
+        # The schema's broadened enum should include EVERY public string
+        # constant on QueryIntent so the classifier can't produce an
+        # out-of-enum value.
+        schema_enum = {
+            "temporal", "causal", "semantic", "entity", "knowledge_update",
+            "multi_hop", "instruction", "event_order", "summarization",
+            "preference", "general",
+        }
+        for attr in dir(QueryIntent):
+            if attr.startswith("_") or attr != attr.upper():
+                continue
+            value = getattr(QueryIntent, attr)
+            if isinstance(value, str):
+                assert value in schema_enum, (
+                    f"QueryIntent.{attr}={value!r} missing from recall "
+                    f"outputSchema enum — would fail MCP validation"
+                )
+        # Early-return uses a schema-valid intent
+        result = asyncio.run(recall_handler(None))
+        assert result["intent"] in schema_enum
+
     def test_recall_stored_memory(self):
         # Store a memory first
         asyncio.run(

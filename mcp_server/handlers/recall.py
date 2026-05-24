@@ -58,6 +58,12 @@ schema = {
             },
             "intent": {
                 "type": "string",
+                # source: mcp_server/core/query_intent.py::QueryIntent — every
+                # value the classifier can emit must be in this enum or MCP
+                # output validation rejects the response. Previously the
+                # schema was narrower than the classifier's range, so any
+                # query falling back to QueryIntent.GENERAL ("general")
+                # failed validation. Issue #46.
                 "enum": [
                     "temporal",
                     "causal",
@@ -65,6 +71,11 @@ schema = {
                     "entity",
                     "knowledge_update",
                     "multi_hop",
+                    "instruction",
+                    "event_order",
+                    "summarization",
+                    "preference",
+                    "general",
                 ],
                 "description": "Classified query intent that drove the signal-weight profile.",
             },
@@ -262,7 +273,16 @@ def _track_recall_replay(results: list[dict], store: Any) -> None:
 async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
     """Retrieve memories: pg_recall base + production enrichments."""
     if not args or not args.get("query"):
-        return {"results": [], "total": 0}
+        # Issue #46: even the early-return must satisfy the outputSchema's
+        # required keys (`memories`). The legacy `results`/`total` are
+        # kept for back-compat with consumers that haven't migrated yet.
+        return {
+            "memories": [],
+            "count": 0,
+            "intent": "semantic",
+            "results": [],
+            "total": 0,
+        }
 
     query = args["query"]
     domain, directory = args.get("domain"), args.get("directory")
@@ -315,11 +335,21 @@ async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
 
     intent_info = classify_query_intent(query)
     intent = intent_info.get("intent", QueryIntent.GENERAL)
+    # Issue #46: align the response with the declared outputSchema while
+    # preserving the legacy keys (`results`/`total`/`query_intent`) for
+    # consumers that already migrated to them. The schema enum was
+    # broadened to include every QueryIntent value so the classifier's
+    # `general` fallback no longer fails validation.
     return {
+        "memories": results,
+        "count": len(results),
+        "intent": str(intent),
+        # Back-compat aliases — drop after one minor release once consumers
+        # migrate to the schema-aligned key names.
         "results": results,
         "total": len(results),
-        "low_signal_dropped": low_signal_dropped,
         "query_intent": intent,
+        "low_signal_dropped": low_signal_dropped,
         "dispatch_tier": "pg",
         "signals": {},
         "enhancements": build_enhancements(query, intent, "pg", settings),
