@@ -63,6 +63,12 @@ def _score_node(node: dict[str, Any], conns: int, total: int) -> tuple[float, st
         "memory": _score_memory,
         "entity": _score_entity,
         "discussion": _score_discussion,
+        # source: Spike B' BUG #6 fix — AST-derived SYMBOL nodes (ADR-0046)
+        # previously fell through to _score_default ("unscored node type"),
+        # giving every symbol a uniform 0.5 quality. Now scored by connection
+        # count + visibility heuristic: well-connected public symbols rank
+        # higher than isolated private helpers.
+        "symbol": _score_symbol,
     }
     scorer = scorers.get(ntype, _score_default)
     return scorer(node, conns, total)
@@ -258,3 +264,53 @@ def _score_discussion(n: dict, conns: int, total: int) -> tuple[float, str]:
 
 def _score_default(n: dict, conns: int, total: int) -> tuple[float, str]:
     return 0.5, "unscored node type"
+
+
+def _score_symbol(n: dict, conns: int, total: int) -> tuple[float, str]:
+    """Score AST-derived SYMBOL nodes by connectivity + visibility.
+
+    source: Spike B' BUG #6 — previously no scorer existed; all AST symbols
+    received the default 0.5. We rank symbols by how integrated they are
+    into the graph (`conns`) and whether they're externally callable
+    (public vs private by name convention) — well-connected public symbols
+    are the "important" surface of a codebase.
+    """
+    name = n.get("name", "") or n.get("label", "")
+    sym_type = n.get("symbol_type", "")
+    is_private = isinstance(name, str) and name.startswith("_") and not name.startswith("__")
+
+    parts: list[str] = []
+    q = 0.0
+
+    # Connectivity: highly-connected symbols are central
+    if conns >= 10:
+        q += 0.5
+        parts.append(f"central ({conns} edges)")
+    elif conns >= 3:
+        q += 0.3
+        parts.append(f"connected ({conns} edges)")
+    elif conns >= 1:
+        q += 0.15
+        parts.append(f"{conns} edges")
+    else:
+        parts.append("isolated")
+
+    # Visibility: public symbols are the codebase's external surface
+    if not is_private:
+        q += 0.2
+        parts.append("public")
+    else:
+        parts.append("private")
+
+    # Symbol type bonus: classes/traits anchor inheritance trees
+    if sym_type in ("class", "struct", "trait"):
+        q += 0.15
+        parts.append(f"{sym_type}")
+    elif sym_type:
+        parts.append(sym_type)
+
+    # Has signature — indicates parser captured full surface
+    if n.get("signature"):
+        q += 0.05
+
+    return min(max(q, 0.0), 1.0), " | ".join(parts)
