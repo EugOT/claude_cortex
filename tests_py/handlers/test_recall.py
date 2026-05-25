@@ -88,13 +88,22 @@ class TestRecallHandler:
         enum includes every QueryIntent constant (so the GENERAL fallback
         no longer fails)."""
         from mcp_server.core.query_intent import QueryIntent
+
         # The schema's broadened enum should include EVERY public string
         # constant on QueryIntent so the classifier can't produce an
         # out-of-enum value.
         schema_enum = {
-            "temporal", "causal", "semantic", "entity", "knowledge_update",
-            "multi_hop", "instruction", "event_order", "summarization",
-            "preference", "general",
+            "temporal",
+            "causal",
+            "semantic",
+            "entity",
+            "knowledge_update",
+            "multi_hop",
+            "instruction",
+            "event_order",
+            "summarization",
+            "preference",
+            "general",
         }
         for attr in dir(QueryIntent):
             if attr.startswith("_") or attr != attr.upper():

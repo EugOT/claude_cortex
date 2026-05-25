@@ -277,7 +277,9 @@ def _score_symbol(n: dict, conns: int, total: int) -> tuple[float, str]:
     """
     name = n.get("name", "") or n.get("label", "")
     sym_type = n.get("symbol_type", "")
-    is_private = isinstance(name, str) and name.startswith("_") and not name.startswith("__")
+    is_private = (
+        isinstance(name, str) and name.startswith("_") and not name.startswith("__")
+    )
 
     parts: list[str] = []
     q = 0.0
