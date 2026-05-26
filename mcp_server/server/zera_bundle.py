@@ -217,7 +217,11 @@ def _zstd_frame(obj: Any, level: int) -> bytes:
 # JSON.parse well under the limit (~120K items ≈ 100 MB decoded) and lets
 # the client decode + append incrementally (progressive render, bonus).
 # source: measured V8 string limit; ZERA-spec §4.2 (incremental decode).
-_CHUNK_ITEMS = 120_000
+# 60K items measured live at ~100 MB decoded per chunk on the Cortex
+# memory graph (memory `body` text dominates size) — 5x headroom under
+# the V8 limit, so even graphs with 2-3x larger node bodies stay safe.
+# (120K gave 202 MB/chunk — works, but thinner margin.)
+_CHUNK_ITEMS = 60_000
 
 
 def _chunk_payload_frames(payload: dict, level: int) -> list[bytes]:
