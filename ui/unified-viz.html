@@ -17,6 +17,10 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+<!-- fzstd: tiny (~20 KB) zstd decompressor for the optional ?transport=zera
+     bundle path. Only used when ZERA transport is enabled; the default
+     per-phase JSON loader needs nothing from here. -->
+<script defer src="https://cdn.jsdelivr.net/npm/fzstd@0.1.1/umd/index.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
@@ -100,6 +104,89 @@
   function _activeViewIsGraph() {
     return window.JUG && JUG.state && JUG.state.activeView === 'graph';
   }
+
+  // ── ZERA transport (opt-in via ?transport=zera) ──────────────────
+  // Fetches the whole graph as ONE content-addressed ZERA bundle
+  // (HELLO + CODEBOOK + GRAMMAR + zstd-19 payload) and decodes it in the
+  // browser, instead of polling per-phase JSON deltas. Gated behind the
+  // query param so the default behaviour is byte-for-byte unchanged.
+  // Decoder mirrors mcp_server/server/zera_bundle.py::decode_zera_bundle.
+  function _zeraEnabled(){
+    try { return new URLSearchParams(location.search).get('transport') === 'zera'; }
+    catch(e){ return false; }
+  }
+  function _zeraMakeId(prefixes, p, s){
+    var str = (typeof s === 'number') ? String(s) : s;
+    return (p != null) ? prefixes[p] + str : str;
+  }
+  function _zeraDecodeItem(it, palettes, isEdge, prefixes){
+    var out = {};
+    if(isEdge){
+      out.source = _zeraMakeId(prefixes, it.fp, it.fs);
+      out.target = _zeraMakeId(prefixes, it.tp, it.ts);
+    } else {
+      out.id = _zeraMakeId(prefixes, it.ip, it.i);
+    }
+    for(var k in it){
+      if(k==='i'||k==='ip'||k==='fs'||k==='fp'||k==='ts'||k==='tp') continue;
+      if(k.charAt(0)==='_' && palettes[k.slice(1)]){
+        out[k.slice(1)] = palettes[k.slice(1)][it[k]];
+      } else {
+        out[k] = it[k];
+      }
+    }
+    return out;
+  }
+  function _zeraLoad(){
+    if(typeof fzstd === 'undefined'){
+      console.warn('[zera] fzstd not loaded; falling back to phase loader');
+      return poll();
+    }
+    var t0 = performance.now();
+    fetch('/api/graph.zera').then(function(r){ return r.arrayBuffer(); }).then(function(buf){
+      var tFetch = performance.now();
+      var dv = new DataView(buf), u8 = new Uint8Array(buf), pos = 0, frames = [];
+      while(pos < u8.byteLength){
+        var len = dv.getUint32(pos, true); pos += 4;
+        frames.push(u8.subarray(pos, pos+len)); pos += len;
+      }
+      if(frames.length < 4){ console.warn('[zera] short bundle, falling back'); return poll(); }
+      var dec = function(f){ return JSON.parse(new TextDecoder().decode(fzstd.decompress(f))); };
+      var hello = dec(frames[0]), cb = dec(frames[1]), grammar = dec(frames[2]), payload = dec(frames[3]);
+      var tDecode = performance.now();
+      if(!payload.n || !payload.n.length){
+        // Cache not built yet — fall back to phase loader which kicks the build.
+        console.log('[zera] empty payload (build not ready); using phase loader');
+        return poll();
+      }
+      var np = cb.node_palettes||{}, ep = cb.edge_palettes||{}, ipref = cb.id_prefixes||[];
+      var nodes = new Array(payload.n.length), edges = new Array(payload.e.length);
+      for(var i=0;i<payload.n.length;i++) nodes[i] = _zeraDecodeItem(payload.n[i], np, false, ipref);
+      for(var j=0;j<payload.e.length;j++) edges[j] = _zeraDecodeItem(payload.e[j], ep, true, ipref);
+      var tBuild = performance.now();
+      if(!JUG.state.lastData){
+        JUG.state.lastData = { nodes: [], edges: [], links: [], meta: { schema: 'workflow_graph.v1' } };
+      }
+      if(typeof JUG.appendGraphDelta === 'function'){ JUG.appendGraphDelta(nodes, edges); }
+      var tInstall = performance.now();
+      window._zeraStats = { bytes: buf.byteLength, fetch_ms: tFetch-t0, decode_ms: tDecode-tFetch,
+        reconstruct_ms: tBuild-tDecode, install_ms: tInstall-tBuild, total_ms: tInstall-t0,
+        nodes: nodes.length, edges: edges.length };
+      console.log('[zera]', (buf.byteLength/1024).toFixed(1)+'KB',
+        '| fetch '+(tFetch-t0).toFixed(0)+'ms',
+        '| decode '+(tDecode-tFetch).toFixed(0)+'ms',
+        '| reconstruct '+(tBuild-tDecode).toFixed(0)+'ms',
+        '| install '+(tInstall-tBuild).toFixed(0)+'ms',
+        '| TOTAL '+(tInstall-t0).toFixed(0)+'ms |',
+        nodes.length+'N '+edges.length+'E');
+      var box = document.getElementById('build-progress');
+      if(box){ box.style.opacity='0'; setTimeout(function(){ box.style.display='none'; }, 400); }
+    }).catch(function(err){
+      console.warn('[zera] load failed, falling back to phase loader:', err);
+      poll();
+    });
+  }
+
   function poll(){
     // Only do graph-build work while the user is on the Graph tab.
     // Knowledge / Board / Wiki users don't pay the cost.
@@ -125,7 +212,20 @@
       setTimeout(poll, 400);
     }).catch(function(){ setTimeout(poll, 1200); });
   }
-  setTimeout(poll, 200);
+  // Entry point: ZERA single-bundle transport when opted in, else the
+  // default per-phase polling loader. The ZERA path falls back to poll()
+  // on any failure (missing lib, empty cache, short bundle, fetch error).
+  if(_zeraEnabled()){
+    // Wait until the Graph view is active and fzstd has loaded, then load once.
+    var _zeraTries = 0;
+    (function _zeraKick(){
+      if(_activeViewIsGraph() && typeof fzstd !== 'undefined'){ _zeraLoad(); return; }
+      if(++_zeraTries > 100){ poll(); return; }  // ~20s budget, then fall back
+      setTimeout(_zeraKick, 200);
+    })();
+  } else {
+    setTimeout(poll, 200);
+  }
 })();
 </script>
 

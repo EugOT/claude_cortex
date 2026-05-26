@@ -141,11 +141,12 @@ def serve_graph_zera(handler, store) -> None:
         return
 
     try:
-        # Same data source as /api/graph. The shape is
-        # {"data": {nodes:[], edges:[], ...}, "domain_filter": ...} or
-        # a warming placeholder.
-        response = get_graph_response(store, handler.path)
-        graph = response.get("data") or {}
+        # Same data source as /api/graph. get_graph_response returns the
+        # graph dict DIRECTLY — {"nodes": [...], "edges": [...], "meta": …}
+        # (a locked snapshot), or a warming placeholder of the same shape.
+        # There is no "data" wrapper; reading response["data"] always
+        # missed and shipped an empty bundle.
+        graph = get_graph_response(store, handler.path) or {}
         if not graph.get("nodes"):
             # Build not ready — return an empty bundle (HELLO only with
             # zero counts) so the client can show "warming up".
