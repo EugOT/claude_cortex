@@ -48,6 +48,16 @@ postgresql = [
     "psycopg_pool>=3.2",
     "pgvector>=0.3",
 ]
+zera = [
+    # ZERA wire protocol for the /api/graph.zera viz transport.
+    # zstandard: payload compression (BSD-3-Clause, ships wheels).
+    # blake3: content-addressed graph_id + codebook_id (Apache-2.0/MIT).
+    # Both optional — the endpoint returns 503 when unavailable; the
+    # rest of the viz (JSON path) and retrieval (recall_memories) are
+    # unaffected.
+    "zstandard>=0.22",
+    "blake3>=1.0",
+]
 sqlite = [
     "sqlite-vec>=0.1.1",
 ]

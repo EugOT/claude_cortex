@@ -118,6 +118,54 @@ def serve_graph(handler, store) -> None:
         send_json_error(handler, e)
 
 
+def serve_graph_zera(handler, store) -> None:
+    """GET /api/graph.zera — same cached graph as /api/graph, but encoded
+    as a ZERA bundle (HELLO + CODEBOOK + GRAMMAR + zstd-19 payload).
+
+    The bundle is content-addressed by ``graph_id`` (BLAKE3 over the
+    canonical payload). The HELLO frame at the head declares the
+    encoding choices so the client can decode without out-of-band
+    agreement.
+
+    Read-only — pulls from the same ``_graph_cache`` snapshot
+    ``/api/graph`` reads. Does not affect retrieval/recall paths.
+    """
+    import traceback as _tb
+
+    try:
+        from mcp_server.server.zera_bundle import encode_graph_to_zera_bundle
+    except ImportError:
+        # zstandard/blake3 not available — fall back so the route still
+        # returns a useful diagnostic rather than crashing the server.
+        send_plain_error(handler, 503)
+        return
+
+    try:
+        # Same data source as /api/graph. The shape is
+        # {"data": {nodes:[], edges:[], ...}, "domain_filter": ...} or
+        # a warming placeholder.
+        response = get_graph_response(store, handler.path)
+        graph = response.get("data") or {}
+        if not graph.get("nodes"):
+            # Build not ready — return an empty bundle (HELLO only with
+            # zero counts) so the client can show "warming up".
+            graph = {"nodes": [], "edges": []}
+        bundle = encode_graph_to_zera_bundle(graph)
+        handler.send_response(200)
+        handler.send_header("Content-Type", "application/octet-stream")
+        handler.send_header("Content-Length", str(len(bundle)))
+        handler.send_header("X-ZERA-Version", "0.0.5")
+        handler.send_header("X-ZERA-Node-Count", str(len(graph.get("nodes", []))))
+        handler.send_header("X-ZERA-Edge-Count", str(len(graph.get("edges", []))))
+        # Same CORS treatment as the JSON sibling.
+        handler.send_header("Access-Control-Allow-Origin", "*")
+        handler.end_headers()
+        handler.wfile.write(bundle)
+    except Exception as e:
+        _tb.print_exc()
+        send_json_error(handler, e)
+
+
 def serve_graph_progress(handler) -> None:
     """GET /api/graph/progress — background-build progress snapshot."""
     from mcp_server.server.http_standalone_graph import get_build_progress

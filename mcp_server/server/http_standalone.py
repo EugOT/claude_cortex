@@ -153,6 +153,14 @@ def _route_unified_get(
 
         serve_memories_facets(handler, store)
         return
+    if path == "/api/graph.zera" or path.startswith("/api/graph.zera?"):
+        # ZERA-bundle variant of /api/graph — same data, content-addressed
+        # binary transport. Reads the same _graph_cache; no effect on
+        # retrieval paths.
+        from mcp_server.server.http_standalone_endpoints import serve_graph_zera
+
+        serve_graph_zera(handler, store)
+        return
     if path == "/api/graph" or path.startswith("/api/graph?"):
         serve_graph(handler, store)
     elif path == "/api/discussions" or path.startswith("/api/discussions?"):
