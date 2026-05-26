@@ -58,27 +58,40 @@
   var applied = {};   // phaseKey → true once appended
   var inflight = {};  // phaseKey → true while fetching
 
+  // Page size for phase fetches. The L5 (full-memory) phase serializes to
+  // ~838 MB of JSON — over the browser's V8 max-string-length (~512 MB),
+  // so fetching it in one shot throws "Unexpected end of JSON input" and
+  // the phase never loads ("never finishing"). Paging in 30K-item slices
+  // (~60 MB each for memory nodes) keeps every JSON.parse well under the
+  // limit. Small phases (L0-L4) return done=true on the first page, so
+  // their behaviour is unchanged.
+  var _PHASE_PAGE = 30000;
   function applyPhase(key){
     if(applied[key] || inflight[key]) return Promise.resolve();
     inflight[key] = true;
-    return fetch('/api/graph/phase?name='+encodeURIComponent(key))
-      .then(function(r){ return r.ok ? r.json() : null; })
-      .then(function(p){
-        if(!p || !p.ready) return;
-        if(typeof JUG.appendGraphDelta === 'function'){
-          // Seed lastData if this is the very first append — the
-          // bridge/graph modules expect it to exist.
-          if(!JUG.state.lastData){
-            JUG.state.lastData = {
-              nodes: [], edges: [], links: [],
-              meta: { schema: 'workflow_graph.v1' }
-            };
+    if(!JUG.state.lastData){
+      JUG.state.lastData = { nodes: [], edges: [], links: [], meta: { schema: 'workflow_graph.v1' } };
+    }
+    function fetchPage(offset, accN, accE){
+      return fetch('/api/graph/phase?name='+encodeURIComponent(key)+'&offset='+offset+'&limit='+_PHASE_PAGE)
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(p){
+          if(!p || !p.ready){ return; }  // not ready yet — retried next poll
+          if(typeof JUG.appendGraphDelta === 'function'){
+            JUG.appendGraphDelta(p.nodes || [], p.edges || []);
           }
-          JUG.appendGraphDelta(p.nodes || [], p.edges || []);
-        }
-        applied[key] = true;
-        console.log('[phase] applied', key, '+'+((p.nodes||[]).length)+'N', '+'+((p.edges||[]).length)+'E');
-      })
+          accN += (p.nodes||[]).length; accE += (p.edges||[]).length;
+          if(!p.done){
+            // More of this phase remains — page on. Each append renders
+            // progressively so the user sees memory nodes stream in.
+            return fetchPage(offset + _PHASE_PAGE, accN, accE);
+          }
+          applied[key] = true;
+          console.log('[phase] applied', key, '+'+accN+'N', '+'+accE+'E',
+            (offset > 0 ? '(paged '+((offset/_PHASE_PAGE)+1)+'x)' : ''));
+        });
+    }
+    return fetchPage(0, 0, 0)
       .catch(function(err){ console.warn('[phase] '+key+' failed:', err); })
       .then(function(){ inflight[key] = false; });
   }

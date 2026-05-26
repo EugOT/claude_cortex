@@ -257,23 +257,47 @@ def _register_phase(key: str, deps: list[str], label: str) -> None:
         _build_progress.setdefault("phases", {})[key] = False
 
 
-def get_phase_payload(key: str) -> dict:
+def get_phase_payload(
+    key: str, offset: int = 0, limit: int | None = None
+) -> dict:
+    """Return a phase's nodes/edges, optionally a [offset, offset+limit)
+    slice of each.
+
+    Paging exists because the L5 (full-memory) phase serializes to ~838 MB
+    of JSON — over the browser's V8 max-string-length (~512 MB), so the
+    client cannot JSON.parse it in one shot ("Unexpected end of JSON
+    input"). The phase loader pages large phases in slices small enough to
+    parse. ``node_total`` / ``edge_total`` let the client know when it has
+    consumed the whole phase; ``done`` is a convenience flag.
+
+    Snapshot under the cache lock so the HTTP serializer never iterates a
+    list ``_merge`` is appending to.
+    """
     spec = PHASES.get(key)
-    # Snapshot the buffer's node/edge lists under the cache lock so the
-    # HTTP serializer never iterates a list that _merge is appending to.
-    # list(...) freezes membership; the node/edge dicts are immutable
-    # after insertion, so a shallow copy is enough and cheap. Without
-    # this the L5 (full-memory) phase returned truncated JSON.
     with _graph_cache_lock:
         pl = _phase_payloads.get(key, {"nodes": [], "edges": []})
-        nodes = list(pl.get("nodes", []))
-        edges = list(pl.get("edges", []))
+        all_nodes = pl.get("nodes", [])
+        all_edges = pl.get("edges", [])
+        node_total = len(all_nodes)
+        edge_total = len(all_edges)
+        if limit is None:
+            nodes = list(all_nodes)
+            edges = list(all_edges)
+        else:
+            nodes = list(all_nodes[offset : offset + limit])
+            edges = list(all_edges[offset : offset + limit])
+    done = limit is None or (offset + limit) >= max(node_total, edge_total)
     return {
         "phase": key,
         "ready": bool(spec and spec["ready"]),
         "deps": spec["deps"] if spec else [],
         "nodes": nodes,
         "edges": edges,
+        "node_total": node_total,
+        "edge_total": edge_total,
+        "offset": offset,
+        "limit": limit,
+        "done": done,
     }
 
 
