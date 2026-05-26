@@ -259,13 +259,21 @@ def _register_phase(key: str, deps: list[str], label: str) -> None:
 
 def get_phase_payload(key: str) -> dict:
     spec = PHASES.get(key)
-    pl = _phase_payloads.get(key, {"nodes": [], "edges": []})
+    # Snapshot the buffer's node/edge lists under the cache lock so the
+    # HTTP serializer never iterates a list that _merge is appending to.
+    # list(...) freezes membership; the node/edge dicts are immutable
+    # after insertion, so a shallow copy is enough and cheap. Without
+    # this the L5 (full-memory) phase returned truncated JSON.
+    with _graph_cache_lock:
+        pl = _phase_payloads.get(key, {"nodes": [], "edges": []})
+        nodes = list(pl.get("nodes", []))
+        edges = list(pl.get("edges", []))
     return {
         "phase": key,
         "ready": bool(spec and spec["ready"]),
         "deps": spec["deps"] if spec else [],
-        "nodes": pl.get("nodes", []),
-        "edges": pl.get("edges", []),
+        "nodes": nodes,
+        "edges": edges,
     }
 
 
@@ -367,22 +375,31 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
             # client can ``GET /api/graph/phase?name=<key>`` and
             # append exactly this phase's new content to its live
             # scene instead of re-fetching the whole graph.
+            #
+            # Held under _graph_cache_lock for the SAME reason the
+            # cumulative cache is: get_phase_payload() serializes this
+            # buffer on the HTTP thread, and the biggest phase (L5 = the
+            # full memory set) was returning truncated JSON ("Unexpected
+            # end of JSON input") when a concurrent _merge appended to the
+            # list mid-serialization. The reader snapshots under the same
+            # lock (see get_phase_payload).
             if phase_key and phase_key in _phase_payloads:
-                buf = _phase_payloads[phase_key]
-                buf_seen_n = {n.get("id") for n in buf["nodes"]}
-                for n in new_nodes:
-                    if n.get("id") and n["id"] not in buf_seen_n:
-                        buf["nodes"].append(n)
-                        buf_seen_n.add(n["id"])
-                buf_seen_e = {
-                    (e.get("source"), e.get("target"), e.get("kind"))
-                    for e in buf["edges"]
-                }
-                for e in new_edges:
-                    key = (e.get("source"), e.get("target"), e.get("kind"))
-                    if key not in buf_seen_e:
-                        buf["edges"].append(e)
-                        buf_seen_e.add(key)
+                with _graph_cache_lock:
+                    buf = _phase_payloads[phase_key]
+                    buf_seen_n = {n.get("id") for n in buf["nodes"]}
+                    for n in new_nodes:
+                        if n.get("id") and n["id"] not in buf_seen_n:
+                            buf["nodes"].append(n)
+                            buf_seen_n.add(n["id"])
+                    buf_seen_e = {
+                        (e.get("source"), e.get("target"), e.get("kind"))
+                        for e in buf["edges"]
+                    }
+                    for e in new_edges:
+                        key = (e.get("source"), e.get("target"), e.get("kind"))
+                        if key not in buf_seen_e:
+                            buf["edges"].append(e)
+                            buf_seen_e.add(key)
             _graph_cache = {"data": cur, "domain_filter": domain_filter}
             _graph_cache_ts = time.monotonic()
             _cached_domain_hub_ids = extract_domain_hub_ids(cur["nodes"])
@@ -815,7 +832,16 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                         }
                     )
 
-                for sym in syms:
+                for _si, sym in enumerate(syms):
+                    # Yield the GIL every 1000 symbols. The AST extraction
+                    # below is pure-Python and CPU-bound; without this the
+                    # build thread monopolizes the interpreter lock and
+                    # starves HTTP handler threads — /api/quadtree and
+                    # /api/graph.zera time out with "Failed to fetch" while
+                    # a large project is processed. sleep(0) is the
+                    # idiomatic GIL yield (no real delay).
+                    if _si and _si % 1000 == 0:
+                        time.sleep(0)
                     qn = sym.get("qualified_name") or ""
                     fp = sym.get("file_path") or ""
                     if not qn:
@@ -851,7 +877,11 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                                 "reason": di_reason,
                             }
                         )
-                for e in edgs:
+                for _ei, e in enumerate(edgs):
+                    # Same GIL-yield as the symbol loop: edge resolution is
+                    # CPU-bound pure-Python over potentially 100K+ edges.
+                    if _ei and _ei % 1000 == 0:
+                        time.sleep(0)
                     sf = e.get("src_file") or ""
                     sn = e.get("src_name") or ""
                     df = e.get("dst_file") or ""
