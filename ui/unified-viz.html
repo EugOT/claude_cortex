@@ -152,33 +152,43 @@
       }
       if(frames.length < 4){ console.warn('[zera] short bundle, falling back'); return poll(); }
       var dec = function(f){ return JSON.parse(new TextDecoder().decode(fzstd.decompress(f))); };
-      var hello = dec(frames[0]), cb = dec(frames[1]), grammar = dec(frames[2]), payload = dec(frames[3]);
+      var hello = dec(frames[0]), cb = dec(frames[1]), grammar = dec(frames[2]);
       var tDecode = performance.now();
-      if(!payload.n || !payload.n.length){
+      var np = cb.node_palettes||{}, ep = cb.edge_palettes||{}, ipref = cb.id_prefixes||[];
+      if(!hello.node_count){
         // Cache not built yet — fall back to phase loader which kicks the build.
-        console.log('[zera] empty payload (build not ready); using phase loader');
+        console.log('[zera] empty graph (build not ready); using phase loader');
         return poll();
       }
-      var np = cb.node_palettes||{}, ep = cb.edge_palettes||{}, ipref = cb.id_prefixes||[];
-      var nodes = new Array(payload.n.length), edges = new Array(payload.e.length);
-      for(var i=0;i<payload.n.length;i++) nodes[i] = _zeraDecodeItem(payload.n[i], np, false, ipref);
-      for(var j=0;j<payload.e.length;j++) edges[j] = _zeraDecodeItem(payload.e[j], ep, true, ipref);
-      var tBuild = performance.now();
       if(!JUG.state.lastData){
         JUG.state.lastData = { nodes: [], edges: [], links: [], meta: { schema: 'workflow_graph.v1' } };
       }
-      if(typeof JUG.appendGraphDelta === 'function'){ JUG.appendGraphDelta(nodes, edges); }
+      // CRITICAL: parse + install each payload chunk SEPARATELY. The full
+      // memory graph decodes to ~760 MB of JSON — over V8's ~512 MB max
+      // string length. Parsing it as one string throws "Unexpected end of
+      // JSON input". Per-chunk parse keeps every string well under the
+      // limit AND renders progressively as each chunk lands.
+      var totalN = 0, totalE = 0;
+      for(var fi = 3; fi < frames.length; fi++){
+        var chunk = dec(frames[fi]);
+        var cn = chunk.n || [], ce = chunk.e || [];
+        var nodes = new Array(cn.length), edges = new Array(ce.length);
+        for(var i=0;i<cn.length;i++) nodes[i] = _zeraDecodeItem(cn[i], np, false, ipref);
+        for(var j=0;j<ce.length;j++) edges[j] = _zeraDecodeItem(ce[j], ep, true, ipref);
+        if(typeof JUG.appendGraphDelta === 'function'){ JUG.appendGraphDelta(nodes, edges); }
+        totalN += nodes.length; totalE += edges.length;
+      }
       var tInstall = performance.now();
-      window._zeraStats = { bytes: buf.byteLength, fetch_ms: tFetch-t0, decode_ms: tDecode-tFetch,
-        reconstruct_ms: tBuild-tDecode, install_ms: tInstall-tBuild, total_ms: tInstall-t0,
-        nodes: nodes.length, edges: edges.length };
-      console.log('[zera]', (buf.byteLength/1024).toFixed(1)+'KB',
+      window._zeraStats = { bytes: buf.byteLength, chunks: frames.length - 3,
+        fetch_ms: tFetch-t0, decode_meta_ms: tDecode-tFetch,
+        decode_install_ms: tInstall-tDecode, total_ms: tInstall-t0,
+        nodes: totalN, edges: totalE };
+      console.log('[zera]', (buf.byteLength/1024/1024).toFixed(1)+'MB',
+        'in', (frames.length-3)+' chunks',
         '| fetch '+(tFetch-t0).toFixed(0)+'ms',
-        '| decode '+(tDecode-tFetch).toFixed(0)+'ms',
-        '| reconstruct '+(tBuild-tDecode).toFixed(0)+'ms',
-        '| install '+(tInstall-tBuild).toFixed(0)+'ms',
+        '| decode+install '+(tInstall-tDecode).toFixed(0)+'ms',
         '| TOTAL '+(tInstall-t0).toFixed(0)+'ms |',
-        nodes.length+'N '+edges.length+'E');
+        totalN+'N '+totalE+'E');
       var box = document.getElementById('build-progress');
       if(box){ box.style.opacity='0'; setTimeout(function(){ box.style.display='none'; }, 400); }
     }).catch(function(err){

@@ -207,6 +207,37 @@ def _zstd_frame(obj: Any, level: int) -> bytes:
     return zstd.ZstdCompressor(level=level).compress(raw)
 
 
+# Max items (nodes or edges) per payload chunk frame. A single JSON
+# string handed to a browser's JSON.parse must stay under the JS engine's
+# maximum string length (V8: ~536 MB). At ~870 bytes/item decoded, the
+# full memory graph is ~800 MB as one frame — 1.5x over the limit, so the
+# browser CANNOT parse it however well it compresses on the wire (proven
+# live 2026-05-26: 763 MB decoded payload → "Unexpected end of JSON
+# input"). Chunking the payload into frames of this size keeps every
+# JSON.parse well under the limit (~120K items ≈ 100 MB decoded) and lets
+# the client decode + append incrementally (progressive render, bonus).
+# source: measured V8 string limit; ZERA-spec §4.2 (incremental decode).
+_CHUNK_ITEMS = 120_000
+
+
+def _chunk_payload_frames(payload: dict, level: int) -> list[bytes]:
+    """Split the encoded payload into per-chunk zstd frames. Each frame
+    is {"n": [...], "e": [...]} carrying at most _CHUNK_ITEMS of each.
+    Node chunks come first, then edge chunks."""
+    nodes = payload.get("n", [])
+    edges = payload.get("e", [])
+    frames: list[bytes] = []
+    for i in range(0, len(nodes), _CHUNK_ITEMS):
+        frames.append(_zstd_frame({"n": nodes[i:i + _CHUNK_ITEMS], "e": []}, level))
+    for i in range(0, len(edges), _CHUNK_ITEMS):
+        frames.append(_zstd_frame({"n": [], "e": edges[i:i + _CHUNK_ITEMS]}, level))
+    # A graph with zero nodes AND zero edges still needs one (empty) frame
+    # so the client's chunk loop has something to consume.
+    if not frames:
+        frames.append(_zstd_frame({"n": [], "e": []}, level))
+    return frames
+
+
 def encode_graph_to_zera_bundle(
     graph: dict,
     *,
@@ -224,8 +255,10 @@ def encode_graph_to_zera_bundle(
     elif graph_id is None:
         graph_id = "0" * 64
 
+    payload_frames = _chunk_payload_frames(payload, payload_zstd_level)
+
     hello = {
-        "zera_version": "0.0.5",
+        "zera_version": "0.0.6",
         "graph_id": graph_id,
         "codebook_id": codebook_content_id(cb),
         "cache_hit": False,
@@ -234,17 +267,21 @@ def encode_graph_to_zera_bundle(
         "payload_zstd_level": payload_zstd_level,
         "node_count": len(graph.get("nodes", [])),
         "edge_count": len(graph.get("edges", [])),
+        # Number of payload chunk frames following GRAMMAR. The client
+        # loops exactly this many, JSON.parsing each separately so no
+        # single string exceeds the JS engine's max-string-length.
+        "payload_chunks": len(payload_frames),
+        "chunk_items": _CHUNK_ITEMS,
     }
     grammar = {"rules": []}
 
     f_hello = _zstd_frame(hello, 3)
     f_cb = _zstd_frame(cb, 3)
     f_gr = _zstd_frame(grammar, 3)
-    f_pl = _zstd_frame(payload, payload_zstd_level)
 
     return b"".join(
         len(b).to_bytes(4, "little") + b
-        for b in (f_hello, f_cb, f_gr, f_pl)
+        for b in [f_hello, f_cb, f_gr, *payload_frames]
     )
 
 
@@ -263,12 +300,14 @@ def decode_zera_bundle(bundle: bytes) -> dict:
         pos += 4
         frames.append(decomp.decompress(bundle[pos:pos + ln]))
         pos += ln
-    if len(frames) != 4:
-        raise ValueError(f"expected 4 frames, got {len(frames)}")
+    if len(frames) < 4:
+        raise ValueError(f"expected ≥4 frames (hello+codebook+grammar+≥1 payload), got {len(frames)}")
     hello = json.loads(frames[0])
     cb = json.loads(frames[1])
     _grammar = json.loads(frames[2])
-    payload = json.loads(frames[3])
+    # Frames 3.. are payload chunks. Parse each separately and accumulate
+    # so no single JSON.parse ever sees the whole (possibly >512 MB) payload.
+    payload_chunks = [json.loads(f) for f in frames[3:]]
 
     np = cb.get("node_palettes", {})
     ep = cb.get("edge_palettes", {})
@@ -294,6 +333,9 @@ def decode_zera_bundle(bundle: bytes) -> dict:
                 out[k] = v
         return out
 
-    nodes = [decode_item(n, np, "id") for n in payload["n"]]
-    edges = [decode_item(e, ep, "edge") for e in payload["e"]]
+    nodes: list[dict] = []
+    edges: list[dict] = []
+    for chunk in payload_chunks:
+        nodes.extend(decode_item(n, np, "id") for n in chunk.get("n", []))
+        edges.extend(decode_item(e, ep, "edge") for e in chunk.get("e", []))
     return {"hello": hello, "nodes": nodes, "edges": edges}
