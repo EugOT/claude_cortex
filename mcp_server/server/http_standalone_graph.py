@@ -42,6 +42,16 @@ _cached_domain_hub_ids: dict[str, str] = {}
 _graph_cache: dict | None = None
 _graph_cache_ts: float = 0.0
 _graph_build_lock = threading.Lock()
+# Fine-grained lock guarding mutation of / reads from ``_graph_cache["data"]``.
+# Distinct from ``_graph_build_lock`` (which the builder holds for the WHOLE
+# build): this one is held only for the microseconds of a single ``_merge``
+# append-batch or a single reader snapshot. Without it, the HTTP thread can
+# ``json.dumps`` the cumulative node/edge lists WHILE the builder thread is
+# ``.append``-ing to them — yielding a truncated or empty body even though
+# the Content-Length header was already computed from a longer serialization.
+# source: observed 2026-05-25 — /api/graph returned Content-Length 916 MB
+# with a 0-byte body during an active build.
+_graph_cache_lock = threading.Lock()
 # Fingerprint of the ap_graphs roster at the time of the last build.
 # When it changes (a new project just finished indexing) the cache is
 # invalidated so the next request rebuilds and the user sees the new
@@ -303,51 +313,56 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
             seen in a previous publish for the same phase are dropped.
             """
             global _graph_cache, _graph_cache_ts, _cached_domain_hub_ids
-            cur = (
-                _graph_cache["data"]
-                if _graph_cache
-                else {"nodes": [], "edges": [], "links": [], "meta": {}}
-            )
-            seen_n = {n.get("id") for n in cur.get("nodes", [])}
-            seen_e = {
-                (e.get("source"), e.get("target"), e.get("kind"))
-                for e in cur.get("edges", [])
-            }
-            for n in new_nodes:
-                nid = n.get("id")
-                if nid and nid not in seen_n:
-                    cur["nodes"].append(n)
-                    seen_n.add(nid)
-            for e in new_edges:
-                key = (e.get("source"), e.get("target"), e.get("kind"))
-                if key not in seen_e:
-                    cur["edges"].append(e)
-                    seen_e.add(key)
-            cur["links"] = cur["edges"]
-            cur.setdefault("meta", {})
-            cur["meta"]["stage"] = stage
-            cur["meta"]["node_count"] = len(cur["nodes"])
-            cur["meta"]["edge_count"] = len(cur["edges"])
-            cur["meta"]["schema"] = "workflow_graph.v1"
-            # Per-kind tallies for the sidebar legend. Without these the
-            # browser reads `meta.domain_count || 0` → always 0. Compute
-            # from the cumulative nodes array so the counts stay exact
-            # across phase appends.
-            kind_counts: dict[str, int] = {}
-            for _n in cur["nodes"]:
-                k = _n.get("kind") or _n.get("type") or ""
-                kind_counts[k] = kind_counts.get(k, 0) + 1
-            cur["meta"]["domain_count"] = kind_counts.get("domain", 0)
-            cur["meta"]["memory_count"] = kind_counts.get("memory", 0)
-            # "Entity" in the legend covers every non-domain, non-memory
-            # knowledge node (files, symbols, tools, commands, agents,
-            # skills, hooks, discussions, MCPs). Compute as the sum.
-            cur["meta"]["entity_count"] = (
-                len(cur["nodes"])
-                - kind_counts.get("domain", 0)
-                - kind_counts.get("memory", 0)
-            )
-            cur["meta"]["counts"] = kind_counts
+            # Hold the cache lock for the whole cumulative-cache update so a
+            # concurrent reader (serve_graph → json.dumps) never observes a
+            # half-appended nodes/edges list. The lock is contended only for
+            # the duration of this append batch (microseconds), not the build.
+            with _graph_cache_lock:
+                cur = (
+                    _graph_cache["data"]
+                    if _graph_cache
+                    else {"nodes": [], "edges": [], "links": [], "meta": {}}
+                )
+                seen_n = {n.get("id") for n in cur.get("nodes", [])}
+                seen_e = {
+                    (e.get("source"), e.get("target"), e.get("kind"))
+                    for e in cur.get("edges", [])
+                }
+                for n in new_nodes:
+                    nid = n.get("id")
+                    if nid and nid not in seen_n:
+                        cur["nodes"].append(n)
+                        seen_n.add(nid)
+                for e in new_edges:
+                    key = (e.get("source"), e.get("target"), e.get("kind"))
+                    if key not in seen_e:
+                        cur["edges"].append(e)
+                        seen_e.add(key)
+                cur["links"] = cur["edges"]
+                cur.setdefault("meta", {})
+                cur["meta"]["stage"] = stage
+                cur["meta"]["node_count"] = len(cur["nodes"])
+                cur["meta"]["edge_count"] = len(cur["edges"])
+                cur["meta"]["schema"] = "workflow_graph.v1"
+                # Per-kind tallies for the sidebar legend. Without these the
+                # browser reads `meta.domain_count || 0` → always 0. Compute
+                # from the cumulative nodes array so the counts stay exact
+                # across phase appends.
+                kind_counts: dict[str, int] = {}
+                for _n in cur["nodes"]:
+                    k = _n.get("kind") or _n.get("type") or ""
+                    kind_counts[k] = kind_counts.get(k, 0) + 1
+                cur["meta"]["domain_count"] = kind_counts.get("domain", 0)
+                cur["meta"]["memory_count"] = kind_counts.get("memory", 0)
+                # "Entity" in the legend covers every non-domain, non-memory
+                # knowledge node (files, symbols, tools, commands, agents,
+                # skills, hooks, discussions, MCPs). Compute as the sum.
+                cur["meta"]["entity_count"] = (
+                    len(cur["nodes"])
+                    - kind_counts.get("domain", 0)
+                    - kind_counts.get("memory", 0)
+                )
+                cur["meta"]["counts"] = kind_counts
             # Also append into the per-phase delta buffer so the
             # client can ``GET /api/graph/phase?name=<key>`` and
             # append exactly this phase's new content to its live
@@ -972,6 +987,39 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
     threading.Thread(target=_run, name="cortex-graph-build", daemon=True).start()
 
 
+def _snapshot_graph_cache() -> dict:
+    """Return a point-in-time shallow snapshot of the cumulative graph
+    cache, taken under ``_graph_cache_lock``.
+
+    Why a snapshot and not the live dict: the caller (serve_graph →
+    json.dumps) serializes the returned object on the HTTP thread, which
+    can take hundreds of ms for a large graph. Meanwhile the builder
+    thread keeps appending to ``_graph_cache["data"]``. Returning the
+    live reference let json.dumps iterate a list that grew underneath it
+    — producing a body shorter than the Content-Length already sent, so
+    the client saw a truncated/empty response. The shallow copy freezes
+    the node/edge list membership at lock-release; the node/edge dicts
+    themselves are never mutated after insertion, so a shallow copy is
+    sufficient (and ~1 ms even at 500K nodes).
+    """
+    with _graph_cache_lock:
+        if not (_graph_cache and _graph_cache.get("data")):
+            return {"nodes": [], "edges": [], "clusters": [], "meta": {}}
+        data = _graph_cache["data"]
+        snap = {
+            "nodes": list(data.get("nodes", [])),
+            "edges": list(data.get("edges", [])),
+            "links": list(data.get("links", data.get("edges", []))),
+            "meta": dict(data.get("meta", {})),
+        }
+        # Preserve any other top-level keys (clusters, etc.) by reference;
+        # they are replaced wholesale on rebuild, never mutated in place.
+        for k, v in data.items():
+            if k not in snap:
+                snap[k] = v
+        return snap
+
+
 def get_graph_response(store, path: str) -> dict:
     """Return whatever's in the cache instantly; never block.
 
@@ -1007,7 +1055,7 @@ def get_graph_response(store, path: str) -> dict:
     # roster hasn't changed — it's still current.
     if build_in_progress or (cache_has_data and not roster_changed):
         if cache_has_data:
-            return _graph_cache["data"]
+            return _snapshot_graph_cache()
         # Build running but no data yet — return placeholder.
         return {
             "nodes": [],
@@ -1027,7 +1075,7 @@ def get_graph_response(store, path: str) -> dict:
     # If there's any cache at all (stale TTL or prior domain), return
     # it — better than an empty graph. Otherwise placeholder.
     if _graph_cache and _graph_cache.get("data"):
-        return _graph_cache["data"]
+        return _snapshot_graph_cache()
 
     return {
         "nodes": [],
