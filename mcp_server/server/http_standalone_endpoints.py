@@ -151,7 +151,13 @@ def serve_graph_zera(handler, store) -> None:
             # Build not ready — return an empty bundle (HELLO only with
             # zero counts) so the client can show "warming up".
             graph = {"nodes": [], "edges": []}
-        bundle = encode_graph_to_zera_bundle(graph)
+        # On-demand encode uses zstd level 9, not 19: level 19 takes ~6 s
+        # on a 500K-node graph and, if a build is running concurrently,
+        # starves the HTTP thread for a minute. Level 9 is ~250 ms and
+        # still ~3-4x over level 3. A production deployment would cache a
+        # level-19 bundle keyed by graph_id and serve bytes; on-demand
+        # favours latency.
+        bundle = encode_graph_to_zera_bundle(graph, payload_zstd_level=9)
         handler.send_response(200)
         handler.send_header("Content-Type", "application/octet-stream")
         handler.send_header("Content-Length", str(len(bundle)))

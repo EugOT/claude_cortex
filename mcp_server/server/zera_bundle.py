@@ -111,7 +111,7 @@ def build_codebook(graph: dict) -> dict:
 def codebook_content_id(cb: dict) -> str:
     if blake3 is None:
         return "0" * 64
-    raw = json.dumps(cb, separators=(",", ":"), sort_keys=True).encode()
+    raw = json.dumps(cb, separators=(",", ":"), sort_keys=True, default=str).encode()
     h = blake3.blake3()
     h.update(len(raw).to_bytes(8, "little"))
     h.update(raw)
@@ -198,7 +198,12 @@ def encode_payload(graph: dict, codebook: dict) -> dict:
 def _zstd_frame(obj: Any, level: int) -> bytes:
     if zstd is None:
         return b""
-    raw = json.dumps(obj, separators=(",", ":")).encode()
+    # default=str matches the existing /api/graph serializer: live graph
+    # nodes carry non-JSON-native values (numpy float32 heat/weight,
+    # datetimes) that plain json.dumps rejects with TypeError. Coercing
+    # them to strings keeps parity with what the viz already consumes
+    # from the JSON endpoint.
+    raw = json.dumps(obj, separators=(",", ":"), default=str).encode()
     return zstd.ZstdCompressor(level=level).compress(raw)
 
 
@@ -214,7 +219,7 @@ def encode_graph_to_zera_bundle(
     if graph_id is None and blake3 is not None:
         h = blake3.blake3()
         h.update(len(payload["n"]).to_bytes(8, "little"))
-        h.update(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
+        h.update(json.dumps(payload, separators=(",", ":"), sort_keys=True, default=str).encode())
         graph_id = h.digest().hex()
     elif graph_id is None:
         graph_id = "0" * 64
