@@ -1,12 +1,21 @@
 name: Release
 
-# Cortex's only supported install path is Anthropic's plugin marketplace
+# Cortex's SUPPORTED install path is Anthropic's plugin marketplace
 # (`/plugin install cortex@cortex-plugins`). The marketplace consumes the
-# git tree directly via ``${CLAUDE_PLUGIN_ROOT}`` — no PyPI, no uvx,
-# no separate package channel. See ADR-0050.
+# git tree directly via ``${CLAUDE_PLUGIN_ROOT}``. See ADR-0050.
 #
-# This workflow runs the test matrix on tag push and creates a GitHub
-# Release with auto-generated notes. It does NOT publish to PyPI.
+# PyPI is a DEPRECATED secondary channel, kept best-effort for legacy
+# `pip install` / `uvx` users. It is NOT the supported path and may lag
+# or be removed. The publish-pypi job below is intentionally
+# non-blocking: if PyPI rejects the upload (e.g. the Trusted Publisher
+# entry was removed), the GitHub Release + marketplace propagation still
+# succeed. Publishing uses PEP 740 Trusted Publishing (OIDC) against the
+# trusted-publisher entry configured for this workflow + environment
+# `pypi` — the same one that published versions up to 3.14.7.
+#
+# This workflow runs the tests on tag push, creates a GitHub Release with
+# auto-generated notes, and (best-effort) publishes to the deprecated
+# PyPI channel.
 
 on:
   push:
@@ -93,3 +102,63 @@ jobs:
         with:
           body_path: changelog.txt
           generate_release_notes: true
+
+  # ── DEPRECATED PyPI channel (best-effort) ──────────────────────────────
+  # Restored after being dropped in a2dc7e3. Marketplace (ADR-0050) is the
+  # supported path; these jobs keep the legacy `pip install` / `uvx` users
+  # on a non-vulnerable version. Decoupled from github-release so a PyPI
+  # failure never blocks the supported channel.
+  build:
+    name: Build sdist + wheel (deprecated PyPI channel)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install build
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish-pypi:
+    name: Publish to PyPI (deprecated channel)
+    needs: build
+    runs-on: ubuntu-latest
+    # OIDC Trusted Publishing — no stored secret. Verified by PyPI against
+    # the trusted-publisher entry for (cdeust/Cortex, release.yml,
+    # environment=pypi). This is the same entry that published <= 3.14.7.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/neuro-cortex-memory
+    permissions:
+      id-token: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI (best-effort — must not fail the release)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # Deprecated channel: a rejected upload (already-exists, or the
+        # Trusted Publisher entry was removed) must NOT red-X the release.
+        continue-on-error: true
+        with:
+          verbose: true
+          # skip-existing so a retag against an already-published version
+          # is a no-op instead of a hard failure — this was the exact
+          # failure mode that motivated removing PyPI in a2dc7e3.
+          skip-existing: true

@@ -42,10 +42,14 @@ Cortex is a persistent memory engine for Claude Code built on computational neur
 
 ## Getting Started
 
+The plugin marketplace is the **only supported install path** ([ADR-0050](docs/adr/ADR-0050-marketplace-only-no-uvx.md)):
+
 ```bash
 claude plugin marketplace add cdeust/Cortex
 claude plugin install cortex
 ```
+
+> **PyPI / `pip install neuro-cortex-memory` is deprecated.** It is kept best-effort for legacy users only and may lag the marketplace or be removed. Versions `3.14.6` and `3.14.7` on PyPI are affected by [GHSA-gvpp-v77h-5w8g](https://github.com/cdeust/Cortex/security/advisories/GHSA-gvpp-v77h-5w8g) (local ACE, CVSS 7.8) — do not use them; install via the marketplace instead.
 
 Restart your Claude Code session, then run:
 
