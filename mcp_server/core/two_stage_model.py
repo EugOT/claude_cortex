@@ -268,7 +268,13 @@ def compute_transfer_metrics(memories: list[dict]) -> dict:
     deps = [m.get("hippocampal_dependency", 1.0) for m in memories]
     stages = [m.get("consolidation_stage", "labile") for m in memories]
 
-    stores = [classify_memory_store(d, s) for d, s in zip(deps, stages)]
+    # strict=True is invariant-safe (both lists derived from the same
+    # `memories` iteration above) but locks the invariant in: if a future
+    # edit decouples the lists, strict surfaces the bug as ValueError
+    # instead of silently classifying a truncated subset.
+    stores = [
+        classify_memory_store(d, s) for d, s in zip(deps, stages, strict=True)
+    ]
 
     avg_dep = sum(deps) / len(deps)
     progress = sum(1 for s in stores if s == "cortical") / len(stores)

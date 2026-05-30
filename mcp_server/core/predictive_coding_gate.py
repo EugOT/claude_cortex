@@ -106,7 +106,14 @@ def update_precision_state(
     alpha = state.precision_ema_alpha
     new_precisions = []
 
-    for current_prec, error_fe in zip(state.level_precisions, level_errors):
+    # strict=True: one error per level — hierarchical predictive coding
+    # (Friston 2010) requires exactly one error per precision level. If the
+    # lists drift, zip would silently update fewer levels than expected,
+    # leaving stale precisions on the unupdated levels. That's a silent
+    # corruption of the write-gate invariant the paper claims to enforce.
+    for current_prec, error_fe in zip(
+        state.level_precisions, level_errors, strict=True
+    ):
         current_var = 1.0 / max(current_prec, 0.1)
         new_var = (1 - alpha) * current_var + alpha * error_fe
         new_prec = 1.0 / max(new_var, 0.01)

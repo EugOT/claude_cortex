@@ -106,7 +106,11 @@ def apply_temporal_weights(
     if len(embedding) != len(weights):
         return list(embedding)
 
-    weighted = [e * w for e, w in zip(embedding, weights)]
+    # strict=True is safe here — the explicit length check above guarantees
+    # equality. Defensive: if a future edit removes the guard, strict will
+    # surface the regression as an exception instead of silently weighting
+    # only the shorter prefix.
+    weighted = [e * w for e, w in zip(embedding, weights, strict=True)]
     weighted_norm = norm(weighted)
     if weighted_norm > 1e-10:
         weighted = scale(weighted, 1.0 / weighted_norm)

@@ -48,7 +48,13 @@ def wrrf_fuse(
 ) -> list[tuple[int, float]]:
     """Weighted Reciprocal Rank Fusion across multiple signals."""
     scores: dict[int, float] = {}
-    for results, weight in zip(signal_results, signal_weights):
+    # strict=True: WRRF requires exactly one weight per signal. Without it,
+    # zip silently truncates if lengths drift (e.g., upstream removes a
+    # signal but forgets the weight vector), silently dropping signals or
+    # weights from the fusion. The paper's WRRF claim depends on this
+    # invariant; strict surfaces a violation as ValueError instead of
+    # degrading the score silently.
+    for results, weight in zip(signal_results, signal_weights, strict=True):
         if weight <= 0:
             continue
         for rank, (mem_id, _) in enumerate(results):
