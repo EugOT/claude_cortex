@@ -119,6 +119,17 @@ class PgMemoryStore(
         # avoids paying pool-open cost for short-lived usages (tests).
         self._interactive_pool: ConnectionPool | None = None
         self._batch_pool: ConnectionPool | None = None
+        # Register cleanup so the pools (and their background worker threads)
+        # release at process exit. Without this, short-lived hook scripts
+        # leak 3-6 PG connections each: psycopg_pool holds non-daemon
+        # threads + open sockets that block process termination, so the
+        # process sits at 0% CPU forever. Observed live 2026-05-26 with 52
+        # leaked hooks consuming 199 connections, hitting "too many clients
+        # already". close() is idempotent (guards against double-close) so
+        # callers that already close manually are unaffected. SIGKILL still
+        # bypasses this — atexit only runs on normal/SystemExit termination.
+        import atexit
+        atexit.register(self.close)
 
     def _create_connection(self) -> psycopg.Connection:
         """Create a new database connection."""
