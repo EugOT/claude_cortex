@@ -854,15 +854,69 @@ def wiki_graph(domain: str, *, cooccur: bool = False, xlens: bool = False) -> di
             "edges": [],
             "meta": {"schema": "workflow_graph.v1", "lens": "wiki"},
         }
+    # UNION the two page sources (deduped by rel_path), not either/or: PG holds
+    # memory-synced pages (ADR/spec/note + provenance/entities), while the
+    # curated reference/guide pages with [[wikilinks]] live on disk only. A
+    # domain with any PG pages used to hide its entire FS-only curated graph.
+    # PG nodes/edges take precedence; FS adds the pages PG never synced.
+    db_graph: dict = {}
     store = _get_store()
     if store is not None:
         try:
-            graph = _wiki_graph_db(store, domain, cooccur, xlens)
-            if graph:
-                return graph
+            db_graph = _wiki_graph_db(store, domain, cooccur, xlens) or {}
         except Exception:
-            pass  # fall through to FS degrade path
-    return _wiki_graph_fs(wiki_root, domain, cooccur, xlens)
+            db_graph = {}
+    fs_graph: dict = {}
+    try:
+        fs_graph = _wiki_graph_fs(wiki_root, domain, cooccur, xlens) or {}
+    except Exception:
+        fs_graph = {}
+    return _merge_wiki_graphs(db_graph, fs_graph, domain, cooccur, xlens)
+
+
+def _merge_wiki_graphs(
+    db_graph: dict, fs_graph: dict, domain: str, cooccur: bool, xlens: bool
+) -> dict:
+    """Union two workflow_graph.v1 payloads. Nodes dedup by id (DB wins on
+    metadata — richer: memory_id/heat); edges dedup by (source, target, kind).
+    Either input may be empty."""
+    nodes: list[dict] = []
+    seen_nodes: set[str] = set()
+    # DB first so its richer node wins on id collision.
+    for g in (db_graph, fs_graph):
+        for n in g.get("nodes", []):
+            nid = n.get("id")
+            if nid is None or nid in seen_nodes:
+                continue
+            seen_nodes.add(nid)
+            nodes.append(n)
+    edges: list[dict] = []
+    seen_edges: set[tuple] = set()
+    for g in (db_graph, fs_graph):
+        for e in g.get("edges", []):
+            key = (e.get("source"), e.get("target"), e.get("kind"))
+            if key in seen_edges:
+                continue
+            seen_edges.add(key)
+            edges.append(e)
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "meta": {
+            "schema": "workflow_graph.v1",
+            "lens": "wiki",
+            "domain": domain,
+            "toggles": {"cooccur": cooccur, "xlens": xlens},
+            "sources": {
+                "db_pages": sum(
+                    1 for n in db_graph.get("nodes", []) if n.get("kind") == "wiki_page"
+                ),
+                "fs_pages": sum(
+                    1 for n in fs_graph.get("nodes", []) if n.get("kind") == "wiki_page"
+                ),
+            },
+        },
+    }
 
 
 def save_wiki_page(wiki_root: Path, rel_path: str, body: str) -> dict:
