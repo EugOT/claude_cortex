@@ -129,10 +129,19 @@ def _git_versions(path: str, limit: int = 25) -> dict:
         fmt = "%h%x1f%aI%x1f%an%x1f%s%x1e"
         out = subprocess.run(
             [
-                "git", "-C", str(root), "log", "--follow",
-                f"-n{int(limit)}", f"--format={fmt}", "--", rel,
+                "git",
+                "-C",
+                str(root),
+                "log",
+                "--follow",
+                f"-n{int(limit)}",
+                f"--format={fmt}",
+                "--",
+                rel,
             ],
-            capture_output=True, text=True, timeout=8,
+            capture_output=True,
+            text=True,
+            timeout=8,
         )
         if out.returncode != 0:
             return {"available": False, "error": (out.stderr or "").strip()[:200]}
@@ -145,7 +154,12 @@ def _git_versions(path: str, limit: int = 25) -> dict:
             if len(parts) < 4:
                 continue
             versions.append(
-                {"sha": parts[0], "date": parts[1], "author": parts[2], "subject": parts[3]}
+                {
+                    "sha": parts[0],
+                    "date": parts[1],
+                    "author": parts[2],
+                    "subject": parts[3],
+                }
             )
         return {"available": True, "versions": versions, "count": len(versions)}
     except Exception as exc:  # pragma: no cover - defensive
@@ -405,7 +419,13 @@ def _impact_for_graph(graph_path: str, rel_path: str) -> dict | None:
                     if not fp or fp == rel_path:
                         continue
                     e = agg.setdefault(
-                        fp, {"file": fp, "label": _basename(fp), "edges": 0, "kinds": set()}
+                        fp,
+                        {
+                            "file": fp,
+                            "label": _basename(fp),
+                            "edges": 0,
+                            "kinds": set(),
+                        },
                     )
                     e["edges"] += 1
                     if it.get("kind"):
