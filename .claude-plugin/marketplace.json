@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Persistent memory and cognitive profiling plugins for Claude Code",
-    "version": "3.18.1"
+    "version": "3.18.2"
   },
   "plugins": [
     {
       "name": "cortex",
       "source": "./",
       "description": "Persistent memory and cognitive profiling for Claude Code — thermodynamic memory with heat/decay, intent-aware retrieval, biological plasticity, codebase intelligence, and cognitive profiling. 49 MCP tools with enriched schemas. PostgreSQL + pgvector in CLI mode; automatic SQLite fallback in Cowork/sandboxed mode. v3.17.0 — autonomous per-project wiki: SessionStart auto-spawns a 6-hour consolidate cycle; a headless `claude -p` worker drains the curation-gap queue, calls codebase-intelligence MCP tools to ground each section in the real call graph, and authors missing anchor pages (architecture / services / api / data-flow / operations / decisions / PRD) per project from the source tree. 15 canonical scopes × 13 file sections; per-project dashboards under `wiki/_dashboards/`. Mermaid diagrams have a 🔍 lens with zoom + pan. Workflow graph with caller-qualified CALLS chains rendering full method-to-method dependencies (native tree-sitter, no AP required). Side panel humanized for non-technical users. Ingests codebase analysis (ai-automatised-pipeline) and PRDs (prd-spec-generator) into wiki + memory + knowledge graph. Docker image available.",
-      "version": "3.18.1",
+      "version": "3.18.2",
       "author": {
         "name": "Clement Deust",
         "email": "admin@ai-architect.tools"
@@ -21,7 +21,7 @@
       "homepage": "https://github.com/cdeust/Cortex",
       "repository": "https://github.com/cdeust/Cortex",
       "license": "MIT",
-      "version_note": "3.18.1 — HUD shows true store counts (memories/entities/synapses) via /api/stats instead of loaded-graph nodes; impact panel refactored to use automatised-pipeline's typed tools (get_context/get_impact) for full direction incl. implements/uses + community/process blast radius; AP MCP resolved from installed_plugins.json (compiled binary, not bin/* glob); HTML-attribute XSS escaping + non-security node-id hash. 3.18.0 — live execution-trace graph in cortex-visualize: domain→session→chain (no snapshot), galaxy-style type-banded clusters, file impact panel wired to the AP code graph (caller/callee direction, causal chains, per-file git versions). Loopback-only host guard retained (GHSA-gvpp-v77h-5w8g).",
+      "version_note": "3.18.2 — PRD ingestion fixed + grounded: ingest_prd now calls prd-gen's get_pipeline_state with the correct run_id/format (the pipeline_id source path was broken) and records prd-gen quality history; part of the AP↔prd-gen↔Cortex grounding loop (codebase→spec→memory). 3.18.1 — HUD shows true store counts (memories/entities/synapses) via /api/stats instead of loaded-graph nodes; impact panel refactored to use automatised-pipeline's typed tools (get_context/get_impact) for full direction incl. implements/uses + community/process blast radius; AP MCP resolved from installed_plugins.json (compiled binary, not bin/* glob); HTML-attribute XSS escaping + non-security node-id hash. 3.18.0 — live execution-trace graph in cortex-visualize: domain→session→chain (no snapshot), galaxy-style type-banded clusters, file impact panel wired to the AP code graph (caller/callee direction, causal chains, per-file git versions). Loopback-only host guard retained (GHSA-gvpp-v77h-5w8g).",
       "keywords": ["memory", "cognitive-profiling", "mcp", "claude-code", "cortex", "knowledge-graph", "codebase-analysis", "docker"],
       "category": "productivity",
       "runtime": ["cli", "cowork"],
