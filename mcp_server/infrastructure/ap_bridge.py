@@ -140,10 +140,12 @@ def _resolve_command() -> dict | None:
       2. Methodology bin symlink — ``~/.claude/methodology/bin/mcp-server``
          set up by Cortex's silent installer (pipeline_installer.py).
          Basename ``mcp-server`` matches the MCPClient allowlist.
-      3. Plugin-cache probe — ``automatised-pipeline`` installed as a
-         sibling marketplace plugin exposes its MCP entrypoint via
-         ``~/.claude/plugins/cache/<marketplace>/automatised-pipeline/
-         */bin/*``.
+      3. Installed-plugin resolution — read ``installed_plugins.json`` for
+         the ACTIVE ``automatised-pipeline`` install and invoke its compiled
+         Rust binary at ``<installPath>/target/release/automatised-pipeline``.
+         This is the SAME source of truth the plugin's own ``.mcp.json``
+         launcher uses, so it picks the active version (e.g. 0.2.0 over a
+         stale 0.0.9) rather than guessing.
 
     Returns None when no AP install can be discovered; callers treat
     that as graceful degradation (ingest_codebase fails with the
@@ -169,10 +171,33 @@ def _resolve_command() -> dict | None:
         # Full path is fine — MCPClient validates by basename against
         # the command allowlist (which contains "mcp-server").
         return {"command": str(bin_path), "args": []}
-    # Plugin-cache probe.
-    for root in (home / ".claude/plugins/cache").glob("*/automatised-pipeline/*/bin/*"):
-        if root.is_file() and os.access(root, os.X_OK):
-            return {"command": "node", "args": [str(root)]}
+    # Installed-plugin resolution via installed_plugins.json.
+    #
+    # The compiled Rust MCP entrypoint is ``target/release/automatised-pipeline``
+    # — NOT anything under ``bin/`` (which holds only ``ensure-binary.sh``, a
+    # bash build helper). The previous probe globbed ``bin/*`` and ran
+    # ``node ensure-binary.sh`` → SyntaxError. Resolve the active install the
+    # way the plugin's launcher does. source: user report (two installs:
+    # 0.0.9 + 0.2.0; must pick the active one, not glob).
+    import json
+
+    installed = home / ".claude/plugins/installed_plugins.json"
+    try:
+        data = json.loads(installed.read_text(encoding="utf-8"))
+        plugins = data.get("plugins", {}) if isinstance(data, dict) else {}
+        for key, entries in plugins.items():
+            if not key.startswith("automatised-pipeline@"):
+                continue
+            if not isinstance(entries, list) or not entries:
+                continue
+            install_path = entries[0].get("installPath")
+            if not install_path:
+                continue
+            binary = Path(install_path) / "target" / "release" / "automatised-pipeline"
+            if binary.is_file() and os.access(binary, os.X_OK):
+                return {"command": str(binary), "args": []}
+    except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError):
+        pass
     return None
 
 

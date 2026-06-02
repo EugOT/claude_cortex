@@ -66,6 +66,10 @@ class MCPClient:
             "python3",
             "cortex",
             "mcp-server",
+            # automatised-pipeline ships a compiled Rust MCP binary; the
+            # bridge resolves it from installed_plugins.json and invokes it
+            # directly (not via node). source: ap_bridge._resolve_command.
+            "automatised-pipeline",
         }
     )
 
