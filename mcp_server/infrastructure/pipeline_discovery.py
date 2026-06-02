@@ -5,12 +5,16 @@ Runs on SessionStart so users who have the pipeline installed get the
 ``codebase`` MCP server wired up without manual config editing. The
 discovery mirrors ``cortex-doctor``'s optional-capability probe:
 
-  1. Binaries on PATH: ``cortex-pipeline``, ``automatised-pipeline``,
-     ``ai-automatised-pipeline``, ``ai-architect-mcp``.
-  2. Sibling git checkout at ``../anthropic/ai-automatised-pipeline``
+  1. Marketplace install (canonical): the AP plugin installed via
+     ``claude plugin install`` — resolved from ``installed_plugins.json``
+     the same way AP's own ``.mcp.json`` does. Always preferred so Cortex
+     spawns the exact plugin the user installed (no symlink, no drift).
+  2. Binaries on PATH: ``cortex-pipeline``, ``automatised-pipeline``,
+     ``ai-automatised-pipeline``.
+  3. Sibling git checkout at ``../anthropic/ai-automatised-pipeline``
      with a built Cargo release binary at
-     ``target/release/ai-architect-mcp``.
-  3. Otherwise: no change to mcp-connections.json.
+     ``target/release/automatised-pipeline``.
+  4. Otherwise: no change to mcp-connections.json.
 
 If the file already exists AND already has a ``codebase`` server entry,
 we leave it alone — users who customized their config keep their
@@ -50,7 +54,46 @@ _SOURCE_DIRS = (
     "../ai-automatised-pipeline",
 )
 
-_BUILT_RELATIVE = ("target/release/ai-architect-mcp",)
+_BUILT_RELATIVE = (
+    "target/release/automatised-pipeline",
+    "target/release/ai-architect-mcp",
+)
+
+# ── Marketplace install (canonical) ─────────────────────────────────────
+
+# The AP plugin installed via its marketplace. This is the SAME source AP's
+# own .mcp.json resolves from: installed_plugins.json -> installPath ->
+# target/release/automatised-pipeline. Preferring it means Cortex spawns the
+# exact plugin the user installed — no self-built symlink, no version drift.
+_INSTALLED_PLUGINS_PATH = (
+    Path.home() / ".claude" / "plugins" / "installed_plugins.json"
+)
+_AP_PLUGIN_KEY = "automatised-pipeline@automatised-pipeline-marketplace"
+_AP_BINARY_RELATIVE = Path("target") / "release" / "automatised-pipeline"
+
+
+def _marketplace_pipeline_binary() -> Optional[str]:
+    """Resolve the AP binary from the marketplace install, or None.
+
+    Mirrors AP's own ``.mcp.json``: read ``installed_plugins.json``, take the
+    plugin's ``installPath``, and point at ``target/release/automatised-pipeline``.
+    Returns None when AP isn't installed or its binary hasn't been
+    materialised yet (``bin/ensure-binary.sh`` runs on AP's first launch).
+    """
+    try:
+        data = read_json(_INSTALLED_PLUGINS_PATH) or {}
+        entries = (data.get("plugins") or {}).get(_AP_PLUGIN_KEY) or []
+        for entry in entries:
+            install_path = entry.get("installPath")
+            if not install_path:
+                continue
+            binary = Path(install_path) / _AP_BINARY_RELATIVE
+            if binary.is_file() and os.access(binary, os.X_OK):
+                return str(binary)
+    except Exception:
+        return None
+    return None
+
 
 # ── Install paths (shared with pipeline_installer) ──────────────────────
 
@@ -69,8 +112,19 @@ def discover_pipeline_command() -> Optional[list[str]]:
     None means "no pipeline found" — callers should leave the mcp
     config alone and let ingest_codebase fail with the standard
     McpConnectionError when invoked (ingestion is explicitly opt-in).
+
+    Resolution order, canonical install first:
+      1. Marketplace install (installed_plugins.json) — the plugin the
+         user installed via ``claude plugin install``. Always preferred.
+      2. Self-installed symlink / PATH / sibling source checkout —
+         legacy fallbacks for users without the marketplace plugin.
     """
-    # Auto-installed location — preferred when present.
+    # Canonical: the marketplace-installed AP plugin.
+    marketplace = _marketplace_pipeline_binary()
+    if marketplace:
+        return [marketplace]
+
+    # Legacy self-installed location.
     if _INSTALL_SYMLINK.exists() and os.access(_INSTALL_SYMLINK, os.X_OK):
         return [str(_INSTALL_SYMLINK)]
 
