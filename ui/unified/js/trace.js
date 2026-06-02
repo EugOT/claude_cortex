@@ -268,6 +268,9 @@
     // Lead with the file-level direction (developer blast-radius at a glance).
     h += _impactFiles('Depends on (files)', d.depends_on, 'down');
     h += _impactFiles('Depended on by (files)', d.depended_on_by, 'up');
+    // Doc references (Markdown links → files) — all-file indexing.
+    h += _impactGroup('References (docs → files)', d.references, 'down');
+    h += _impactGroup('Referenced by (docs)', d.referenced_by, 'up');
     // Causal chains this file launches.
     h += _impactProcesses(d.processes);
     // Then the detailed symbol-level edges.
@@ -276,7 +279,9 @@
     h += _impactGroup('Defines', d.members, 'flat');
     h += _impactVersions(d.versions);
     if (!(d.downstream || []).length && !(d.upstream || []).length
-        && !(d.members || []).length && !(d.processes || []).length) {
+        && !(d.members || []).length && !(d.processes || []).length
+        && !(d.references || []).length && !(d.referenced_by || []).length
+        && !(d.depends_on || []).length && !(d.depended_on_by || []).length) {
       h += '<div class="impact-loading">No dependencies found in the code-graph.</div>';
     }
     return h;

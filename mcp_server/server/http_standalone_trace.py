@@ -344,6 +344,30 @@ def _impact_for_graph(graph_path: str, rel_path: str) -> dict | None:
                 "p.depth AS depth, p.symbol_count AS n "
                 "ORDER BY p.symbol_count DESC LIMIT 40" % esc
             )
+            # All-file indexing (AP >= 0.2.0): direct File→File edges for files
+            # the AST parsers don't cover. Imports_File_File = .js import/require;
+            # References_File_File = Markdown/doc links. These make non-code and
+            # frontend files show real direction in the impact panel.
+            file_imports = await q(
+                "MATCH (f:File)-[r:Imports_File_File]->(d:File) "
+                "WHERE f.id = '%s' "
+                "RETURN DISTINCT d.id AS name, r.confidence AS conf LIMIT 200" % esc
+            )
+            file_imported_by = await q(
+                "MATCH (s:File)-[r:Imports_File_File]->(f:File) "
+                "WHERE f.id = '%s' "
+                "RETURN DISTINCT s.id AS name, r.confidence AS conf LIMIT 200" % esc
+            )
+            doc_refs = await q(
+                "MATCH (f:File)-[r:References_File_File]->(d:File) "
+                "WHERE f.id = '%s' "
+                "RETURN DISTINCT d.id AS name, r.confidence AS conf LIMIT 200" % esc
+            )
+            doc_referenced_by = await q(
+                "MATCH (s:File)-[r:References_File_File]->(f:File) "
+                "WHERE f.id = '%s' "
+                "RETURN DISTINCT s.id AS name, r.confidence AS conf LIMIT 200" % esc
+            )
 
             def _file_of(qn):
                 return str(qn or "").partition("::")[0]
@@ -437,13 +461,40 @@ def _impact_for_graph(graph_path: str, rel_path: str) -> dict | None:
                 out.sort(key=lambda x: x["edges"], reverse=True)
                 return out
 
+            def _file_edges(rows, kind):
+                out = []
+                for r in rows:
+                    nm = r.get("name")
+                    if not nm or nm == rel_path:
+                        continue
+                    out.append(
+                        {
+                            "file": nm,
+                            "label": _basename(nm),
+                            "kind": kind,
+                            "confidence": _conf(r),
+                        }
+                    )
+                return out
+
+            # Direct File→File edges (AP all-file indexing): code imports for
+            # non-AST files (.js) and doc references (Markdown). Folded into the
+            # file-level direction so the panel shows them even when a file has
+            # no AST symbols at all.
+            imports_files = _file_edges(file_imports, "imports")
+            imported_by_files = _file_edges(file_imported_by, "imports")
+            references = _file_edges(doc_refs, "references")
+            referenced_by = _file_edges(doc_referenced_by, "references")
+
             return {
                 "downstream": downstream,
                 "upstream": upstream,
                 "members": members,
                 "processes": processes,
-                "depends_on": _rollup(downstream),
-                "depended_on_by": _rollup(upstream),
+                "references": references,
+                "referenced_by": referenced_by,
+                "depends_on": _rollup(downstream + imports_files),
+                "depended_on_by": _rollup(upstream + imported_by_files),
             }
 
     return loop_run(_run())
@@ -491,6 +542,10 @@ def serve_trace_impact(handler) -> None:
                 + len(r.get("upstream", []))
                 + len(r.get("members", []))
                 + len(r.get("processes", []))
+                + len(r.get("references", []))
+                + len(r.get("referenced_by", []))
+                + len(r.get("depends_on", []))
+                + len(r.get("depended_on_by", []))
             )
             if n > best_edges:
                 best_edges = n
