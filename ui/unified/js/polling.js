@@ -1,58 +1,64 @@
-// Cortex Neural Graph — Async Progressive Batch Streaming
+// Cortex Neural Graph — Sidebar counters + status from /api/graph/progress.
+//
+// Original implementation downloaded the full /api/graph payload
+// (80+ MB once L6 lands) on every page load just to read meta.* and
+// drive the stats panel. The phase loader (phase_loader.js) now owns
+// node/edge population via /api/graph/phase deltas, so this file's
+// only remaining job is to keep the stats card and clock current —
+// done with a tiny /api/graph/progress poll instead of the full graph.
 (function() {
-  var abortController = null;
-
   function fetchGraph() {
-    // Lazy-load: only pay the multi-MB /api/graph cost when the
-    // user is actually on the Graph tab. Knowledge / Board / Wiki
-    // each own their own paged data path and don't need this.
+    // Lazy-load: only poll while the user is actually on the Graph
+    // tab. The poll is now a tiny /api/graph/progress hit (not the
+    // multi-MB /api/graph it used to be), but the activeView listener
+    // below still re-triggers it on tab switch, so gating here keeps
+    // idle tabs quiet. No abortController needed — the progress poll
+    // is a few hundred bytes and re-polls itself via setTimeout.
     if (window.JUG && JUG.state && JUG.state.activeView !== 'graph') {
       updateStatus('Online — graph standby');
       hideLoading();
       return;
     }
-    if (abortController) abortController.abort();
-    abortController = new AbortController();
-    var signal = abortController.signal;
 
-    fetch(JUG.API_URL, { signal: signal })
+    fetch('/api/graph/progress')
       .then(function(res) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
       })
-      .then(function(data) {
-        if (signal.aborted) return;
-
-        // Retry if server is still building the graph cache
-        if (data.meta && (data.meta.warming || data.meta.stage === 'building')) {
-          updateStatus('Building graph...');
-          setTimeout(function() { if (!signal.aborted) fetchGraph(); }, 1000);
-          // Stats from progress meta so the panel isn't stuck at '--'
-          updateStats(data.meta || {});
-          return;
+      .then(function(p) {
+        // Counts come from the phase loader's cumulative store
+        // (JUG.state.lastData). progress.node_count reflects the
+        // server-side cache, but we want the panel to mirror what
+        // the user can actually see in the graph — so fall back to
+        // server counts only until the first phase lands.
+        var d = JUG.state && JUG.state.lastData;
+        var localCount = d && d.nodes ? d.nodes.length : 0;
+        if (localCount > 0) {
+          // The phase loader's appendGraphDelta already updates the
+          // sidebar counters from lastData.nodes (see graph.js line
+          // ~250). Nothing more to do here for counts.
+        } else {
+          updateStats({
+            node_count: p.node_count,
+            edge_count: p.edge_count,
+          });
         }
-
-        // Phase-driven loader owns `lastData` — don't clobber it if it's
-        // already been populated via /api/graph/phase appends. Only seed
-        // from the /api/graph snapshot when the phase loader hasn't
-        // landed anything yet (fast-boot case where the cache was warm).
-        var cur = JUG.state.lastData;
-        var phaseBootstrapped = cur && cur.nodes && cur.nodes.length > 0;
-        if (!phaseBootstrapped) {
-          JUG.state.lastData = data;
-          JUG.buildGraph(data);
+        var phase = p.phase || '';
+        var pct = Math.round((p.pct || 0) * 100);
+        if (p.full_ready) {
+          updateStatus('Ready · ' + (localCount || p.node_count) + ' nodes');
+        } else if (p.baseline_ready) {
+          updateStatus('Baseline ready · loading L6 (' + pct + '%)');
+        } else {
+          updateStatus('Building · ' + phase + ' (' + pct + '%)');
         }
-        updateStats(data.meta || {});
         hideLoading();
-        _loadDiscussionBatch(0);
-
-        var count = (data.meta || {}).node_count || (data.nodes || []).length;
-        updateStatus('Online (' + count + ' nodes)');
+        // Keep polling progress while the build is still active.
+        if (!p.full_ready) setTimeout(fetchGraph, 2000);
       })
       .catch(function(err) {
-        if (err.name === 'AbortError') return;
-        console.warn('[cortex] Graph fetch error:', err.message);
-        useFallback();
+        console.warn('[cortex] progress poll error:', err.message);
+        setTimeout(fetchGraph, 4000);
       });
   }
 

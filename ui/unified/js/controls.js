@@ -23,19 +23,19 @@
       });
     });
 
-    // Knowledge is the default landing view — at high N the graph
-    // payload + force simulation can freeze the browser, so we land
-    // on the lazy-loaded Knowledge tab. Users can still click Graph;
-    // the in-page warning banner above explains the trade-off.
+    // Trace is the default landing view — the live, domain-split
+    // execution-trace graph loads only ~7 domain hubs up-front (each
+    // level fetched live on expand), so the old high-N freeze that
+    // forced a Knowledge landing no longer applies. Honour the view
+    // declared in state.js (default 'trace') rather than hard-forcing.
     setTimeout(function() {
+      var landing = (JUG.state && JUG.state.activeView) || 'trace';
       JUG.state.activeView = '_init';
-      JUG.state.activeView = 'knowledge';
-      toggleFilterBarVisibility('knowledge');
-      _toggleGraphWarn('knowledge');
-      // Sync the active class on the buttons (HTML hard-codes
-      // active=graph; flip it to match the runtime default).
+      JUG.state.activeView = landing;
+      toggleFilterBarVisibility(landing);
+      _toggleGraphWarn(landing);
       viewBtns.forEach(function(b) {
-        b.classList.toggle('active', b.dataset.view === 'knowledge');
+        b.classList.toggle('active', b.dataset.view === landing);
       });
     }, 0);
 
@@ -143,8 +143,13 @@
     if (!select || !JUG.state.lastData) return;
     var domains = {};
     (JUG.state.lastData.nodes || []).forEach(function(n) {
-      if (n.domain) domains[n.domain] = true;
+      // Only real project domains — exclude global sentinel and filesystem paths.
+      if (n.selectableDomain) {
+        domains[n.domain] = true;
+      }
     });
+    // Never wipe on empty state (resetGraph emits state:lastData with 0 nodes).
+    if (!Object.keys(domains).length) return;
     var current = select.value;
     select.innerHTML = '<option value="">All Domains</option>';
     Object.keys(domains).sort().forEach(function(d) {
@@ -153,7 +158,8 @@
       opt.textContent = d.length > 30 ? d.slice(0, 30) + '...' : d;
       select.appendChild(opt);
     });
-    select.value = current;
+    // Restore selection after repopulation.
+    if (current === '' || Object.keys(domains).indexOf(current) !== -1) select.value = current;
   }
 
   function rebuildWithFilters() {
@@ -174,7 +180,9 @@
     var legend = document.getElementById('legend');
     if (infoPanel) infoPanel.style.display = isFullscreen ? 'none' : '';
     if (statusBar) statusBar.style.display = isFullscreen ? 'none' : '';
-    if (legend) legend.style.display = isFullscreen ? 'none' : '';
+    // The galaxy legend is meaningless in the trace tree — hide it for
+    // both fullscreen views and the trace view.
+    if (legend) legend.style.display = (isFullscreen || view === 'trace') ? 'none' : '';
 
     // Hide filter controls (not the view toggle) for non-graph views
     var filterBtnsRow = document.querySelectorAll('#filter-bar .filter-btn[data-filter]');

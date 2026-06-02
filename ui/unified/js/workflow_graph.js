@@ -8,13 +8,21 @@
 // Renderers are provided by workflow_graph_render_svg.js / _canvas.js on JUG._wfg.
 (function () {
   var D3_URL = 'https://cdn.jsdelivr.net/npm/d3@7.8.5/dist/d3.min.js';
-  var CANVAS_THRESHOLD = 2000;
+  // Always render via canvas. SVG path (mountSVG) cannot grow
+  // incrementally — its d3-enter/exit selections are bound once at
+  // mount time, so calling handle.append() later would never paint
+  // new circles. Canvas reads ctx.nodes/ctx.edges every frame, so
+  // pushing into those arrays is enough for the new nodes to show.
+  // The visual difference at small N is negligible; ergonomics of
+  // a unified renderer path are worth the trade.
+  var CANVAS_THRESHOLD = 0;
 
   // Tokens — kind-driven radii, colors, edge distances, strengths.
   var KIND_RADIUS = {
     domain: 26, tool_hub: 14, agent: 10, skill: 10, command: 8,
     hook: 9, memory: 7, discussion: 8, entity: 6, file: 5, mcp: 12,
     symbol: 2,
+    session: 16, prompt: 9, action: 6,
   };
   var KIND_COLOR = {
     domain: '#FCD34D',     // gold hub
@@ -29,6 +37,9 @@
     entity: '#50B0C8',     // teal
     file: '#06B6D4',       // cyan fallback — primary-tool color overrides
     symbol: '#64748B',     // slate — inherits parent-file color via node.color
+    session: '#FCD34D',    // session hub (gold)
+    prompt: '#22D3EE',     // user prompt (cyan)
+    action: '#94A3B8',     // tool action (slate; per-tool color via node.color)
   };
   // Radial hierarchy inside each domain cloud — FIVE concentric/sector levels:
   //   L1 setup  (skills/hooks/commands/agents)   @ r = SETUP_R   front sector
@@ -97,6 +108,13 @@
     calls: 24,                           // caller ↔ callee tight
     imports: 60,                         // short effective length — gain-bounded
     member_of: 10,                       // method ↔ class tight
+    // Trace neural cloud: session sits out from the hub; a session's
+    // events cluster tight around it; files sit a short hop from their
+    // action so shared files visibly bridge multiple actions.
+    has_session: 90,
+    step: 34,
+    next: 28,
+    read: 30, edit: 30, write: 30, run: 30,
   };
   var EDGE_STRENGTH = {
     in_domain: 0.0,                      // layout is slot-anchored; links = slack
@@ -113,6 +131,14 @@
     calls: 0.12,                         // halved
     imports: 0.04,                       // 4.5× gain cut — no runaway resonance
     member_of: 0.60,
+    // Trace: layout is SLOT-DRIVEN (per-session sectors in computeSlots).
+    // Link strengths are ~0 so the slot force is uncontested — exactly how
+    // the galaxy keeps structural edges (in_domain/tool_used_file) at 0 so
+    // dots don't collapse into a ball. The edges still DRAW as lines.
+    has_session: 0.0,
+    step: 0.0,
+    next: 0.0,
+    read: 0.0, edit: 0.0, write: 0.0, run: 0.0,
   };
   var CROSS_DOMAIN_DISTANCE = 260;
   var CROSS_DOMAIN_STRENGTH = 0.02;
@@ -132,7 +158,8 @@
   function renderWorkflowGraph(container, data) {
     if (!container) throw new Error('renderWorkflowGraph: container required');
     container.innerHTML = '';
-    var handle = { destroy: function () {}, select: function () {}, data: data };
+    var handle = { destroy: function () {}, select: function () {},
+                   data: data, append: function () { return { addedNodes: 0, addedEdges: 0 }; } };
     // Tilemap gate — query string ``?viz=tilemap`` swaps the entire
     // d3-force pipeline for the deck.gl + Datashader server-tile path.
     // The legacy renderer stays as the default until the new path is
@@ -151,6 +178,7 @@
       var impl = mount(container, data || { nodes: [], edges: [] });
       handle.destroy = impl.destroy;
       handle.select = impl.select;
+      handle.append = impl.append;
     });
     return handle;
   }
@@ -285,6 +313,174 @@
     }
     window.addEventListener('resize', onResize);
 
+    // Incremental append: mutate the live ``nodes`` and ``edges``
+    // arrays (== ctx.nodes / ctx.edges) and gently restart the
+    // simulation. Existing nodes stay where they are; new nodes are
+    // seeded near their domain anchor and drift into place under
+    // the force constraints. The canvas renderer reads ctx.nodes /
+    // ctx.edges every frame, so new nodes appear on the next paint
+    // without any DOM rebind. Edges to nodes that aren't yet in the
+    // graph are skipped (caller must re-feed them on a later batch
+    // when both endpoints exist).
+    function append(newNodes, newEdges) {
+      newNodes = newNodes || [];
+      newEdges = newEdges || [];
+      var addedN = 0, addedE = 0;
+      // Canvas centre — guaranteed-numeric fallback chain. The video
+      // recording showed memories piling on a Fibonacci spiral around
+      // world (0, 0), which is the EXACT default that d3-force's
+      // initializeNodes() places nodes with NaN x/y on. So somewhere
+      // anc.x was NaN/undefined and d3 silently overrode our position.
+      // Belt-and-braces: ctx.cx → ctx.width/2 → window.innerWidth/2 →
+      // a hard-coded value, whichever first yields a finite positive
+      // number.
+      function _finite(v, fallback) {
+        return (typeof v === 'number' && isFinite(v)) ? v : fallback;
+      }
+      var cx = _finite(ctx.cx, _finite(ctx.width / 2,
+                _finite(window.innerWidth / 2, 600)));
+      var cy = _finite(ctx.cy, _finite(ctx.height / 2,
+                _finite(window.innerHeight / 2, 400)));
+      // Build a list of ALL valid anchor coords once, so unknown-
+      // domain memories pick a random EXISTING anchor instead of
+      // falling back to (cx,cy) where they'd pile up on the same
+      // pixel and trigger d3's NaN→spiral re-initialisation through
+      // collision overflow.
+      var anchorList = [];
+      for (var dk in ctx.anchors) {
+        var av = ctx.anchors[dk];
+        if (av && isFinite(av.x) && isFinite(av.y)) anchorList.push(av);
+      }
+      if (anchorList.length === 0) anchorList.push({ x: cx, y: cy });
+
+      for (var i = 0; i < newNodes.length; i++) {
+        var n = newNodes[i];
+        if (!n || n.id == null || ctx.byId[n.id]) continue;
+        var n2 = Object.assign({}, n);
+        var didCandidates = [
+          n2.domain_id,
+          n2.domain && ctx.byId[n2.domain] && ctx.byId[n2.domain].kind === 'domain' ? n2.domain : null,
+          n2.domain ? 'domain:' + n2.domain : null,
+          n2.domain ? 'domain:' + String(n2.domain).toLowerCase() : null,
+        ];
+        var did = null;
+        var anc = null;
+        for (var c = 0; c < didCandidates.length; c++) {
+          var cand = didCandidates[c];
+          if (cand && ctx.anchors[cand]
+              && isFinite(ctx.anchors[cand].x)
+              && isFinite(ctx.anchors[cand].y)) {
+            did = cand;
+            anc = ctx.anchors[cand];
+            break;
+          }
+        }
+        if (!anc) {
+          // No specific domain match. Pick a random valid anchor so
+          // memories with mismatched domain labels still cluster
+          // somewhere meaningful (and definitely NOT at world origin).
+          anc = anchorList[(Math.random() * anchorList.length) | 0];
+          did = 'domain:__global__';
+        }
+        ctx.domainOf[n2.id] = did;
+
+        var angle = Math.random() * Math.PI * 2;
+        var rr = 30 + Math.random() * 100;
+        var nx = anc.x + Math.cos(angle) * rr;
+        var ny = anc.y + Math.sin(angle) * rr;
+        // Final guard: if anything's NaN here it'd trigger d3's
+        // spiral default. Replace with cx/cy + small jitter.
+        if (!isFinite(nx) || !isFinite(ny)) {
+          nx = cx + (Math.random() - 0.5) * 60;
+          ny = cy + (Math.random() - 0.5) * 60;
+        }
+        n2.x = nx;
+        n2.y = ny;
+        nodes.push(n2);
+        ctx.byId[n2.id] = n2;
+        addedN++;
+      }
+      for (var j = 0; j < newEdges.length; j++) {
+        var e = newEdges[j];
+        if (!e) continue;
+        var s = (e.source && e.source.id) || e.source;
+        var t = (e.target && e.target.id) || e.target;
+        if (!ctx.byId[s] || !ctx.byId[t]) continue;
+        var e2 = Object.assign({}, e, { source: s, target: t });
+        // Crosslink classification used by the link force.
+        var sd = ctx.domainOf[s], td = ctx.domainOf[t];
+        e2._crossDomain = !!(sd && td && sd !== td);
+        edges.push(e2);
+        addedE++;
+      }
+      if (addedN || addedE) {
+        sim.nodes(nodes);
+        sim.force('link').links(edges);
+        // ── Reheat throttling ──
+        // The bridge drains at 60 rAF/sec during streaming. Calling
+        // sim.alpha(0.15).restart() per drain pegged alpha at 0.15
+        // forever — alphaDecay (~0.022 / tick) can never pull alpha
+        // down between drains, so forces fire continuously and the
+        // whole graph drifts every frame. User saw this as
+        // 'refreshing the whole graph every sec'.
+        //
+        // Two-tier bump based on elapsed time since the previous
+        // reheat:
+        //   < 250 ms  → α = 0.03  (gentle nudge; new nodes drift to
+        //              their links, existing nodes barely shift)
+        //   ≥ 250 ms  → α = 0.15  (settle a fresh wave)
+        // Only bump if the current alpha is BELOW the target — so a
+        // long ongoing settle from a previous wave isn't stomped on.
+        var now = (window.performance && performance.now()) || Date.now();
+        var sinceLast = now - (sim._lastReheatAt || 0);
+        var bump = sinceLast < 250 ? 0.03 : 0.15;
+        if (sim.alpha() < bump) sim.alpha(bump);
+        sim.restart();
+        sim._lastReheatAt = now;
+        if (sim._idleTimer) clearTimeout(sim._idleTimer);
+        sim._idleTimer = setTimeout(function () {
+          sim._idleTimer = null;
+          sim.stop();
+        }, 3000);
+      }
+      return { addedNodes: addedN, addedEdges: addedE,
+               totalNodes: nodes.length, totalEdges: edges.length };
+    }
+
+    // Pin every node at its current position once the seed's force
+    // simulation has settled. New nodes added later via handle.append
+    // stay unpinned so they can drift to a sensible position under
+    // force; the already-settled nodes are locked so the incoming
+    // mass (memories at 100 k+, symbols at 600 k+) can't push them
+    // off-screen via manyBody repulsion. That was the user-visible
+    // 'nodes already there should not be removed' bug.
+    //
+    // Pinning fires when alpha first drops below 0.08 (visually
+    // settled — see Maxwell-damped ADR-0047) OR after 3.5 s wall-
+    // clock, whichever comes first. The alpha condition cannot use
+    // sim.alphaMin() because the throttled appends keep nudging
+    // alpha above the floor; we need a higher threshold that's
+    // reached during the seed's natural decay.
+    var _pinStartedAt = (window.performance && performance.now()) || Date.now();
+    function _pinSettledNodes() {
+      if (sim._pinDone) return;
+      var now = (window.performance && performance.now()) || Date.now();
+      var elapsed = now - _pinStartedAt;
+      if (sim.alpha() > 0.08 && elapsed < 3500) {
+        setTimeout(_pinSettledNodes, 200);
+        return;
+      }
+      sim._pinDone = true;
+      var pinned = 0;
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        if (n.fx == null) { n.fx = n.x; n.fy = n.y; pinned++; }
+      }
+      console.log('[wfg] seed layout settled at α=' + sim.alpha().toFixed(3)
+                  + ' — pinned ' + pinned + ' nodes');
+    }
+    setTimeout(_pinSettledNodes, 600);
+
     var handle = {
       destroy: function () {
         window.removeEventListener('resize', onResize);
@@ -297,6 +493,7 @@
       applyFilter: function (pred) {
         if (typeof renderer.applyFilter === 'function') renderer.applyFilter(pred, ctx);
       },
+      append: append,
     };
     // Expose a stable hook so the filter-bar driver can reach us.
     window.JUG.wfgApplyFilter = function (pred) { handle.applyFilter(pred); };
@@ -309,6 +506,18 @@
     var byId = {};
     nodes.forEach(function (n) { byId[n.id] = n; });
     var domains = nodes.filter(function (n) { return n.kind === 'domain'; });
+    // Trace graphs (domain → session → chain → file) are a tree, not the
+    // galaxy's L1–L6 radial shells. Detect via the active view OR the
+    // data schema OR trace-only kinds — on a fresh load only domains are
+    // present (no session/action yet), so kind-sniffing alone would
+    // wrongly draw the galaxy rings on the default trace screen.
+    var _view = (window.JUG && JUG.state && JUG.state.activeView) || '';
+    var _schema = (window.JUG && JUG.state && JUG.state.lastData &&
+                   JUG.state.lastData.meta && JUG.state.lastData.meta.schema) || '';
+    var isTrace = _view === 'trace' || _schema === 'trace.v1' || nodes.some(function (n) {
+      var k = n.kind || n.type;
+      return k === 'session' || k === 'action' || k === 'prompt';
+    });
 
     var cx = width / 2, cy = height / 2;
     // Each domain's outer shell is roughly FILE_R + cushion; Fibonacci
@@ -334,7 +543,9 @@
     nodes.forEach(function (n) {
       if (n.kind === 'domain') { domainOf[n.id] = n.id; return; }
       if (n.domain && byId[n.domain] && byId[n.domain].kind === 'domain') domainOf[n.id] = n.domain;
-      else if (n.domain_id && byId[n.domain_id]) domainOf[n.id] = n.domain_id;
+      else if (n.domain_id && byId[n.domain_id] && byId[n.domain_id].kind === 'domain') {
+        domainOf[n.id] = n.domain_id;
+      }
     });
     edges.forEach(function (e) {
       if (e.kind !== 'in_domain') return;
@@ -343,6 +554,24 @@
       if (s.kind === 'domain' && !domainOf[t.id]) domainOf[t.id] = s.id;
       if (t.kind === 'domain' && !domainOf[s.id]) domainOf[s.id] = t.id;
     });
+    // Trace edges carry the domain DOWN the chain: domain→session
+    // (has_session), session→event + event→event (step / next), and
+    // action→file (read/edit/write/run). Iterate to a fixed point so a
+    // file reached only via action→file still resolves to its domain.
+    var _traceEdgeKinds = { has_session: 1, step: 1, next: 1,
+      read: 1, edit: 1, write: 1, run: 1 };
+    for (var _pass = 0; _pass < 6; _pass++) {
+      var _changed = false;
+      for (var _ei = 0; _ei < edges.length; _ei++) {
+        var te = edges[_ei];
+        if (!_traceEdgeKinds[te.kind]) continue;
+        var ss = typeof te.source === 'object' ? te.source.id : te.source;
+        var tt = typeof te.target === 'object' ? te.target.id : te.target;
+        if (domainOf[ss] && !domainOf[tt]) { domainOf[tt] = domainOf[ss]; _changed = true; }
+        else if (domainOf[tt] && !domainOf[ss]) { domainOf[ss] = domainOf[tt]; _changed = true; }
+      }
+      if (!_changed) break;
+    }
 
     // Parent file per symbol — drives the symbol-petal clustering.
     // Prefer `defined_in` edges; fall back to `path` string match.
@@ -408,7 +637,11 @@
       anchors: anchors, domainOf: domainOf, primaryHub: primaryHub,
       parentFile: parentFile,
       degree: degree, adj: adj, slotOf: slotOf,
-      shells: SHELL_LEVELS, sideShells: [
+      isTrace: isTrace,
+      // Trace has no L1–L6 shells or discussion/memory side lanes —
+      // suppress them so the canvas draws a clean tree.
+      shells: isTrace ? [] : SHELL_LEVELS,
+      sideShells: isTrace ? [] : [
         { key: 'L4', r: DISC_R, label: 'L4 discussions', angle: SECTOR_SIDE_ANGLE },
         { key: 'L5', r: MEM_R,  label: 'L5 memories',    angle: -SECTOR_SIDE_ANGLE },
       ], cx: cx, cy: cy, baseR: baseR,
@@ -463,6 +696,63 @@
       // For domains near the center the outward axis is unstable — bias upward.
       if (Math.hypot(a.x - cx, a.y - cy) < 5) outward = -Math.PI / 2;
       var g = groups[domId];
+
+      // ── Trace layout: domain → per-session COMPACT SUB-CLUSTERS ──
+      // Each session becomes a tight disk of its own work, placed on a
+      // ring around the domain hub. ALL of a session's events (prompt /
+      // action / file) pack around that session's sub-center in a
+      // phyllotaxis (sunflower) spiral — a dense, even, NON-overlapping
+      // disk, exactly the compactness the galaxy got from orbiting a hub.
+      // No marching-outward rows: cluster radius grows with sqrt(count),
+      // so even a 600-event session stays a bounded blob you can read as
+      // "this session's work", clearly separated from other sessions.
+      var sessions = g.session || [];
+      // Group every event under its session.
+      var bySession = {};   // sid -> [nodes]
+      ['prompt', 'action', 'file'].forEach(function (kind) {
+        (g[kind] || []).forEach(function (n) {
+          var sid = 'session:' + (n.session_id || '');
+          (bySession[sid] = bySession[sid] || []).push(n);
+        });
+      });
+      // Ring radius for session sub-centers: scale so the biggest cluster
+      // disk fits between neighbours without colliding.
+      var DOT = 13;                       // ~node spacing in the spiral
+      var GOLDEN = Math.PI * (3 - Math.sqrt(5));
+      function clusterRadius(count) { return DOT * Math.sqrt(Math.max(count, 1)) + 14; }
+      var maxCount = 0;
+      sessions.forEach(function (s) {
+        maxCount = Math.max(maxCount, (bySession['session:' + (s.session_id || '')] || []).length);
+      });
+      var ringR = SETUP_R + 60 + clusterRadius(maxCount) * 1.15;
+      sessions.forEach(function (s, i) {
+        var sid = 'session:' + (s.session_id || '');
+        var theta = outward + (i + 0.5) * (Math.PI * 2 / Math.max(sessions.length, 1));
+        var scx = a.x + ringR * Math.cos(theta);
+        var scy = a.y + ringR * Math.sin(theta);
+        slotOf[s.id] = { x: scx, y: scy };   // session hub at the cluster center
+        var items = (bySession[sid] || []).slice();
+        // stable order: prompts, then actions, then files (by seq if any)
+        items.sort(function (p, q) {
+          var ps = (p.seq != null ? p.seq : 1e9), qs = (q.seq != null ? q.seq : 1e9);
+          return ps - qs;
+        });
+        items.forEach(function (n, k) {
+          // phyllotaxis: r = c·√k, angle = k·goldenAngle → even packing
+          var rr = DOT * Math.sqrt(k + 0.5);
+          var aa = (k + 1) * GOLDEN;
+          slotOf[n.id] = { x: scx + rr * Math.cos(aa), y: scy + rr * Math.sin(aa) };
+        });
+      });
+      // Files with no resolvable session: small ring just past the
+      // session band; verb links draw the connection to their action.
+      var orphanI = 0;
+      (g.file || []).forEach(function (n) {
+        if (slotOf[n.id]) return;
+        var t = outward + (orphanI++) * GOLDEN;
+        var r = ringR + clusterRadius(maxCount) + 30 + (orphanI % 5) * 12;
+        slotOf[n.id] = { x: a.x + r * Math.cos(t), y: a.y + r * Math.sin(t) };
+      });
 
       // L2: tool_hubs at fixed per-tool angles within the setup sector.
       var hubAngle = {};

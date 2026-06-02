@@ -136,10 +136,22 @@
   function openDetailPanel(data) {
     var panel = document.getElementById('detail-panel');
     var content = document.getElementById('detail-content');
-    if (!panel || !content) return;
+    if (!panel || !content || !data) return;
+
+    // Trace nodes get their own renderer (header + expandable sections),
+    // in THIS one panel. Galaxy-memory rendering below is bypassed.
+    var _k = data.kind || data.type;
+    if (_k === 'domain' || _k === 'session' || _k === 'action' ||
+        _k === 'prompt' || _k === 'file') {
+      content.innerHTML = JUG._traceDetail.build(data);
+      panel.classList.add('open');
+      panel.classList.remove('minimized');
+      JUG._traceDetail.wire(content, data);
+      return;
+    }
 
     var col = JUG.getNodeColor(data);
-    var typeLabel = JUG.NODE_LABELS[data.type] || data.type;
+    var typeLabel = JUG.NODE_LABELS[data.type] || data.type || data.kind || '';
     var edges = getConnections(data);
 
     var h = '';
@@ -229,8 +241,65 @@
   }
 
   // Event listeners
-  JUG.on('graph:selectNode', function(node) { openDetailPanel(node); });
-  JUG.on('graph:deselectNode', closeDetailPanel);
+  // On select: open the panel immediately with the lightweight snapshot
+  // node (id/kind/connections render instantly), then enrich it in place
+  // with the full PG record fetched on demand. The CXGB snapshot only
+  // carries 6 fields/node so the galaxy loads in ~30 ms; the rich body /
+  // heat / stage / scientific fields are drilled here.
+  // source: design 2026-05-31 — top-25k galaxy + on-demand cold-tail drill.
+  var _enrichCache = {};
+  var _lastSelectedId = null;     // closure-tracked; avoids depending on JUG state field name
+  JUG.on('graph:selectNode', function(node) {
+    // Trace nodes (domain/session/action/prompt/file) render in this SAME
+    // panel via the trace-aware openDetailPanel branch — no second panel,
+    // no galaxy-memory PG enrichment.
+    var _k = node && (node.kind || node.type);
+    if (_k === 'domain' || _k === 'session' || _k === 'action' ||
+        _k === 'prompt' || _k === 'file') {
+      openDetailPanel(node);
+      _lastSelectedId = node && node.id;
+      return;
+    }
+    openDetailPanel(node);
+    if (!node || !node.id) return;
+    _lastSelectedId = node.id;
+    if (node.body || node.content) return;            // already rich
+    if (_enrichCache[node.id]) {
+      Object.assign(node, _enrichCache[node.id]);
+      openDetailPanel(node);
+      return;
+    }
+    fetch('/api/graph/node?id=' + encodeURIComponent(node.id))
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){
+        if (!d || !d.found || !d.record) return;
+        var rec = d.record;
+        // Map PG columns onto the field names the panel renderers expect.
+        var enrich = {
+          body: rec.content || rec.body,
+          content: rec.content,
+          heat: rec.heat_base != null ? rec.heat_base : rec.heat,
+          stage: rec.consolidation_stage || rec.stage,
+          tags: rec.tags,
+          created_at: rec.created_at,
+          arousal: rec.arousal,
+          emotional_valence: rec.emotional_valence,
+          dominant_emotion: rec.dominant_emotion,
+          importance: rec.importance,
+          confidence: rec.confidence,
+          access_count: rec.access_count,
+        };
+        _enrichCache[node.id] = enrich;
+        Object.assign(node, enrich);
+        // Re-render only if this node is still the selected one.
+        if (JUG.state && JUG.state.selectedNode &&
+            JUG.state.selectedNode.id === node.id) {
+          openDetailPanel(node);
+        }
+      })
+      .catch(function(){ /* keep the lightweight panel on failure */ });
+  });
+  JUG.on('graph:deselectNode', function(){ _lastSelectedId = null; closeDetailPanel(); });
 
   function minimizeDetailPanel() {
     var panel = document.getElementById('detail-panel');

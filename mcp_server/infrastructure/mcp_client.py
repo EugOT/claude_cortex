@@ -42,7 +42,6 @@ class MCPClient:
         self._last_activity = 0.0
         self._idle_task: asyncio.Task | None = None
         self._reader_task: asyncio.Task | None = None
-        self._stderr_task: asyncio.Task | None = None
         self.tool_calls = 0
 
     async def connect(self) -> None:
@@ -52,12 +51,7 @@ class MCPClient:
 
         await self._spawn_process()
         self._reader_task = asyncio.create_task(self._read_loop())
-        # Store the stderr task on self — without a strong reference the
-        # Python GC can collect the Task object mid-execution, silently
-        # killing the stderr reader. Subprocess crashes would then look
-        # like "nothing happened" instead of a logged error
-        # (ruff RUF006: asyncio-dangling-task).
-        self._stderr_task = asyncio.create_task(self._stderr_loop())
+        asyncio.create_task(self._stderr_loop())
         await asyncio.sleep(1.5)
         await self._perform_handshake()
 
@@ -227,10 +221,6 @@ class MCPClient:
         if self._reader_task:
             self._reader_task.cancel()
             self._reader_task = None
-
-        if self._stderr_task:
-            self._stderr_task.cancel()
-            self._stderr_task = None
 
         # Reject pending requests
         for future in self._pending.values():

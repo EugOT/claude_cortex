@@ -17,10 +17,6 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
-<!-- fzstd: tiny (~20 KB) zstd decompressor for the optional ?transport=zera
-     bundle path. Only used when ZERA transport is enabled; the default
-     per-phase JSON loader needs nothing from here. -->
-<script defer src="https://cdn.jsdelivr.net/npm/fzstd@0.1.1/umd/index.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
@@ -34,223 +30,6 @@
      the server's layered build status (L0 domains → L1 … L6 AST)
      without ever taking the graph away from the user. Fades in when
      the server is mid-build; fades out the instant full_ready=true. -->
-<div id="build-progress" style="position:fixed;bottom:18px;left:50%;transform:translateX(-50%);padding:10px 16px;background:rgba(10,16,28,0.9);border:1px solid rgba(120,200,220,0.24);border-radius:4px;font-size:11px;line-height:1.5;z-index:300;min-width:340px;max-width:540px;display:none;box-shadow:0 0 24px rgba(80,210,235,0.12);font-family:-apple-system,Inter,system-ui,sans-serif;color:#c4d4dc">
-  <div id="bp-phase" style="color:#80d2e0;font-weight:600;letter-spacing:1.5px;margin-bottom:4px;font-size:10px">LOADING</div>
-  <div id="bp-msg" style="color:#a3b4c1;margin-bottom:8px;min-height:1.4em">starting…</div>
-  <div style="position:relative;height:4px;background:rgba(120,200,220,0.1);border-radius:2px;overflow:hidden">
-    <div id="bp-fill" style="position:absolute;left:0;top:0;bottom:0;width:0%;background:linear-gradient(90deg,#50d2eb 0%,#8af5ff 100%);border-radius:2px;transition:width 300ms ease;box-shadow:0 0 10px rgba(80,210,235,0.45)"></div>
-  </div>
-  <div style="text-align:right;margin-top:4px;color:#7a8e9c;font-size:10px;font-variant-numeric:tabular-nums"><span id="bp-pct">0%</span><span id="bp-elapsed" style="color:#5a6e7c;margin-left:6px"></span></div>
-</div>
-<script>
-// Phase-driven append-only loader.
-// Polls /api/graph/progress; when a phase flips to `ready`, fetches
-// /api/graph/phase?name=<key> ONCE and appends its nodes+edges to the
-// live scene via JUG.appendGraphDelta. Never re-fetches the whole
-// graph — matches the user's requirement: each phase pops new nodes
-// when the previous one is done.
-(function(){
-  // Phases are now DYNAMIC: L0..L5 are fixed, then one phase per
-  // project (L6:<name>) then L6_CROSS. We discover the full set from
-  // /api/graph/progress's `phases` dict. The server inserts keys in
-  // DAG order so iteration order matches publish order; the client's
-  // appendGraphDelta dedup handles any slack.
-  var applied = {};   // phaseKey → true once appended
-  var inflight = {};  // phaseKey → true while fetching
-
-  // Page size for phase fetches. The L5 (full-memory) phase serializes to
-  // ~838 MB of JSON — over the browser's V8 max-string-length (~512 MB),
-  // so fetching it in one shot throws "Unexpected end of JSON input" and
-  // the phase never loads ("never finishing"). Paging in 30K-item slices
-  // (~60 MB each for memory nodes) keeps every JSON.parse well under the
-  // limit. Small phases (L0-L4) return done=true on the first page, so
-  // their behaviour is unchanged.
-  var _PHASE_PAGE = 30000;
-  function applyPhase(key){
-    if(applied[key] || inflight[key]) return Promise.resolve();
-    inflight[key] = true;
-    if(!JUG.state.lastData){
-      JUG.state.lastData = { nodes: [], edges: [], links: [], meta: { schema: 'workflow_graph.v1' } };
-    }
-    function fetchPage(offset, accN, accE){
-      return fetch('/api/graph/phase?name='+encodeURIComponent(key)+'&offset='+offset+'&limit='+_PHASE_PAGE)
-        .then(function(r){ return r.ok ? r.json() : null; })
-        .then(function(p){
-          if(!p || !p.ready){ return; }  // not ready yet — retried next poll
-          if(typeof JUG.appendGraphDelta === 'function'){
-            JUG.appendGraphDelta(p.nodes || [], p.edges || []);
-          }
-          accN += (p.nodes||[]).length; accE += (p.edges||[]).length;
-          if(!p.done){
-            // More of this phase remains — page on. Each append renders
-            // progressively so the user sees memory nodes stream in.
-            return fetchPage(offset + _PHASE_PAGE, accN, accE);
-          }
-          applied[key] = true;
-          console.log('[phase] applied', key, '+'+accN+'N', '+'+accE+'E',
-            (offset > 0 ? '(paged '+((offset/_PHASE_PAGE)+1)+'x)' : ''));
-        });
-    }
-    return fetchPage(0, 0, 0)
-      .catch(function(err){ console.warn('[phase] '+key+' failed:', err); })
-      .then(function(){ inflight[key] = false; });
-  }
-
-  function refreshBar(p){
-    var box = document.getElementById('build-progress');
-    if(!box) return;
-    if(p.phase === 'idle' || p.full_ready){
-      box.style.opacity = '0';
-      setTimeout(function(){ box.style.display='none'; }, 400);
-      return;
-    }
-    box.style.display = 'block';
-    box.style.opacity = '1';
-    var pct = Math.max(0, Math.min(1, p.pct || 0));
-    document.getElementById('bp-fill').style.width = (pct*100).toFixed(1)+'%';
-    document.getElementById('bp-pct').firstChild.nodeValue = (pct*100).toFixed(0)+'%';
-    document.getElementById('bp-phase').textContent = (p.phase||'LOADING').toUpperCase();
-    document.getElementById('bp-msg').textContent = p.message || '…';
-    if(p.elapsed) document.getElementById('bp-elapsed').textContent = ' · '+p.elapsed.toFixed(1)+'s';
-  }
-
-  function _activeViewIsGraph() {
-    return window.JUG && JUG.state && JUG.state.activeView === 'graph';
-  }
-
-  // ── ZERA transport (opt-in via ?transport=zera) ──────────────────
-  // Fetches the whole graph as ONE content-addressed ZERA bundle
-  // (HELLO + CODEBOOK + GRAMMAR + zstd-19 payload) and decodes it in the
-  // browser, instead of polling per-phase JSON deltas. Gated behind the
-  // query param so the default behaviour is byte-for-byte unchanged.
-  // Decoder mirrors mcp_server/server/zera_bundle.py::decode_zera_bundle.
-  function _zeraEnabled(){
-    try { return new URLSearchParams(location.search).get('transport') === 'zera'; }
-    catch(e){ return false; }
-  }
-  function _zeraMakeId(prefixes, p, s){
-    var str = (typeof s === 'number') ? String(s) : s;
-    return (p != null) ? prefixes[p] + str : str;
-  }
-  function _zeraDecodeItem(it, palettes, isEdge, prefixes){
-    var out = {};
-    if(isEdge){
-      out.source = _zeraMakeId(prefixes, it.fp, it.fs);
-      out.target = _zeraMakeId(prefixes, it.tp, it.ts);
-    } else {
-      out.id = _zeraMakeId(prefixes, it.ip, it.i);
-    }
-    for(var k in it){
-      if(k==='i'||k==='ip'||k==='fs'||k==='fp'||k==='ts'||k==='tp') continue;
-      if(k.charAt(0)==='_' && palettes[k.slice(1)]){
-        out[k.slice(1)] = palettes[k.slice(1)][it[k]];
-      } else {
-        out[k] = it[k];
-      }
-    }
-    return out;
-  }
-  function _zeraLoad(){
-    if(typeof fzstd === 'undefined'){
-      console.warn('[zera] fzstd not loaded; falling back to phase loader');
-      return poll();
-    }
-    var t0 = performance.now();
-    fetch('/api/graph.zera').then(function(r){ return r.arrayBuffer(); }).then(function(buf){
-      var tFetch = performance.now();
-      var dv = new DataView(buf), u8 = new Uint8Array(buf), pos = 0, frames = [];
-      while(pos < u8.byteLength){
-        var len = dv.getUint32(pos, true); pos += 4;
-        frames.push(u8.subarray(pos, pos+len)); pos += len;
-      }
-      if(frames.length < 4){ console.warn('[zera] short bundle, falling back'); return poll(); }
-      var dec = function(f){ return JSON.parse(new TextDecoder().decode(fzstd.decompress(f))); };
-      var hello = dec(frames[0]), cb = dec(frames[1]), grammar = dec(frames[2]);
-      var tDecode = performance.now();
-      var np = cb.node_palettes||{}, ep = cb.edge_palettes||{}, ipref = cb.id_prefixes||[];
-      if(!hello.node_count){
-        // Cache not built yet — fall back to phase loader which kicks the build.
-        console.log('[zera] empty graph (build not ready); using phase loader');
-        return poll();
-      }
-      if(!JUG.state.lastData){
-        JUG.state.lastData = { nodes: [], edges: [], links: [], meta: { schema: 'workflow_graph.v1' } };
-      }
-      // CRITICAL: parse + install each payload chunk SEPARATELY. The full
-      // memory graph decodes to ~760 MB of JSON — over V8's ~512 MB max
-      // string length. Parsing it as one string throws "Unexpected end of
-      // JSON input". Per-chunk parse keeps every string well under the
-      // limit AND renders progressively as each chunk lands.
-      var totalN = 0, totalE = 0;
-      for(var fi = 3; fi < frames.length; fi++){
-        var chunk = dec(frames[fi]);
-        var cn = chunk.n || [], ce = chunk.e || [];
-        var nodes = new Array(cn.length), edges = new Array(ce.length);
-        for(var i=0;i<cn.length;i++) nodes[i] = _zeraDecodeItem(cn[i], np, false, ipref);
-        for(var j=0;j<ce.length;j++) edges[j] = _zeraDecodeItem(ce[j], ep, true, ipref);
-        if(typeof JUG.appendGraphDelta === 'function'){ JUG.appendGraphDelta(nodes, edges); }
-        totalN += nodes.length; totalE += edges.length;
-      }
-      var tInstall = performance.now();
-      window._zeraStats = { bytes: buf.byteLength, chunks: frames.length - 3,
-        fetch_ms: tFetch-t0, decode_meta_ms: tDecode-tFetch,
-        decode_install_ms: tInstall-tDecode, total_ms: tInstall-t0,
-        nodes: totalN, edges: totalE };
-      console.log('[zera]', (buf.byteLength/1024/1024).toFixed(1)+'MB',
-        'in', (frames.length-3)+' chunks',
-        '| fetch '+(tFetch-t0).toFixed(0)+'ms',
-        '| decode+install '+(tInstall-tDecode).toFixed(0)+'ms',
-        '| TOTAL '+(tInstall-t0).toFixed(0)+'ms |',
-        totalN+'N '+totalE+'E');
-      var box = document.getElementById('build-progress');
-      if(box){ box.style.opacity='0'; setTimeout(function(){ box.style.display='none'; }, 400); }
-    }).catch(function(err){
-      console.warn('[zera] load failed, falling back to phase loader:', err);
-      poll();
-    });
-  }
-
-  function poll(){
-    // Only do graph-build work while the user is on the Graph tab.
-    // Knowledge / Board / Wiki users don't pay the cost.
-    if (!_activeViewIsGraph()) {
-      setTimeout(poll, 1500);
-      return;
-    }
-    fetch('/api/graph/progress').then(function(r){ return r.ok ? r.json() : null; }).then(function(p){
-      if(p){
-        refreshBar(p);
-        var seq = Promise.resolve();
-        var keys = Object.keys(p.phases || {});
-        keys.forEach(function(k){
-          if(!applied[k] && p.phases[k]){
-            seq = seq.then(function(){ return applyPhase(k); });
-          }
-        });
-        if(p.full_ready){
-          var allDone = keys.every(function(k){ return applied[k] || !p.phases[k]; });
-          if(allDone){ return; }
-        }
-      }
-      setTimeout(poll, 400);
-    }).catch(function(){ setTimeout(poll, 1200); });
-  }
-  // Entry point: ZERA single-bundle transport when opted in, else the
-  // default per-phase polling loader. The ZERA path falls back to poll()
-  // on any failure (missing lib, empty cache, short bundle, fetch error).
-  if(_zeraEnabled()){
-    // Wait until the Graph view is active and fzstd has loaded, then load once.
-    var _zeraTries = 0;
-    (function _zeraKick(){
-      if(_activeViewIsGraph() && typeof fzstd !== 'undefined'){ _zeraLoad(); return; }
-      if(++_zeraTries > 100){ poll(); return; }  // ~20s budget, then fall back
-      setTimeout(_zeraKick, 200);
-    })();
-  } else {
-    setTimeout(poll, 200);
-  }
-})();
-</script>
 
 <div id="scanlines"></div>
 <div id="vignette"></div>
@@ -295,8 +74,8 @@
 
 <div id="filter-bar">
   <span class="view-toggle">
-    <button class="view-btn" data-view="graph">Graph</button>
-    <button class="view-btn active" data-view="knowledge">Knowledge</button>
+    <button class="view-btn active" data-view="trace">Trace</button>
+    <button class="view-btn" data-view="knowledge">Knowledge</button>
     <button class="view-btn" data-view="wiki">Wiki</button>
     <button class="view-btn" data-view="timeline">Board</button>
     <button class="view-btn" data-view="sankey">Pipeline</button>
@@ -353,24 +132,13 @@
      can be unresponsive at scale — explain the situation in-line so
      users aren't confused if their browser hangs. Hidden by default;
      controls.js toggles display on view change. -->
-<div id="cortex-graph-warn" role="status"
-     style="display:none;position:fixed;top:62px;left:50%;transform:translateX(-50%);z-index:200;
-            max-width:760px;padding:8px 36px 8px 14px;
-            background:linear-gradient(90deg,rgba(48,28,12,0.92),rgba(64,40,16,0.92));
-            border:1px solid rgba(224,140,64,0.5);border-radius:5px;
-            color:#FFE3B5;font:11.5px/1.45 -apple-system,Inter,system-ui,sans-serif;
-            letter-spacing:0.2px;box-shadow:0 4px 14px rgba(0,0,0,0.4)">
-  <span style="color:#FFB060;margin-right:6px">⚠</span>
-  <strong>Graph may be unusable at this scale.</strong>
-  Due to performance issues we are currently investigating, opening the Graph
-  view can freeze the browser when memory counts are high. We are actively
-  working on it. Use <strong>Knowledge</strong> or <strong>Board</strong> for
-  reliable browsing while we land the rewrite.
-  <button id="cortex-graph-warn-close" aria-label="Dismiss"
-          style="position:absolute;top:4px;right:6px;width:22px;height:22px;
-                 background:transparent;border:none;color:#FFB060;font-size:14px;
-                 cursor:pointer;line-height:1;padding:0">×</button>
-</div>
+<!-- Obsolete warning banner removed when the force renderer gained
+     a 6 000-node cap + adaptive throttle (commit df1db15). The graph
+     view now stays responsive on the full 135 k-node dev DB by
+     sampling memories/files/entities by heat/count and re-rendering
+     at most every 4 s during ingest. Re-add a warning only if a
+     larger-scale failure mode emerges. -->
+<div id="cortex-graph-warn" role="status" style="display:none"></div>
 <script>
 (function(){
   var b = document.getElementById('cortex-graph-warn-close');
@@ -433,6 +201,17 @@
     <button class="window-btn" id="close-detail" title="Close">&#x2715;</button>
   </div>
   <div id="detail-content"></div>
+</div>
+
+<!-- Process-flow panel: a session's chain-of-call rendered top→bottom,
+     ordered by execution. Lives beside the detail panel; the chain is
+     NOT dumped onto the canvas (which stays the clean hub-and-spoke). -->
+<div id="flow-panel">
+  <div class="flow-header">
+    <span id="flow-title">Chain of work</span>
+    <button class="window-btn" id="flow-close" title="Close">&#x2715;</button>
+  </div>
+  <div id="flow-content"></div>
 </div>
 
 <div id="tooltip"></div>
@@ -659,50 +438,64 @@
   </div>
 </div>
 
-<!-- Force-graph CDN stays disabled — the legacy canvas it mounts was
-     the source of the persistent alpha rectangle. We stub the global
-     BEFORE renderer.js runs so ``ForceGraph()(container)`` chains on
-     an inert Proxy and mounts nothing, while renderer.js / graph.js
-     continue to expose the JUG API the other scripts expect. -->
-<!-- <script src="https://unpkg.com/force-graph"></script> -->
-<script>
-  window.ForceGraph = function () {
-    var noop = function () { return stub; };
-    var stub = new Proxy({}, { get: function () { return noop; } });
-    return function () { return stub; };
-  };
-</script>
-<script src="/js/config.js"></script>
-<script src="/js/state.js"></script>
-<script src="/js/workflow_graph_shims.js"></script>
-<script src="/js/draw.js"></script>
-<script src="/js/tooltip.js"></script>
-<script src="/js/renderer.js"></script>
-<script src="/js/graph.js"></script>
-<script src="/js/detail_tools.js"></script>
-<script src="/js/detail_format.js"></script>
-<script src="/js/detail_diff.js"></script>
-<script src="/js/detail_panel.js"></script>
-<script src="/js/discussion_detail.js"></script>
-<script src="/js/memory_science.js"></script>
-<script src="/js/timeline.js"></script>
-<script src="/js/sankey.js"></script>
-<script src="/js/knowledge.js"></script>
-<script src="/js/wiki.js"></script>
-<script src="/js/controls.js"></script>
-<script src="/js/monitor.js"></script>
-<script src="/js/workflow_graph_labels.js"></script>
-<script src="/js/workflow_graph_humanize.js"></script>
-<script src="/js/workflow_graph_panel.js"></script>
-<script src="/js/workflow_graph_panel_helpers.js"></script>
-<script src="/js/workflow_graph_panel_renderers.js"></script>
-<script src="/js/workflow_graph_render_svg.js"></script>
-<script src="/js/workflow_graph_render_canvas.js"></script>
-<script src="/js/workflow_graph_tilemap.js"></script>
-<script src="/js/workflow_graph.js"></script>
-<script src="/js/workflow_graph_bridge.js"></script>
-<script src="/js/workflow_graph_filters.js"></script>
-<script src="/js/polling.js"></script>
-
+<!-- Force-graph library — re-enabled so renderer.js can actually
+     mount a canvas and paint. The previous stub was added to suppress
+     a stray alpha rectangle issue, but it left the page unable to
+     render anything. The phase loader feeds JUG.appendGraphDelta →
+     buildGraph → JUG.setGraphData → ForceGraph; without the real
+     library the chain ends in a no-op Proxy and nothing draws. -->
+<script src="/vendor/force-graph.min.js"></script>
+<script src="/js/config.js?v=117ece5"></script>
+<script src="/js/state.js?v=117ece5"></script>
+<script src="/js/workflow_graph_shims.js?v=117ece5"></script>
+<script src="/js/draw.js?v=117ece5"></script>
+<script src="/js/tooltip.js?v=117ece5"></script>
+<script src="/js/renderer.js?v=117ece5"></script>
+<script src="/js/graph.js?v=117ece5"></script>
+<script src="/js/detail_tools.js?v=117ece5"></script>
+<script src="/js/detail_format.js?v=117ece5"></script>
+<script src="/js/detail_diff.js?v=117ece5"></script>
+<script src="/js/detail_panel.js?v=117ece5"></script>
+<script src="/js/trace_detail.js"></script>
+<script src="/js/discussion_detail.js?v=117ece5"></script>
+<script src="/js/memory_science.js?v=117ece5"></script>
+<script src="/js/timeline.js?v=117ece5"></script>
+<script src="/js/sankey.js?v=117ece5"></script>
+<script src="/js/knowledge.js?v=117ece5"></script>
+<script src="/js/wiki.js?v=117ece5"></script>
+<script src="/js/controls.js?v=117ece5"></script>
+<script src="/js/monitor.js?v=117ece5"></script>
+<script src="/js/workflow_graph_labels.js?v=117ece5"></script>
+<script src="/js/workflow_graph_humanize.js?v=117ece5"></script>
+<script src="/js/workflow_graph_panel.js?v=117ece5"></script>
+<script src="/js/workflow_graph_panel_helpers.js?v=117ece5"></script>
+<script src="/js/workflow_graph_panel_renderers.js?v=117ece5"></script>
+<script src="/js/workflow_graph_render_svg.js?v=117ece5"></script>
+<script src="/js/workflow_graph_render_canvas.js?v=117ece5"></script>
+<script src="/js/workflow_graph_tilemap.js?v=117ece5"></script>
+<script src="/js/workflow_graph.js?v=117ece5"></script>
+<!-- Bridge enabled (2026-05-28): re-enabled now that it has a 500 ms
+     debounce + 5 s safety-net. The old disable comment was from a
+     pre-debounce version of the bridge that destroy-and-remounted on
+     every SSE event. The current bridge collapses bursts of state:
+     lastData updates into at most ~2 renders/sec, which is what the
+     README's brain-region-cloud renderer needs (workflow_graph.js
+     D3 force layout, kind-driven radii + concentric shells). Without
+     the bridge the Graph tab falls back to the legacy force-graph
+     library renderer (graph.js, basic circles) — not what the README
+     screenshot shows. -->
+<script src="/js/workflow_graph_bridge.js?v=117ece5"></script>
+<!-- polling.js re-enabled: its boot fetches /api/graph?meta_only=1
+     which returns just the meta dict (Domains/Memories/Entities/Nodes
+     /Synapses/Discussions counters + system_vitals + benchmarks). The
+     streaming canvas paints the graph via SSE; polling.js owns the
+     sidebar counters and the discussion batches. -->
+<script src="/js/polling.js?v=117ece5"></script>
+<script src="/js/workflow_graph_filters.js?v=117ece5"></script>
+<!-- Trace is the sole graph view: a live, domain-split execution-trace
+     (domain -> session -> chain -> file) fetched per level on demand.
+     The legacy galaxy loaders (phase_loader, graph_snapshot, chain_panel,
+     streaming_canvas) were removed with the Graph tab. -->
+<script src="/js/trace.js"></script>
 </body>
 </html>

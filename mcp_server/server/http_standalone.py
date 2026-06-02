@@ -37,7 +37,6 @@ from mcp_server.server.http_standalone_endpoints import (
     serve_discussion_detail,
     serve_discussions,
     serve_file_diff,
-    serve_graph,
     serve_sankey,
     serve_static,
 )
@@ -128,15 +127,35 @@ def _route_unified_get(
     """Resolve a GET request for the unified server."""
     path = handler.path
     path_no_qs = path.split("?")[0]
-    if path_no_qs == "/api/graph/progress":
-        from mcp_server.server.http_standalone_endpoints import serve_graph_progress
+    if path_no_qs == "/api/trace/domains":
+        from mcp_server.server.http_standalone_trace import serve_trace_domains
 
-        serve_graph_progress(handler)
+        serve_trace_domains(handler)
         return
-    if path_no_qs == "/api/graph/phase":
-        from mcp_server.server.http_standalone_endpoints import serve_graph_phase
+    if path_no_qs == "/api/trace/sessions":
+        from mcp_server.server.http_standalone_trace import serve_trace_sessions
 
-        serve_graph_phase(handler)
+        serve_trace_sessions(handler)
+        return
+    if path_no_qs == "/api/trace/chain":
+        from mcp_server.server.http_standalone_trace import serve_trace_chain
+
+        serve_trace_chain(handler)
+        return
+    if path_no_qs == "/api/trace/file":
+        from mcp_server.server.http_standalone_trace import serve_trace_file
+
+        serve_trace_file(handler)
+        return
+    if path_no_qs == "/api/trace/impact":
+        from mcp_server.server.http_standalone_trace import serve_trace_impact
+
+        serve_trace_impact(handler)
+        return
+    if path_no_qs == "/api/graph/node":
+        from mcp_server.server.http_standalone_endpoints import serve_graph_node
+
+        serve_graph_node(handler, store)
         return
     if path_no_qs == "/api/memories":
         # Keyset-paged memory listing for the Knowledge + Board tabs.
@@ -153,17 +172,7 @@ def _route_unified_get(
 
         serve_memories_facets(handler, store)
         return
-    if path == "/api/graph.zera" or path.startswith("/api/graph.zera?"):
-        # ZERA-bundle variant of /api/graph — same data, content-addressed
-        # binary transport. Reads the same _graph_cache; no effect on
-        # retrieval paths.
-        from mcp_server.server.http_standalone_endpoints import serve_graph_zera
-
-        serve_graph_zera(handler, store)
-        return
-    if path == "/api/graph" or path.startswith("/api/graph?"):
-        serve_graph(handler, store)
-    elif path == "/api/discussions" or path.startswith("/api/discussions?"):
+    if path == "/api/discussions" or path.startswith("/api/discussions?"):
         serve_discussions(handler)
     elif path_no_qs.startswith("/api/discussion/"):
         serve_discussion_detail(handler, path_no_qs)
@@ -225,13 +234,14 @@ def _route_unified_get(
 
         cb = str(int(_time.time()))
         text = raw.decode("utf-8", errors="replace")
+        # Only add ?v= to paths that don't already have a query string.
         text = _re.sub(
-            r'(<script\s+[^>]*src="/js/[^"]+?)(")',
+            r'(<script\s+[^>]*src="/js/[^"?]+?)(")',
             r"\1?v=" + cb + r"\2",
             text,
         )
         text = _re.sub(
-            r'(<link\s+[^>]*href="/css/[^"]+?)(")',
+            r'(<link\s+[^>]*href="/css/[^"?]+?)(")',
             r"\1?v=" + cb + r"\2",
             text,
         )

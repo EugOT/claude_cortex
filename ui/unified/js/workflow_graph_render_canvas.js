@@ -43,13 +43,44 @@
       var p = transform.invert([ev.clientX - rect.left, ev.clientY - rect.top]);
       var n = findNode(p[0], p[1]);
       var next = n ? n.id : null;
-      if (next !== hoverId) { hoverId = next; canvas.style.cursor = n ? 'pointer' : 'default'; draw(); }
+      if (next !== hoverId) {
+        hoverId = next;
+        canvas.style.cursor = n ? 'pointer' : 'default';
+        // Show the rich tooltip toolbox for the hovered node (was only
+        // highlighting before — nothing actually appeared). tooltip.js
+        // owns the card + positioning; we just feed it the node.
+        if (window.JUG && JUG._tooltip) {
+          if (n) JUG._tooltip.show(n); else JUG._tooltip.hide();
+        }
+        draw();
+      }
+    });
+    canvas.addEventListener('mouseleave', function () {
+      hoverId = null;
+      if (window.JUG && JUG._tooltip) JUG._tooltip.hide();
+      draw();
     });
     canvas.addEventListener('click', function (ev) {
       var rect = canvas.getBoundingClientRect();
       var p = transform.invert([ev.clientX - rect.left, ev.clientY - rect.top]);
       var n = findNode(p[0], p[1]);
-      if (n) { selectedId = n.id; panel.show(n, ctx); } else { selectedId = null; panel.hide(); }
+      if (n) {
+        selectedId = n.id;
+        panel.show(n, ctx);
+        // Emit the selection on the global bus so view controllers react
+        // — the Trace view (trace.js) expands the clicked node's children
+        // and detail_panel.js enriches it. Without this, a real canvas
+        // click only showed the panel and never expanded the graph.
+        if (window.JUG && typeof JUG.emit === 'function') {
+          try { JUG.emit('graph:selectNode', n); } catch (_e) {}
+        }
+      } else {
+        selectedId = null;
+        panel.hide();
+        if (window.JUG && typeof JUG.emit === 'function') {
+          try { JUG.emit('graph:deselectNode'); } catch (_e) {}
+        }
+      }
       draw();
     });
 

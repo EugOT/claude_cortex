@@ -34,3 +34,6 @@ traces/
 .claude/scheduled_tasks.lock
 .claude/session-cache.json
 benchmarks/snapshots/
+.memsearch/
+
+app-tauri/src-tauri/target/

@@ -118,66 +118,151 @@ def serve_graph(handler, store) -> None:
         send_json_error(handler, e)
 
 
-def serve_graph_zera(handler, store) -> None:
-    """GET /api/graph.zera — same cached graph as /api/graph, but encoded
-    as a ZERA bundle (HELLO + CODEBOOK + GRAMMAR + zstd-19 payload).
+def serve_graph_events(handler, store=None) -> None:
+    """GET /api/graph/events — Server-Sent Events stream of build batches.
 
-    The bundle is content-addressed by ``graph_id`` (BLAKE3 over the
-    canonical payload). The HELLO frame at the head declares the
-    encoding choices so the client can decode without out-of-band
-    agreement.
+    The build worker pushes per-source batches onto an in-memory event
+    queue (see ``graph_event_stream``). This handler streams them to a
+    single browser connection in real time so the user watches the
+    graph grow as the builder produces nodes — first source within a
+    second, full graph fills in behind it. No precomputed snapshot is
+    required for this to work; it's the live-build channel.
 
-    Read-only — pulls from the same ``_graph_cache`` snapshot
-    ``/api/graph`` reads. Does not affect retrieval/recall paths.
+    Wire format (text/event-stream):
+        event: batch
+        id: <buffer index>
+        data: {"label":..,"nodes":[...],"edges":[...],"off":..,"n_total":..}
+
+        event: done
+        data: {"total_nodes":N,"total_edges":E}
+
+    The client (``ui/unified/js/graph_event_stream.js``) parses each
+    ``batch`` event and calls ``JUG.appendGraphDelta(nodes, edges)``.
+    appendGraphDelta dedups by id, so reconnect-and-replay is safe.
+
+    Lazy-kicks the build (ensure_build_started) so opening the SSE
+    stream on a cold cache starts the pipeline producing events.
     """
-    import traceback as _tb
+    from urllib.parse import parse_qs, urlparse
+
+    from mcp_server.server.graph_event_stream import (
+        format_done,
+        format_event,
+        format_heartbeat,
+        get_stream,
+    )
+    from mcp_server.server.http_standalone_graph import (
+        ensure_build_started,
+        get_build_progress,
+    )
+
+    # Honour Last-Event-ID for resume after a flaky connection. Spec
+    # says the value is the ``id:`` of the last event the client saw;
+    # we advance past it on resume.
+    last_id_header = (
+        handler.headers.get("Last-Event-ID")
+        or handler.headers.get("Last-Event-Id")
+        or ""
+    )
+    since = 0
+    try:
+        since = int(last_id_header) + 1 if last_id_header else 0
+    except ValueError:
+        since = 0
+    # Also allow ?since=N as a fallback (curl-friendly).
+    qs = parse_qs(urlparse(handler.path).query)
+    if "since" in qs:
+        try:
+            since = max(since, int(qs["since"][0]))
+        except (ValueError, IndexError):
+            pass
 
     try:
-        from mcp_server.server.zera_bundle import encode_graph_to_zera_bundle
-    except ImportError:
-        # zstandard/blake3 not available — fall back so the route still
-        # returns a useful diagnostic rather than crashing the server.
-        send_plain_error(handler, 503)
-        return
+        ensure_build_started(store)
 
-    try:
-        # Same data source as /api/graph. get_graph_response returns the
-        # graph dict DIRECTLY — {"nodes": [...], "edges": [...], "meta": …}
-        # (a locked snapshot), or a warming placeholder of the same shape.
-        # There is no "data" wrapper; reading response["data"] always
-        # missed and shipped an empty bundle.
-        graph = get_graph_response(store, handler.path) or {}
-        if not graph.get("nodes"):
-            # Build not ready — return an empty bundle (HELLO only with
-            # zero counts) so the client can show "warming up".
-            graph = {"nodes": [], "edges": []}
-        # On-demand encode uses zstd level 9, not 19: level 19 takes ~6 s
-        # on a 500K-node graph and, if a build is running concurrently,
-        # starves the HTTP thread for a minute. Level 9 is ~250 ms and
-        # still ~3-4x over level 3. A production deployment would cache a
-        # level-19 bundle keyed by graph_id and serve bytes; on-demand
-        # favours latency.
-        bundle = encode_graph_to_zera_bundle(graph, payload_zstd_level=9)
         handler.send_response(200)
-        handler.send_header("Content-Type", "application/octet-stream")
-        handler.send_header("Content-Length", str(len(bundle)))
-        handler.send_header("X-ZERA-Version", "0.0.5")
-        handler.send_header("X-ZERA-Node-Count", str(len(graph.get("nodes", []))))
-        handler.send_header("X-ZERA-Edge-Count", str(len(graph.get("edges", []))))
-        # Same CORS treatment as the JSON sibling.
-        handler.send_header("Access-Control-Allow-Origin", "*")
+        handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        handler.send_header("Cache-Control", "no-cache")
+        handler.send_header("Connection", "keep-alive")
+        handler.send_header("X-Accel-Buffering", "no")  # disable proxy buffering
         handler.end_headers()
-        handler.wfile.write(bundle)
+
+        stream = get_stream()
+
+        # Replay-then-tail loop. subscribe() returns on close-and-drained
+        # OR on a 15 s idle timeout. On idle timeout we emit an SSE
+        # comment (heartbeat) and re-subscribe from where we left off,
+        # so the connection stays open across long pauses (the source-
+        # loading phase is ~15–20 s of silence before the first batch).
+        # Loop exits cleanly when (a) the stream is closed and drained,
+        # or (b) the client disconnects (BrokenPipe).
+        cursor = since
+        while True:
+            saw_any = False
+            for idx, event in stream.subscribe(since=cursor, timeout=15.0):
+                try:
+                    handler.wfile.write(format_event(idx, event))
+                    handler.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                cursor = idx + 1
+                saw_any = True
+
+            s = stream.stats()
+            if s.get("closed") and cursor >= s.get("count", 0):
+                # Build finished AND we've drained every event.
+                prog = get_build_progress()
+                try:
+                    handler.wfile.write(
+                        format_done(
+                            total_nodes=prog.get("node_count", 0),
+                            total_edges=prog.get("edge_count", 0),
+                        )
+                    )
+                    handler.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
+
+            # Idle timeout — keep the connection alive with a comment.
+            # If the client is gone, the write fails and we exit.
+            try:
+                handler.wfile.write(format_heartbeat())
+                handler.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            # If we saw nothing AND the stream is still open, loop
+            # back into subscribe() to wait for more. This is the
+            # source-loading gap (no batches for ~15–20 s while PG
+            # queries run).
+            if not saw_any:
+                continue
     except Exception as e:
-        _tb.print_exc()
-        send_json_error(handler, e)
+        # Best-effort error reporting on an already-started chunked
+        # response is fraught; log and close.
+        try:
+            handler.wfile.write(
+                f"event: error\ndata: {type(e).__name__}: {e}\n\n".encode()
+            )
+            handler.wfile.flush()
+        except Exception:
+            pass
 
 
-def serve_graph_progress(handler) -> None:
-    """GET /api/graph/progress — background-build progress snapshot."""
-    from mcp_server.server.http_standalone_graph import get_build_progress
+def serve_graph_progress(handler, store=None) -> None:
+    """GET /api/graph/progress — background-build progress snapshot.
+
+    Also lazily kicks the background build if it hasn't started (see
+    ``ensure_build_started``): the graph-tab poller hits this endpoint,
+    so this is what starts the build when the user opens the Graph view.
+    """
+    from mcp_server.server.http_standalone_graph import (
+        ensure_build_started,
+        get_build_progress,
+    )
 
     try:
+        ensure_build_started(store)
         send_json_ok(handler, get_build_progress())
     except Exception as e:
         send_json_error(handler, e)
@@ -209,10 +294,59 @@ def serve_graph_phase(handler) -> None:
                 if p.startswith("name="):
                     name = unquote(p[5:])
                 elif p.startswith("offset="):
-                    offset = max(0, int(p[7:] or 0))
+                    try:
+                        offset = int(p[7:])
+                    except ValueError:
+                        pass
                 elif p.startswith("limit="):
-                    limit = int(p[6:]) if p[6:] else None
+                    try:
+                        limit = int(p[6:])
+                    except ValueError:
+                        pass
         send_json_ok(handler, get_phase_payload(name, offset=offset, limit=limit))
+    except Exception as e:
+        send_json_error(handler, e)
+
+
+def serve_graph_node(handler, store) -> None:
+    """GET /api/graph/node?id=<node_id> — full record for one node.
+
+    The CXGB snapshot carries only 6 fields per node (id/kind/domain_id/
+    x/y/size) so the galaxy loads in ~30 ms. The rich detail panel fetches
+    the full record on click via this endpoint (on-demand drill) instead
+    of bloating the base graph. Resolves ``memory:<pg_id>`` and
+    ``entity:<pg_id>`` ids to their PG rows; other kinds return the id
+    parsed into {kind, label}. source: design 2026-05-31 — top-25k galaxy
+    + on-demand cold-tail drill.
+    """
+    from urllib.parse import unquote
+
+    try:
+        node_id = ""
+        if "?" in handler.path:
+            for p in handler.path.split("?", 1)[1].split("&"):
+                if p.startswith("id="):
+                    node_id = unquote(p[3:])
+        if not node_id:
+            send_json_ok(handler, {"error": "missing id"})
+            return
+
+        kind, _, raw = node_id.partition(":")
+        record: dict | None = None
+        if kind == "memory" and raw.isdigit() and hasattr(store, "get_memory"):
+            record = store.get_memory(int(raw))
+        elif kind == "entity" and raw.isdigit() and hasattr(store, "get_entity_by_id"):
+            record = store.get_entity_by_id(int(raw))
+
+        send_json_ok(
+            handler,
+            {
+                "id": node_id,
+                "kind": kind or "unknown",
+                "found": record is not None,
+                "record": record or {},
+            },
+        )
     except Exception as e:
         send_json_error(handler, e)
 

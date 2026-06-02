@@ -107,7 +107,11 @@
     var sel = document.getElementById('wfg-filter-select');
     if (sel) {
       sel.addEventListener('change', function () {
-        state.wfgFilter = sel.value || 'all';
+        var val = sel.value || 'all';
+        // L0–L6 are depth-load commands owned by lod.js, not visual filters.
+        // Let the event propagate to lod.js; do not apply a visual predicate.
+        if (/^L[0-6]$/.test(val)) return;
+        state.wfgFilter = val;
         apply();
       });
     }
@@ -145,10 +149,15 @@
       var domains = [];
       for (var i = 0; i < data.nodes.length; i++) {
         var n = data.nodes[i];
-        if (n.kind === 'domain' || n.type === 'domain') {
+        // Only real project domains — exclude the global sentinel and
+        // filesystem-path garbage. isGlobal is the authoritative flag.
+        if (n.selectableDomain) {
           domains.push(n.label || n.id.replace('domain:', ''));
         }
       }
+      // Never wipe the dropdown when the graph is empty (e.g. during a
+      // resetGraph() call). Only repopulate when we have real domain nodes.
+      if (!domains.length) return;
       domains.sort();
       var current = sel.value;
       sel.innerHTML = '<option value="">All Domains</option>';
@@ -158,7 +167,8 @@
         opt.textContent = domains[j];
         sel.appendChild(opt);
       }
-      if (domains.indexOf(current) !== -1) sel.value = current;
+      // Restore the selection — works for both "All Domains" and a named domain.
+      if (current === '' || domains.indexOf(current) !== -1) sel.value = current;
     }
     sel.addEventListener('change', function () {
       state.domain = sel.value || '';

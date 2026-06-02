@@ -258,11 +258,17 @@
     var infoPanel = document.getElementById('info-panel');
     var legend = document.getElementById('legend');
     var statusBar = document.getElementById('status-bar');
-    var isGraph = e.value === 'graph';
+    // Trace shares the graph canvas + force renderer (it emits
+    // workflow_graph.v1-shaped nodes), so treat it like the Graph view
+    // for container/panel visibility.
+    var isTrace = e.value === 'trace';
+    var isGraph = e.value === 'graph' || isTrace;
 
     if (graphContainer) graphContainer.style.display = isGraph ? 'block' : 'none';
     if (infoPanel) infoPanel.style.display = isGraph ? '' : 'none';
-    if (legend) legend.style.display = isGraph ? '' : 'none';
+    // The galaxy legend (L1–L6 / tools / memories vocabulary) is wrong
+    // for the trace tree — hide it in trace mode.
+    if (legend) legend.style.display = (isGraph && !isTrace) ? '' : 'none';
     if (statusBar) statusBar.style.display = isGraph ? '' : 'none';
 
     if (isGraph) {
