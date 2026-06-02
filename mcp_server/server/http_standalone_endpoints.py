@@ -110,6 +110,40 @@ def serve_sankey(handler, store) -> None:
         send_json_error(handler, e)
 
 
+def serve_stats(handler, store) -> None:
+    """GET /api/stats — TRUE store counts for the HUD.
+
+    The sidebar counters must reflect the whole memory system (what the user
+    actually has), NOT just the nodes the current view happens to render. The
+    trace view, for instance, renders domain/session/chain nodes and zero
+    memory nodes — counting loaded nodes there showed "Memories 0" against a
+    475k-memory store. These are cheap COUNT(*) queries straight off the store,
+    independent of any graph build. source: user report — HUD showed 0 memories.
+    """
+    try:
+        counts = store.count_memories()
+        domains = store.get_domain_counts() or {}
+        mem = int(counts.get("total", 0) or 0)
+        ent = int(store.count_entities() or 0)
+        rel = int(store.count_relationships() or 0)
+        send_json_ok(
+            handler,
+            {
+                "domain_count": len(domains),
+                "memory_count": mem,
+                "entity_count": ent,
+                # HUD "Synapses" reads edge_count; here that is the knowledge-
+                # graph relationship total (the real synapse population).
+                "edge_count": rel,
+                # HUD "Nodes": the addressable memory+entity population.
+                "node_count": mem + ent,
+                "discussion_count": int(counts.get("discussions", 0) or 0),
+            },
+        )
+    except Exception as e:
+        send_json_error(handler, e)
+
+
 def serve_graph(handler, store) -> None:
     """GET /api/graph — cached workflow graph or warming placeholder."""
     try:

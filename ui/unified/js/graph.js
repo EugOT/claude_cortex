@@ -268,17 +268,11 @@
       addedEdges.push(e);
       c.totalEdges++;
     }
-    // Sidebar update — O(1) DOM writes, no node scan.
-    try {
-      var setTxt = function(id, v){ var el = document.getElementById(id); if(el) el.textContent = v; };
-      var entityCount = c.totalNodes - c.domain - c.memory;
-      setTxt('s-dom',   c.domain);
-      setTxt('s-mem',   c.memory);
-      setTxt('s-ent',   entityCount);
-      setTxt('s-nodes', c.totalNodes);
-      setTxt('s-edge',  c.totalEdges);
-      setTxt('s-disc',  c.discussion);
-    } catch(_e){}
+    // Sidebar counters are NOT written here. The HUD (Domains / Memories /
+    // Entities / Nodes / Synapses / Discussions) shows TRUE store totals via
+    // polling.js → /api/stats, independent of which view is rendered. Writing
+    // loaded-node counts here zeroed "Memories" in the trace view (which draws
+    // no memory nodes) against a 475k-memory store. source: user report.
     // Legacy force-graph rebuild — only run when the workflow-graph
     // renderer (the one the bridge installs and the page actually
     // shows) is NOT active. With ~135 k nodes accumulated, calling

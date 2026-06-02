@@ -390,7 +390,8 @@ def build_workflow_graph(
             "edge_count": len(edges),
             "domain_count": domain_count,
             "memory_count": memory_count,
-            "entity_count": file_count,
+            "entity_count": entity_node_count,
+            "file_count": file_count,
             "discussion_count": discussion_count,
             "counts": {
                 "nodes": len(nodes),
@@ -701,7 +702,8 @@ def _build_interleaved(
             "edge_count": len(edges),
             "domain_count": domain_count,
             "memory_count": memory_count,
-            "entity_count": file_count,
+            "entity_count": entity_node_count,
+            "file_count": file_count,
             "discussion_count": discussion_count,
             "counts": {
                 "nodes": len(nodes),

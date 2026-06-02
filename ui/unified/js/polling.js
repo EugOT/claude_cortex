@@ -67,8 +67,8 @@
     setText('s-mem', meta.memory_count || 0);
     setText('s-ent', meta.entity_count || 0);
     setText('s-edge', meta.edge_count || 0);
-
     setText('s-nodes', meta.node_count || 0);
+    if (meta.discussion_count != null) setText('s-disc', meta.discussion_count);
 
     // System vitals
     var sv = meta.system_vitals;
@@ -147,16 +147,32 @@
       .map(function(v) { return String(v).padStart(2, '0'); }).join(':');
   }, 1000);
 
+  // TRUE store counts for the HUD — independent of the rendered view.
+  // The sidebar must show the whole memory system (e.g. 475k memories),
+  // not the node kinds the current view happens to draw. The trace view
+  // renders zero memory nodes, so without this the HUD read "Memories 0"
+  // against a full store. /api/stats is a handful of COUNT(*) queries.
+  function fetchStats() {
+    fetch('/api/stats')
+      .then(function(res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+      .then(function(s) { updateStats(s); })
+      .catch(function(err) { console.warn('[cortex] stats poll error:', err.message); });
+  }
+
   // Boot — delay initial fetch. fetchGraph() short-circuits unless
   // activeView === 'graph', so this is cheap on Knowledge / Board /
-  // Wiki landings.
+  // Wiki landings. fetchStats() always runs so the HUD shows the true
+  // store size on every view, and refreshes periodically.
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function() {
       setTimeout(fetchGraph, 500);
+      setTimeout(fetchStats, 300);
     });
   } else {
     setTimeout(fetchGraph, 500);
+    setTimeout(fetchStats, 300);
   }
+  setInterval(fetchStats, 30000);
 
   // Trigger the graph fetch when the user actually switches to the
   // Graph tab (lazy-load semantics).

@@ -39,6 +39,7 @@ from mcp_server.server.http_standalone_endpoints import (
     serve_file_diff,
     serve_sankey,
     serve_static,
+    serve_stats,
 )
 from mcp_server.server.http_standalone_state import (
     IDLE_TIMEOUT,
@@ -186,6 +187,8 @@ def _route_unified_get(
         serve_wiki_db(handler, _WIKI_DB_OPS[path_no_qs])
     elif path_no_qs == "/api/wiki/export":
         serve_wiki_export(handler)
+    elif path_no_qs == "/api/stats":
+        serve_stats(handler, store)
     elif path == "/api/sankey" or path.startswith("/api/sankey?"):
         serve_sankey(handler, store)
     elif path.startswith("/api/file-diff?"):
