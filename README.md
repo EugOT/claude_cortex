@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/tests-2500_passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/citations-45_papers-orange.svg" alt="Citations">
-  <img src="https://img.shields.io/badge/version-3.18.0-brightgreen.svg" alt="Version 3.18.0">
+  <img src="https://img.shields.io/badge/version-3.18.1-brightgreen.svg" alt="Version 3.18.1">
   <a href="https://glama.ai/mcp/servers/cdeust/Cortex"><img src="https://glama.ai/mcp/servers/cdeust/Cortex/badges/score.svg" alt="Glama score: security A, license A"></a>
 </p>
 

@@ -425,10 +425,7 @@ class WorkflowGraphASTSource:
         if not gp:
             return []
         resp = self._loop_owner.run(
-            self._bridge.call(
-                "search_codebase",
-                {"graph_path": gp, "query": query, "limit": int(limit)},
-            )
+            self._bridge.search_codebase(gp, query, limit=int(limit))
         )
         out: list[dict[str, Any]] = []
         for r in _as_list(resp):
