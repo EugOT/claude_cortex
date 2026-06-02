@@ -130,10 +130,14 @@ async def _fetch_prd(args: dict[str, Any]) -> tuple[str, str]:
     if content:
         return content, "content"
 
+    # prd-gen's get_pipeline_state is keyed by ``run_id`` (the pipeline run id)
+    # and needs format="full" to include the rendered PRD body. The public
+    # Cortex arg stays ``pipeline_id`` (its value IS the run id) — map it here.
+    # source: prd-gen tool schema (run_id required; format summary|full).
     payload = await call_upstream(
         _UPSTREAM_SERVER,
         "get_pipeline_state",
-        {"pipeline_id": pipeline_id},
+        {"run_id": pipeline_id, "format": "full"},
     )
     result = normalise_mcp_payload(payload)
     prd_text = result.get("rendered_prd") or result.get("prd") or result.get("text")
@@ -266,6 +270,28 @@ async def _maybe_validate(text: str) -> dict[str, Any] | None:
         return {"skipped": True, "reason": f"{type(exc).__name__}"}
 
 
+async def _fetch_quality_history(limit: int = 20) -> dict[str, Any] | None:
+    """Pull prd-gen's historical PRD quality scores (its evidence repository).
+
+    Records the quality context prd-gen itself tracks alongside the ingested
+    PRD, so Cortex consumes prd-gen's verification signal — not just the
+    rendered text. Best-effort: returns None when prd-gen is unreachable.
+    """
+    try:
+        payload = await call_upstream(
+            _UPSTREAM_SERVER,
+            "get_quality_history",
+            {"limit": limit},
+        )
+        return normalise_mcp_payload(payload)
+    except McpConnectionError as exc:
+        logger.debug("prd-gen unreachable for quality history: %s", exc)
+        return None
+    except Exception as exc:
+        logger.debug("get_quality_history failed: %s", exc)
+        return None
+
+
 async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
     """Ingest a PRD document into Cortex."""
     args = args or {}
@@ -331,10 +357,15 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
     except Exception as exc:
         logger.debug("PRD summary memory insert failed: %s", exc)
 
-    # 4. Optional validation.
+    # 4. Optional validation + prd-gen quality evidence.
     validation = None
+    quality_history = None
     if args.get("validate"):
         validation = await _maybe_validate(text)
+    # When the PRD came from a live prd-gen run, also record prd-gen's own
+    # quality history so the ingestion carries the upstream verification signal.
+    if source == "pipeline_id":
+        quality_history = await _fetch_quality_history()
 
     return {
         "ingested": True,
@@ -344,5 +375,6 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
         "summary_memory_id": summary_id,
         "decision_count": len(decision_ids),
         "requirement_count": len(requirement_ids),
+        "quality_history": quality_history,
         "validation": validation,
     }

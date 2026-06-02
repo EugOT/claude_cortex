@@ -96,7 +96,12 @@ class TestIngestPrdSources:
         assert result["ingested"] is True
         assert result["source"] == "pipeline_id"
         assert calls[0][1] == "get_pipeline_state"
-        assert calls[0][2]["pipeline_id"] == "pipe-123"
+        # prd-gen's get_pipeline_state is keyed by run_id (not pipeline_id) and
+        # needs format=full to return the rendered PRD body.
+        assert calls[0][2]["run_id"] == "pipe-123"
+        assert calls[0][2]["format"] == "full"
+        # A live pipeline source also pulls prd-gen's quality history.
+        assert any(c[1] == "get_quality_history" for c in calls)
 
     @pytest.mark.asyncio
     async def test_zero_sources_rejected(self, fake_store):
