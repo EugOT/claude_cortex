@@ -62,6 +62,11 @@
             "type": "command",
             "command": "bash -c 'PY=$(command -v python3 || command -v python) && ROOT=\"${CLAUDE_PLUGIN_ROOT:-$PWD}\" && \"$PY\" \"$ROOT/scripts/launcher.py\" mcp_server.hooks.pipeline_impact_bump'",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'PY=$(command -v python3 || command -v python) && ROOT=\"${CLAUDE_PLUGIN_ROOT:-$PWD}\" && \"$PY\" \"$ROOT/scripts/launcher.py\" mcp_server.hooks.post_commit_reindex'",
+            "timeout": 10
           }
         ]
       }

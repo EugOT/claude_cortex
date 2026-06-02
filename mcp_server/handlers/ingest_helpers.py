@@ -36,27 +36,99 @@ def code_graph_tag(project_path: str) -> str:
     return f"{CODE_GRAPH_TAG_PREFIX}{project_key(project_path)}"
 
 
-def find_cached_graph(store, project_path: str) -> str | None:
-    """Return the cached graph_path for a project, or None if not cached.
+def graph_path_is_materialised(graph_path: str | None) -> bool:
+    """True when ``graph_path`` points at a graph that still exists on disk.
 
-    Reads the most-recent memory tagged with the project's code-graph tag.
+    AP writes ``<output_dir>/graph`` as a LadybugDB directory; pre-3.14
+    builds wrote a single file at the same slot. Either form counts as
+    valid only when **non-empty** — an existing-but-empty directory is a
+    half-built or wiped graph, which must read as a cache miss so the
+    caller re-analyses rather than silently projecting zero symbols.
+
+    source: ingest staleness bug Jun-2026 — a memo outlived its graph
+    (the graph directory was deleted) and ``find_cached_graph`` handed the
+    dead path straight back to ``ensure_graph``, which then projected an
+    empty graph. A memo must never outlive the artefact it points at
+    (Dijkstra audit: the pointer is not the thing).
+    """
+    if not graph_path:
+        return False
+    try:
+        p = Path(graph_path).expanduser()
+        if not p.exists():
+            return False
+        if p.is_dir():
+            return any(p.iterdir())
+        return p.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def _memo_tags(mem: dict) -> list:
+    """Tags of a memory row as a list (rows may store JSON-encoded tags)."""
+    raw = mem.get("tags", [])
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            return []
+    return raw if isinstance(raw, list) else []
+
+
+def _memo_recency_key(mem: dict) -> str:
+    """Sortable recency key for a memo row (most-recent sorts highest).
+
+    Prefers ``created_at`` (when the path was memoised); falls back to
+    ``heat_base_set_at`` then ``last_accessed``. Datetimes are
+    ISO-normalised; a missing value sorts oldest. ISO-8601 strings sort
+    lexicographically in chronological order, so plain string comparison
+    is correct here.
+    """
+    for field in ("created_at", "heat_base_set_at", "last_accessed"):
+        val = mem.get(field)
+        if val is None or val == "":
+            continue
+        iso = getattr(val, "isoformat", None)
+        return iso() if callable(iso) else str(val)
+    return ""
+
+
+def find_cached_graph(store, project_path: str) -> str | None:
+    """Return the cached graph_path for a project, or None.
+
+    Returns the path from the MOST-RECENT memo tagged with the project's
+    code-graph tag whose graph **still exists on disk**. A memo whose
+    graph was deleted (path missing or empty) is skipped, never returned
+    — this is the self-heal: a stale memo can no longer make the caller
+    project an empty graph. When no live graph is found, returns None so
+    the caller re-analyses and re-memoises.
+
+    source: ingest staleness bug Jun-2026 (Dijkstra audit). Previously
+    this returned the first tag match unconditionally, with no existence
+    check and no recency ordering.
     """
     tag = code_graph_tag(project_path)
     try:
         mems = store.get_all_memories_for_decay()
     except Exception:
         return None
+
+    candidates: list[tuple[str, str]] = []  # (recency_key, graph_path)
     for mem in mems:
-        raw_tags = mem.get("tags", [])
-        if isinstance(raw_tags, str):
-            try:
-                raw_tags = json.loads(raw_tags)
-            except (ValueError, TypeError):
-                raw_tags = []
-        if tag in raw_tags:
-            content = mem.get("content") or ""
-            if content.startswith("graph_path="):
-                return content[len("graph_path=") :].strip()
+        if tag not in _memo_tags(mem):
+            continue
+        content = mem.get("content") or ""
+        if not content.startswith("graph_path="):
+            continue
+        path = content[len("graph_path=") :].strip()
+        if path:
+            candidates.append((_memo_recency_key(mem), path))
+
+    # Most-recent first; return the first whose graph is materialised.
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    for _, path in candidates:
+        if graph_path_is_materialised(path):
+            return path
     return None
 
 

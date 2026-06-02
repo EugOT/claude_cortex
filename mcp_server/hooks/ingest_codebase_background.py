@@ -1,11 +1,20 @@
 """Background worker that invokes ``ingest_codebase`` for a project.
 
-Spawned by the SessionStart hook when the cached graph is stale or
-missing. Runs detached from the parent process so SessionStart returns
-immediately.
+Spawned by two triggers, both detached so the parent returns immediately:
+  * the SessionStart hook, when the cached graph is missing or older than
+    the TTL (``pipeline_graph_ttl.graph_is_stale``); and
+  * the PostToolUse ``post_commit_reindex`` hook, after a commit that
+    touched indexable source — there it passes ``--reindex`` because the
+    commit IS the change signal, so the graph must be rebuilt even though
+    a cached one exists.
 
 Invocation:
     python -m mcp_server.hooks.ingest_codebase_background /path/to/project
+    python -m mcp_server.hooks.ingest_codebase_background /path/to/project --reindex
+
+Without ``--reindex`` the handler reuses a fresh cached graph and only
+re-analyses when the cache is stale/absent (identical to interactive
+use). With ``--reindex`` it forces ``analyze_codebase`` to run.
 
 Exit code:
   * 0 on success
@@ -34,6 +43,7 @@ def main() -> None:
         sys.exit(2)
 
     project_root = sys.argv[1]
+    force_reindex = "--reindex" in sys.argv[2:]
 
     # Lazy import so Claude Code hooks can fire even if core deps are
     # still installing on first session.
@@ -43,10 +53,12 @@ def main() -> None:
         print(f"[bg-ingest] ingest_codebase import failed: {exc}", file=sys.stderr)
         sys.exit(1)
 
+    # Without --reindex: reuse a fresh cached graph, auto-reindex when
+    # stale (SessionStart trigger). With --reindex: force analyze_codebase
+    # because a commit already told us the source changed (commit trigger).
     args: dict[str, Any] = {
         "project_path": project_root,
-        # Don't force reindex — handler picks up cached graph when fresh
-        # and auto-reindexes when stale. Identical to interactive use.
+        "force_reindex": force_reindex,
     }
 
     try:
@@ -60,7 +72,8 @@ def main() -> None:
         sys.exit(1)
 
     counts = {k: v for k, v in (result or {}).items() if isinstance(v, (int, float))}
-    print(f"[bg-ingest] ingest_codebase ok: {counts}")
+    mode = "reindex" if force_reindex else "cached-or-stale"
+    print(f"[bg-ingest] ingest_codebase ok ({mode}): {counts}")
     sys.exit(0)
 
 

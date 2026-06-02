@@ -186,22 +186,52 @@ class TestIngestCodebaseHappyPath:
 
     @pytest.mark.asyncio
     async def test_reuses_cached_graph_when_memoised(
-        self, fake_store, fake_upstream, no_wiki
+        self, fake_store, fake_upstream, no_wiki, tmp_path
     ):
         calls, replies = fake_upstream
-        ingest_helpers.memoise_graph_path(
-            fake_store, "/tmp/myproj", "/tmp/existing-graph"
-        )
+        # The cached graph must actually exist on disk to be reused. A memo
+        # whose graph was deleted is (correctly) ignored — see the dead-graph
+        # test below. source: ingest self-heal Jun-2026.
+        graph_dir = tmp_path / "existing-graph"
+        graph_dir.mkdir()
+        (graph_dir / "data.kz").write_text("x")
+        ingest_helpers.memoise_graph_path(fake_store, "/tmp/myproj", str(graph_dir))
         replies["query_graph"] = []
         replies["get_processes"] = {"processes": []}
 
         result = await icb.handler({"project_path": "/tmp/myproj"})
 
         assert result["ingested"] is True
-        assert result["graph_path"] == "/tmp/existing-graph"
+        assert result["graph_path"] == str(graph_dir)
         assert result["analyze"]["reused_cached"] is True
         tools_called = [tool for (_, tool, _) in calls]
         assert "analyze_codebase" not in tools_called
+
+    @pytest.mark.asyncio
+    async def test_dead_cached_graph_triggers_reanalyze(
+        self, fake_store, fake_upstream, no_wiki, tmp_path
+    ):
+        """Self-heal at the handler boundary: a memo whose graph was deleted
+        must NOT be reused — the handler re-analyses instead of silently
+        projecting an empty graph. source: ingest staleness bug Jun-2026."""
+        calls, replies = fake_upstream
+        # Memoise a path that does NOT exist on disk (graph was cleaned).
+        ingest_helpers.memoise_graph_path(
+            fake_store, "/tmp/myproj", str(tmp_path / "deleted-graph")
+        )
+        replies["analyze_codebase"] = {
+            "graph_path": str(tmp_path / "fresh"),
+            "node_count": 0,
+        }
+        replies["query_graph"] = []
+        replies["get_processes"] = {"processes": []}
+
+        result = await icb.handler({"project_path": "/tmp/myproj"})
+
+        assert result["ingested"] is True
+        assert result["analyze"]["reused_cached"] is False
+        tools_called = [tool for (_, tool, _) in calls]
+        assert "analyze_codebase" in tools_called
 
 
 class TestIngestCodebaseFailures:
