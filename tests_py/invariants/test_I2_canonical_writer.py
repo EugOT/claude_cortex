@@ -33,9 +33,12 @@ _MCP_ROOT = _REPO_ROOT / "mcp_server"
 # OR be added here with a source-commented ADR justification.
 _ALLOWED_WRITERS: set[tuple[str, int]] = {
     # Canonical single-row writer (all callers route through this).
-    ("infrastructure/pg_store.py", 448),
+    # bump_heat_raw — shifted 448→477 by the viz server-streaming merge
+    # (25eb33a) which added code above it; still the one canonical site.
+    ("infrastructure/pg_store.py", 477),
     # A3 batched writer (homeostatic cohort branch + any other batch consumer).
-    ("infrastructure/pg_store.py", 508),
+    # update_memories_heat_batch — shifted 508→537 by the same merge.
+    ("infrastructure/pg_store.py", 537),
     # SQLite parity.
     ("infrastructure/sqlite_store.py", 284),
     ("infrastructure/sqlite_store.py", 328),
