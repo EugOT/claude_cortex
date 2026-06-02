@@ -266,6 +266,8 @@ def ensure_build_started(store) -> None:
     never kick the old build. source: 2026-05-31 trace refactor.
     """
     return None
+
+
 def _set_progress(**kw) -> None:
     with _build_progress_lock:
         _build_progress.update(kw)
@@ -325,11 +327,21 @@ def get_phase_payload(key: str, offset: int = 0, limit: int | None = None) -> di
     if not nodes and key in _PHASE_KINDS:
         cache = _graph_cache
         if cache:
-            cache_data = cache.get("data") if isinstance(cache.get("data"), dict) else cache
-            all_nodes: list = cache_data.get("nodes", []) if isinstance(cache_data, dict) else []
-            all_edges: list = cache_data.get("edges", []) if isinstance(cache_data, dict) else []
+            cache_data = (
+                cache.get("data") if isinstance(cache.get("data"), dict) else cache
+            )
+            all_nodes: list = (
+                cache_data.get("nodes", []) if isinstance(cache_data, dict) else []
+            )
+            all_edges: list = (
+                cache_data.get("edges", []) if isinstance(cache_data, dict) else []
+            )
             allowed_kinds = _PHASE_KINDS[key]
-            nodes = [n for n in all_nodes if (n.get("kind") or n.get("type")) in allowed_kinds]
+            nodes = [
+                n
+                for n in all_nodes
+                if (n.get("kind") or n.get("type")) in allowed_kinds
+            ]
             if nodes:
                 node_ids = {n["id"] for n in nodes}
                 # Edge scoping — AND, not OR.
@@ -353,7 +365,8 @@ def get_phase_payload(key: str, offset: int = 0, limit: int | None = None) -> di
                 # endpoints here, and L0 collapses back to its ~20 structural
                 # domain-to-domain edges.
                 edges = [
-                    e for e in all_edges
+                    e
+                    for e in all_edges
                     if e.get("source") in node_ids and e.get("target") in node_ids
                 ]
 

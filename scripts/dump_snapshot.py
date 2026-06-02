@@ -5,6 +5,7 @@ CXGB binary snapshot to disk. Run this once; the Rust app reads it directly.
 Usage:
   uv run python3 scripts/dump_snapshot.py
 """
+
 import sys
 import urllib.request
 import json
@@ -18,7 +19,10 @@ try:
         data = json.load(r)
 except Exception as e:
     print(f"[dump] Failed to fetch graph: {e}", file=sys.stderr)
-    print(f"[dump] Make sure the server is running: CORTEX_IDLE_TIMEOUT=7200 uv run python3 mcp_server/server/http_standalone.py --type unified --port 3458", file=sys.stderr)
+    print(
+        "[dump] Make sure the server is running: CORTEX_IDLE_TIMEOUT=7200 uv run python3 mcp_server/server/http_standalone.py --type unified --port 3458",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 nodes = data.get("nodes", [])
@@ -30,8 +34,8 @@ print("[dump] Writing CXGB snapshot…", flush=True)
 # Add this project to sys.path so we can use the existing snapshot writer
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from mcp_server.server.graph_snapshot import write_from_graph_cache
+from mcp_server.server.graph_snapshot import write_from_graph_cache  # noqa: E402
 
 snap_path, snap_bytes = write_from_graph_cache(nodes, edges)
 print(f"[dump] Written: {snap_bytes:,} bytes → {snap_path}", flush=True)
-print(f"[dump] Done. The Cortex native app will read this file directly.", flush=True)
+print("[dump] Done. The Cortex native app will read this file directly.", flush=True)

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from mcp_server.infrastructure.config import CLAUDE_DIR
 from mcp_server.infrastructure.file_io import list_dir
@@ -42,6 +42,7 @@ def project_dir_to_domain(project_dir_name: str) -> str:
     """
     label = project_id_to_label(project_dir_name)
     return f"domain:{domain_id_from_label(label) or 'unknown'}"
+
 
 # Tools that are real graph actions (skip TodoWrite / internal noise).
 _ACTION_TOOLS = frozenset(

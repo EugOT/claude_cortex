@@ -92,9 +92,7 @@ def _node_to_dict(n) -> dict[str, Any]:
         if d.get("kind") == "domain":
             _lbl = plain or ""
             d["selectableDomain"] = (
-                "/" not in _lbl
-                and "\\" not in _lbl
-                and "(" not in _lbl
+                "/" not in _lbl and "\\" not in _lbl and "(" not in _lbl
             )
     else:
         d["domain"] = "global"

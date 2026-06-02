@@ -65,7 +65,9 @@ def serve_trace_chain(handler) -> None:
 
         sid = _param(handler, "session")
         if not sid:
-            send_json_ok(handler, {"nodes": [], "edges": [], "error": "missing session"})
+            send_json_ok(
+                handler, {"nodes": [], "edges": [], "error": "missing session"}
+            )
             return
         # ``since`` = chain steps the client already holds (live tail poll).
         # 0/absent → whole chain. Out-of-range → empty delta (dedup-safe).
@@ -158,7 +160,6 @@ def _ast_and_impact(path: str) -> dict:
         impact = []
         try:
             from mcp_server.infrastructure.ap_bridge import (
-                APBridge,
                 resolve_graph_paths,
             )
 
@@ -229,10 +230,11 @@ def _impact_for_graph(graph_path: str, rel_path: str) -> dict | None:
     # source serializes every call onto one loop, which is reliable.
     src = _get_ast_source()
     loop_run = src._loop_owner.run  # noqa: SLF001
-    bridge = src._bridge            # noqa: SLF001
+    bridge = src._bridge  # noqa: SLF001
 
     async def _run() -> dict | None:
         if True:
+
             async def q(cypher):
                 rows = await bridge.query_graph(graph_path, cypher)
                 return _as_list(rows)
@@ -290,21 +292,36 @@ def _impact_for_graph(graph_path: str, rel_path: str) -> dict | None:
                 nm = r.get("name")
                 if not nm:
                     continue
-                downstream.append({
-                    "file": _file_of(nm), "name": nm, "label": _short_name(nm),
-                    "kind": "calls" if r in calls else "imports", "confidence": _conf(r),
-                })
+                downstream.append(
+                    {
+                        "file": _file_of(nm),
+                        "name": nm,
+                        "label": _short_name(nm),
+                        "kind": "calls" if r in calls else "imports",
+                        "confidence": _conf(r),
+                    }
+                )
             upstream = [
-                {"file": _file_of(r.get("name")), "name": r.get("name"),
-                 "label": _short_name(r.get("name")), "kind": "calls",
-                 "confidence": _conf(r)}
-                for r in callers if r.get("name")
+                {
+                    "file": _file_of(r.get("name")),
+                    "name": r.get("name"),
+                    "label": _short_name(r.get("name")),
+                    "kind": "calls",
+                    "confidence": _conf(r),
+                }
+                for r in callers
+                if r.get("name")
             ]
             members = [
-                {"file": rel_path, "name": r.get("name"),
-                 "label": _short_name(r.get("name")), "kind": "member",
-                 "confidence": None}
-                for r in members_rows if r.get("name")
+                {
+                    "file": rel_path,
+                    "name": r.get("name"),
+                    "label": _short_name(r.get("name")),
+                    "kind": "member",
+                    "confidence": None,
+                }
+                for r in members_rows
+                if r.get("name")
             ]
             return {"downstream": downstream, "upstream": upstream, "members": members}
 
@@ -348,24 +365,35 @@ def serve_trace_impact(handler) -> None:
                 r = None
             if r is None:
                 continue
-            n = len(r.get("downstream", [])) + len(r.get("upstream", [])) \
+            n = (
+                len(r.get("downstream", []))
+                + len(r.get("upstream", []))
                 + len(r.get("members", []))
+            )
             if n > best_edges:
                 best_edges = n
                 result = r
 
         if result is None:
-            send_json_ok(handler, {
-                "available": False, "reason": "not_indexed", "path": path,
-                "center": {"file": path, "label": _basename(path)},
-            })
+            send_json_ok(
+                handler,
+                {
+                    "available": False,
+                    "reason": "not_indexed",
+                    "path": path,
+                    "center": {"file": path, "label": _basename(path)},
+                },
+            )
             return
 
-        result.update({
-            "available": True, "path": path,
-            "center": {"file": path, "label": _basename(path)},
-            "meta": {"schema": "trace.v1", "level": 4},
-        })
+        result.update(
+            {
+                "available": True,
+                "path": path,
+                "center": {"file": path, "label": _basename(path)},
+                "meta": {"schema": "trace.v1", "level": 4},
+            }
+        )
         send_json_ok(handler, result)
     except Exception as e:
         send_json_error(handler, e)

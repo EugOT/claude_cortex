@@ -190,7 +190,10 @@ class WorkflowGraphSource:
         return _pg.load_memories(pg_store, min_heat=min_heat, limit=limit)
 
     def iter_memories_chunked(
-        self, pg_store, min_heat: float = 0.0, chunk_size: int = 1000,
+        self,
+        pg_store,
+        min_heat: float = 0.0,
+        chunk_size: int = 1000,
         limit: int = 500_000,
     ):
         """Stream memory chunks via a server-side PG cursor.

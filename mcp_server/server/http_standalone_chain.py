@@ -42,9 +42,7 @@ def _wfg_chain(node_id: str, depth: int) -> dict:
     nodes_raw = cache.get("nodes") or []
     edges_raw = cache.get("edges") or []
 
-    id_to_node: dict[str, dict] = {
-        n["id"]: n for n in nodes_raw if n.get("id")
-    }
+    id_to_node: dict[str, dict] = {n["id"]: n for n in nodes_raw if n.get("id")}
     if node_id not in id_to_node:
         return _not_found_payload(node_id)
 
@@ -57,10 +55,8 @@ def _wfg_chain(node_id: str, depth: int) -> dict:
             adj.setdefault(t, []).append(e)
 
     # BFS bounded by depth and _NODE_CAP
-    GOLDEN = 2.39996322972865332
     visited: set[str] = {node_id}
     frontier = [node_id]
-    edges_out: list[dict] = []
     node_idx: dict[str, str] = {}
 
     def _ref(nid: str) -> str:
@@ -82,8 +78,6 @@ def _wfg_chain(node_id: str, depth: int) -> dict:
             for e in adj.get(nid, []):
                 s, t = e.get("source", ""), e.get("target", "")
                 nbr = t if s == nid else s
-                src_node = id_to_node.get(s, {})
-                tgt_node = id_to_node.get(t, {})
                 decl_s = _ref(s)
                 decl_t = _ref(t)
                 if decl_s:
@@ -117,6 +111,7 @@ def _wfg_chain(node_id: str, depth: int) -> dict:
         "truncated": truncated,
         "seed": seed_label,
     }
+
 
 # type -> BFS direction. Mirrors get_causal_chain semantics:
 # outgoing = downstream effects (impact), incoming = upstream causes
@@ -227,7 +222,7 @@ def serve_graph_chain(handler, store) -> None:
         resolved_seed = seed
 
         if seed.startswith("entity:"):
-            raw_id = seed[len("entity:"):]
+            raw_id = seed[len("entity:") :]
             try:
                 ent = store.get_entity_by_id(int(raw_id))
                 if ent:
@@ -237,7 +232,7 @@ def serve_graph_chain(handler, store) -> None:
                 pass
 
         elif seed.startswith("domain:"):
-            slug = seed[len("domain:"):]
+            slug = seed[len("domain:") :]
             start_entities = store.get_top_entities_for_domain(slug, limit=15)
             resolved_seed = slug
 
