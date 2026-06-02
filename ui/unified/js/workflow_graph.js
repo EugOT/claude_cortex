@@ -715,34 +715,82 @@
           (bySession[sid] = bySession[sid] || []).push(n);
         });
       });
-      // Ring radius for session sub-centers: scale so the biggest cluster
-      // disk fits between neighbours without colliding.
+      // ── Per-session disks, packed by ACTUAL radius so they never merge ──
+      // The galaxy stays readable at 29k nodes because each group is one
+      // coherent disk AND the disks are separated by hard gaps. Slots are
+      // absolute (slotForce pulls each node to its computed x,y), so the
+      // separation must be solved HERE — a runtime disk-collision would
+      // fight slotForce and reproduce the blob. We size every session's
+      // disk by its event count, then walk a ring placing each disk at a
+      // cumulative angle equal to its own angular width (+gap), growing the
+      // ring radius until the whole run fits in 2π. Even, non-overlapping,
+      // exactly the galaxy's "tight disks with gaps".
       var DOT = 13;                       // ~node spacing in the spiral
       var GOLDEN = Math.PI * (3 - Math.sqrt(5));
+      var GAP = 16;                       // hard gap between adjacent disks
       function clusterRadius(count) { return DOT * Math.sqrt(Math.max(count, 1)) + 14; }
-      var maxCount = 0;
-      sessions.forEach(function (s) {
-        maxCount = Math.max(maxCount, (bySession['session:' + (s.session_id || '')] || []).length);
-      });
-      var ringR = SETUP_R + 60 + clusterRadius(maxCount) * 1.15;
-      sessions.forEach(function (s, i) {
-        var sid = 'session:' + (s.session_id || '');
-        var theta = outward + (i + 0.5) * (Math.PI * 2 / Math.max(sessions.length, 1));
-        var scx = a.x + ringR * Math.cos(theta);
-        var scy = a.y + ringR * Math.sin(theta);
-        slotOf[s.id] = { x: scx, y: scy };   // session hub at the cluster center
+
+      // Build one cluster per session (union of session nodes + any events
+      // whose session node hasn't loaded yet), each with a type-major item
+      // order so the phyllotaxis lays prompts inner, actions mid, files
+      // outer — kind reads as concentric bands within one clean disk.
+      var KIND_BAND = { prompt: 0, action: 1, file: 2 };
+      var sessNodeBySid = {};
+      sessions.forEach(function (s) { sessNodeBySid['session:' + (s.session_id || '')] = s; });
+      var clusterSids = {};
+      sessions.forEach(function (s) { clusterSids['session:' + (s.session_id || '')] = 1; });
+      Object.keys(bySession).forEach(function (sid) { clusterSids[sid] = 1; });
+      var clusters = Object.keys(clusterSids).map(function (sid) {
         var items = (bySession[sid] || []).slice();
-        // stable order: prompts, then actions, then files (by seq if any)
         items.sort(function (p, q) {
+          var pk = KIND_BAND[p.kind] != null ? KIND_BAND[p.kind] : 3;
+          var qk = KIND_BAND[q.kind] != null ? KIND_BAND[q.kind] : 3;
+          if (pk !== qk) return pk - qk;
           var ps = (p.seq != null ? p.seq : 1e9), qs = (q.seq != null ? q.seq : 1e9);
           return ps - qs;
         });
-        items.forEach(function (n, k) {
-          // phyllotaxis: r = c·√k, angle = k·goldenAngle → even packing
+        return { node: sessNodeBySid[sid] || null, items: items, rad: clusterRadius(items.length) };
+      });
+      // Largest disks first → stable packing, big clusters anchor the ring.
+      clusters.sort(function (a2, b2) { return b2.rad - a2.rad; });
+      var maxRad = clusters.length ? clusters[0].rad : 0;
+
+      // Total angular width of all disks at ring radius R (a disk of radius
+      // r at distance R subtends 2·asin((r+gap)/R)). Infinity if any disk is
+      // wider than the ring (forces a grow). Grow R until the run fits 2π.
+      function totalAngle(R) {
+        var sum = 0;
+        for (var ci = 0; ci < clusters.length; ci++) {
+          var ratio = (clusters[ci].rad + GAP) / R;
+          if (ratio >= 1) return Infinity;
+          sum += 2 * Math.asin(ratio);
+        }
+        return sum;
+      }
+      var ringR = Math.max(SETUP_R + 60 + maxRad * 1.15, maxRad + GAP + 10);
+      for (var grow = 0; grow < 48 && totalAngle(ringR) > Math.PI * 2; grow++) {
+        ringR *= 1.18;
+      }
+
+      // Place each disk at a cumulative angle, the whole run centered on the
+      // domain's outward axis. Each disk consumes exactly its angular width.
+      var totA = totalAngle(ringR);
+      if (!isFinite(totA)) totA = Math.PI * 2;
+      var ang = outward - totA / 2;
+      clusters.forEach(function (c) {
+        var half = Math.asin(Math.min((c.rad + GAP) / ringR, 0.999));
+        ang += half;
+        var scx = a.x + ringR * Math.cos(ang);
+        var scy = a.y + ringR * Math.sin(ang);
+        if (c.node) slotOf[c.node.id] = { x: scx, y: scy };  // session hub = disk center
+        c.items.forEach(function (n, k) {
+          // phyllotaxis: r = c·√k, angle = k·goldenAngle → even packing;
+          // type-major order above turns k-bands into kind-bands.
           var rr = DOT * Math.sqrt(k + 0.5);
           var aa = (k + 1) * GOLDEN;
           slotOf[n.id] = { x: scx + rr * Math.cos(aa), y: scy + rr * Math.sin(aa) };
         });
+        ang += half;
       });
       // Files with no resolvable session: small ring just past the
       // session band; verb links draw the connection to their action.
@@ -750,7 +798,7 @@
       (g.file || []).forEach(function (n) {
         if (slotOf[n.id]) return;
         var t = outward + (orphanI++) * GOLDEN;
-        var r = ringR + clusterRadius(maxCount) + 30 + (orphanI % 5) * 12;
+        var r = ringR + maxRad + 30 + (orphanI % 5) * 12;
         slotOf[n.id] = { x: a.x + r * Math.cos(t), y: a.y + r * Math.sin(t) };
       });
 
