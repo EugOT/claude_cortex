@@ -8,6 +8,13 @@
   var searchQuery = '';
   var expandedKinds = {};
   var expandedDomains = {};
+  // Cross-lens documentation-graph mode (additive — tree mode is the
+  // default and is byte-for-byte unchanged). Cross-lens defaults ON
+  // (the user wants cross-lens from the start); co-occurrence defaults
+  // OFF (pairwise, noisy).
+  var wikiMode = 'tree';        // 'tree' | 'graph'
+  var graphXlens = true;
+  var graphCooccur = false;
 
   var KIND_ORDER = ['adr', 'spec', 'lesson', 'convention', 'note', 'guide', 'domain', 'entity', 'index', 'misc'];
   var KIND_LABELS = {
@@ -49,6 +56,8 @@
   function hide() {
     visible = false;
     if (container) container.style.display = 'none';
+    // Don't leave #graph-container forced-visible behind another lens.
+    if (wikiMode === 'graph') exitGraphMode();
   }
 
   // ── Data ──
@@ -77,6 +86,9 @@
 
     // Sidebar
     var sidebar = el('div', 'wiki-sidebar');
+
+    // Mode toolbar: tree ⇄ graph + cross-lens toggles (additive).
+    sidebar.appendChild(buildModeToolbar());
 
     // Search
     var searchWrap = el('div', 'wiki-search-wrap');
@@ -112,11 +124,128 @@
     container.appendChild(layout);
     rebuildTree();
 
+    if (wikiMode === 'graph') {
+      enterGraphMode();
+      return;
+    }
     if (activePath) {
       loadPage(activePath);
     } else {
       showWelcome();
     }
+  }
+
+  // ── Mode toolbar + cross-lens graph (additive) ──
+  function buildModeToolbar() {
+    var bar = el('div', 'wiki-mode-toolbar');
+    bar.style.cssText =
+      'display:flex;align-items:center;gap:10px;padding:8px 10px;' +
+      'flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,0.08);';
+
+    var seg = el('div', 'wiki-mode-seg');
+    seg.style.cssText = 'display:flex;gap:4px;';
+    ['tree', 'graph'].forEach(function (m) {
+      var btn = el('button', 'wiki-mode-btn');
+      btn.type = 'button';
+      btn.textContent = m === 'tree' ? 'Tree' : 'Graph';
+      btn.style.cssText =
+        'cursor:pointer;padding:4px 10px;border-radius:6px;font-size:12px;' +
+        'border:1px solid rgba(255,255,255,0.15);background:' +
+        (wikiMode === m ? 'rgba(80,176,200,0.35)' : 'transparent') +
+        ';color:inherit;';
+      btn.addEventListener('click', function () {
+        if (wikiMode === m) return;
+        wikiMode = m;
+        if (m === 'tree') exitGraphMode();
+        buildLayout();
+      });
+      seg.appendChild(btn);
+    });
+    bar.appendChild(seg);
+
+    // Two checkboxes — only meaningful in graph mode.
+    bar.appendChild(_toggleBox('cross-lens', graphXlens, function (on) {
+      graphXlens = on;
+      if (wikiMode === 'graph') enterGraphMode();
+    }));
+    bar.appendChild(_toggleBox('co-occurrence', graphCooccur, function (on) {
+      graphCooccur = on;
+      if (wikiMode === 'graph') enterGraphMode();
+    }));
+    return bar;
+  }
+
+  function _toggleBox(label, checked, onChange) {
+    var wrap = el('label', 'wiki-toggle');
+    wrap.style.cssText =
+      'display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;';
+    var cb = el('input');
+    cb.type = 'checkbox';
+    cb.checked = !!checked;
+    cb.addEventListener('change', function () { onChange(cb.checked); });
+    var span = el('span');
+    span.textContent = label;
+    wrap.appendChild(cb);
+    wrap.appendChild(span);
+    return wrap;
+  }
+
+  function _graphDomain() {
+    // Prefer the active page's domain; else the first domain in the index.
+    if (activePath) {
+      var parts = activePath.split('/').filter(Boolean);
+      if (parts.length >= 3) return parts[1];
+    }
+    for (var i = 0; i < pages.length; i++) {
+      var d = extractDomain(pages[i]);
+      if (d && d !== '_general') return d;
+    }
+    return '_general';
+  }
+
+  // Drive the SAME workflow-graph renderer the trace lens uses: set
+  // JUG.state.lastData (workflow_graph.v1) → the bridge mounts it into
+  // #graph-container. No new renderer; tree mode untouched.
+  function enterGraphMode() {
+    var host = document.getElementById('graph-container');
+    if (host) host.style.display = 'block';
+    var domain = _graphDomain();
+    var url = '/api/wiki/graph?domain=' + encodeURIComponent(domain) +
+      '&cooccur=' + (graphCooccur ? '1' : '0') +
+      '&xlens=' + (graphXlens ? '1' : '0');
+    fetch(url)
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        if (!data || data.error) {
+          throw new Error((data && data.error) || 'empty graph');
+        }
+        // Reset dedup sets so the bridge treats this as a fresh wholesale
+        // payload (same contract the trace lens relies on).
+        if (window.JUG) {
+          JUG._existingIdSet = {};
+          JUG._existingEdgeSet = {};
+          JUG.state.lastData = data;  // emits state:lastData → bridge renders
+        }
+      })
+      .catch(function (err) {
+        console.warn('[cortex] wiki graph fetch error:', err.message);
+        var main = document.getElementById('wiki-main');
+        if (main) {
+          main.innerHTML = '';
+          main.appendChild(buildErrorState(
+            'Graph unavailable',
+            'Could not build the documentation graph: ' + err.message));
+        }
+        if (host) host.style.display = 'none';
+      });
+  }
+
+  function exitGraphMode() {
+    var host = document.getElementById('graph-container');
+    if (host) host.style.display = 'none';
   }
 
   // ── Sidebar Tree ──

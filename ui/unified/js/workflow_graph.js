@@ -707,11 +707,16 @@
       // so even a 600-event session stays a bounded blob you can read as
       // "this session's work", clearly separated from other sessions.
       var sessions = g.session || [];
-      // Group every event under its session.
-      var bySession = {};   // sid -> [nodes]
-      ['prompt', 'action', 'file'].forEach(function (kind) {
+      // Group every event under its CLUSTER KEY. Trace events key off
+      // session_id; other lenses (e.g. the wiki cross-lens graph) tag
+      // each node with a generic `cluster` (scope name, or "_xlens"),
+      // so one disk forms per scope with ZERO trace-path changes —
+      // trace nodes have no `cluster` and fall back to session:<id>.
+      var bySession = {};   // clusterKey -> [nodes]
+      ['prompt', 'action', 'file',
+       'wiki_page', 'entity', 'symbol', 'memory', 'prd'].forEach(function (kind) {
         (g[kind] || []).forEach(function (n) {
-          var sid = 'session:' + (n.session_id || '');
+          var sid = n.cluster || ('session:' + (n.session_id || ''));
           (bySession[sid] = bySession[sid] || []).push(n);
         });
       });

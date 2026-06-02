@@ -183,6 +183,32 @@ def _dispatch_wiki_db(op: str, qs: dict[str, str]) -> dict:
     return {"error": f"unknown op: {op}"}
 
 
+def _truthy(v: str) -> bool:
+    """Parse a query-string flag. Pre: v is the raw value. Post: True for
+    1/true/yes/on (case-insensitive); False otherwise (incl. empty)."""
+    return v.strip().lower() in ("1", "true", "yes", "on")
+
+
+def serve_wiki_graph(handler) -> None:
+    """GET /api/wiki/graph?domain=&cooccur=&xlens= → workflow_graph.v1.
+
+    Read-only cross-lens documentation graph for one domain. Mirrors
+    serve_wiki_db: parse query, call wiki_api.wiki_graph, send_json_ok.
+    """
+    try:
+        from mcp_server.handlers.wiki_api import wiki_graph
+
+        qs = qs_map(handler.path)
+        data = wiki_graph(
+            qs.get("domain", ""),
+            cooccur=_truthy(qs.get("cooccur", "")),
+            xlens=_truthy(qs.get("xlens", "")),
+        )
+        send_json_ok(handler, data)
+    except Exception as e:
+        send_json_error(handler, e)
+
+
 def serve_wiki_db(handler, op: str) -> None:
     """Route every read-only DB-backed wiki endpoint."""
     try:

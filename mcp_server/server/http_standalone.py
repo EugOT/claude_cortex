@@ -49,6 +49,7 @@ from mcp_server.server.http_standalone_state import (
 from mcp_server.server.http_standalone_wiki import (
     serve_wiki_db,
     serve_wiki_export,
+    serve_wiki_graph,
     serve_wiki_list,
     serve_wiki_page,
     serve_wiki_projects,
@@ -183,6 +184,8 @@ def _route_unified_get(
         serve_wiki_page(handler)
     elif path_no_qs == "/api/wiki/projects":
         serve_wiki_projects(handler)
+    elif path_no_qs == "/api/wiki/graph":
+        serve_wiki_graph(handler)
     elif path_no_qs in _WIKI_DB_OPS:
         serve_wiki_db(handler, _WIKI_DB_OPS[path_no_qs])
     elif path_no_qs == "/api/wiki/export":
