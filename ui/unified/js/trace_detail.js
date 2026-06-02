@@ -23,8 +23,12 @@
   };
 
   function esc(s) {
+    // Full HTML escape incl. quotes → safe in both text and quoted-attribute
+    // contexts (data-path="...", data-sid="..."). Quote escapes prevent
+    // attribute breakout (CodeQL js/incomplete-sanitization).
     return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
   function shortStr(t, n) {
     n = n || 60;
@@ -54,7 +58,7 @@
   function section(title, id, bodyHtml, opts) {
     opts = opts || {};
     return '<details class="td-sec"' + (opts.open ? ' open' : '')
-      + (opts.lazy ? ' data-lazy="' + opts.lazy + '"' : '')
+      + (opts.lazy ? ' data-lazy="' + esc(opts.lazy) + '"' : '')
       + (opts.path ? ' data-path="' + esc(opts.path) + '"' : '')
       + (opts.sid ? ' data-sid="' + esc(opts.sid) + '"' : '') + '>'
       + '<summary>' + esc(title) + '</summary>'

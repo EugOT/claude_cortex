@@ -116,8 +116,16 @@ class WorkflowEdge(BaseModel):
 
 
 def _short_hash(value: str, width: int = 10) -> str:
-    """Stable, non-cryptographic short hash for ID stability across runs."""
-    return hashlib.sha1(value.encode("utf-8")).hexdigest()[:width]
+    """Stable, non-cryptographic short hash for ID stability across runs.
+
+    ``usedforsecurity=False`` (Python 3.9+) documents intent — this hash mints
+    deterministic node IDs, it never protects sensitive data — and lets CodeQL's
+    weak-hashing query correctly skip it. SHA-1 is retained (not upgraded to
+    SHA-256) so existing node IDs stay stable across graphs and snapshots.
+    """
+    return hashlib.sha1(value.encode("utf-8"), usedforsecurity=False).hexdigest()[
+        :width
+    ]
 
 
 class NodeIdFactory:

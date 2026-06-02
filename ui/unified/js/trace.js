@@ -346,8 +346,13 @@
   }
 
   function _esc(s) {
+    // Escapes the full HTML special set INCLUDING quotes, so the result is
+    // safe in both element text AND quoted-attribute contexts (e.g.
+    // data-file="..."). Without the quote escapes a value containing `"`
+    // breaks out of the attribute → injection (CodeQL js/incomplete-sanitization).
     return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   // ── Trace detail panel: kind-dispatched rich info ────────────────────
