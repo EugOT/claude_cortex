@@ -18,6 +18,7 @@ isn't populated yet. Never raises — errors become {"error": "..."}.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -391,6 +392,91 @@ def _scope_of(rel_path: str) -> str:
     return "_other"
 
 
+# Inline ``[[target]]`` wikilink. Pages overwhelmingly carry links this way
+# (167/443 pages on the live wiki vs 7 using classic ``[text](url)`` Related
+# blocks), including inside ``## Related`` sections, so a single body-wide
+# scan over the markdown captures both surfaces. source: measured on
+# 2026-06-02 against ~/.claude/methodology/wiki.
+_WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+
+
+def _resolve_wikilink(target: str, known: set[str], stem_index: dict[str, str]) -> str:
+    """Resolve a ``[[target]]`` payload to an in-graph page rel_path or ``""``.
+
+    Pre: ``known`` is the set of page-node rel_paths in this graph;
+    ``stem_index`` maps each page's filename stem → its rel_path.
+    Post: returns the rel_path of the page the link points at, but ONLY
+    when it is one of the graph's page nodes; ``""`` otherwise. Resolution
+    order (most → least specific): exact rel_path, ``<target>.md`` (the
+    ``[[reference/<domain>/<slug>]]`` convention → ``…/<slug>.md``), then
+    bare-stem match. Pure — no I/O, no mutation.
+    """
+    t = target.strip()
+    if not t:
+        return ""
+    # Drop any ``#anchor`` / ``|alias`` suffixes a wikilink may carry.
+    t = t.split("#", 1)[0].split("|", 1)[0].strip()
+    if not t:
+        return ""
+    if t in known:
+        return t
+    candidate = t if t.endswith(".md") else t + ".md"
+    if candidate in known:
+        return candidate
+    stem = Path(t).stem
+    hit = stem_index.get(stem)
+    return hit or ""
+
+
+def _body_wiki_link_edges(
+    read_body,
+    page_nodes: list[dict],
+    existing: set[tuple[str, str]],
+) -> list[dict]:
+    """Derive ``wiki_link`` edges from page bodies (``[[wikilink]]`` scan).
+
+    Pre: ``read_body(rel_path) -> str | None`` returns a page's markdown
+    (filesystem-backed); ``page_nodes`` are the graph's ``wiki_page`` nodes;
+    ``existing`` holds already-emitted ``(source, target)`` pairs to dedupe
+    against (e.g. PG-derived links). Post: returns new ``wiki_link`` edges
+    {source, target, kind, link_kind: "related"} for every body link that
+    resolves to another page node and is not already present. Self-links are
+    skipped. Bounded by the already-capped ``page_nodes`` set; unreadable
+    pages are skipped silently.
+    """
+    rels = [n["id"] for n in page_nodes]
+    known = set(rels)
+    stem_index: dict[str, str] = {}
+    for rel in rels:
+        # First writer wins → deterministic for duplicate stems across dirs.
+        stem_index.setdefault(Path(rel).stem, rel)
+    out: list[dict] = []
+    for rel in rels:
+        try:
+            body = read_body(rel)
+        except Exception:
+            body = None
+        if not body:
+            continue
+        for raw in _WIKILINK_RE.findall(body):
+            dst = _resolve_wikilink(raw, known, stem_index)
+            if not dst or dst == rel:
+                continue
+            pair = (rel, dst)
+            if pair in existing:
+                continue
+            existing.add(pair)
+            out.append(
+                {
+                    "source": rel,
+                    "target": dst,
+                    "kind": "wiki_link",
+                    "link_kind": "related",
+                }
+            )
+    return out
+
+
 def _wiki_graph_db(store, domain: str, cooccur: bool, xlens: bool) -> dict:
     """Build the cross-lens graph from PG ``wiki.*`` for one domain.
 
@@ -446,6 +532,9 @@ def _wiki_graph_db(store, domain: str, cooccur: bool, xlens: bool) -> dict:
         )
 
     # ── Cheap core ALWAYS: wiki.links → wiki_link edges ──
+    # Track (src, dst) rel_path pairs so body-derived links (below) dedupe
+    # against the PG path and we never double-add the same edge.
+    wiki_link_pairs: set[tuple[str, str]] = set()
     with store._conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             """
@@ -461,6 +550,10 @@ def _wiki_graph_db(store, domain: str, cooccur: bool, xlens: bool) -> dict:
             dst = page_by_id.get(ln["dst_page_id"])
             if not src or not dst:
                 continue
+            pair = (src["rel_path"], dst["rel_path"])
+            if pair in wiki_link_pairs:
+                continue
+            wiki_link_pairs.add(pair)
             edges.append(
                 {
                     "source": src["rel_path"],
@@ -469,6 +562,22 @@ def _wiki_graph_db(store, domain: str, cooccur: bool, xlens: bool) -> dict:
                     "link_kind": ln["link_kind"],
                 }
             )
+
+    # ── Cheap core ALWAYS: body-derived wiki_link edges ──
+    # The live ``wiki.links`` table is sparse/empty; the real links live in
+    # page bodies as ``[[wikilinks]]`` (including ``## Related`` blocks).
+    # Parse the bodies of THIS graph's page set and resolve targets against
+    # the same page-node set, deduped against the PG-derived pairs above.
+    from mcp_server.infrastructure.config import WIKI_ROOT
+
+    page_nodes = [n for n in nodes if n.get("kind") == "wiki_page"]
+    edges.extend(
+        _body_wiki_link_edges(
+            lambda rel: read_page(WIKI_ROOT, rel),
+            page_nodes,
+            wiki_link_pairs,
+        )
+    )
 
     # ── Cheap core ALWAYS: provenance page → PRD (source: frontmatter
     #    surfaces as a specs/ page) and page → memory (memory_id). ──
@@ -517,13 +626,16 @@ def _wiki_graph_db(store, domain: str, cooccur: bool, xlens: bool) -> dict:
 
 
 def _xlens_augment(store, domain_node_id, pages, page_by_id, nodes, edges) -> None:
-    """Cross-lens entity join + deterministic files/ → AP-file derivation.
+    """Cross-lens entity join + deterministic codebase-page → symbol derivation.
 
     Entity path (reliable): page.memory_id → memory_entities → entities.
-    Symbol path (experimental, derived): a ``files/<path-slug>.md`` page
-    name DETERMINISTICALLY encodes the documented source file, so emit a
-    derived AP-file node + xlens_symbol edge from the slug alone — no AP
-    round-trip. Bounded by page count (≤ 2000) and a per-page entity cap.
+    Symbol path (experimental, derived): ``ingest_codebase`` writes one page
+    per AP process at ``reference/codebase/<slug>.md`` where ``<slug>`` is the
+    slugified process entry_point (see ingest_codebase_pages.render_process_page).
+    The slug DETERMINISTICALLY encodes the documented process, so emit a
+    derived ``symbol:<slug>`` node + ``xlens_symbol`` edge from the slug alone
+    — no AP round-trip, no noisy name-matching. Bounded by page count
+    (≤ 2000) and a per-page entity cap.
     """
     mem_to_page: dict[int, str] = {
         p["memory_id"]: p["rel_path"] for p in pages if p.get("memory_id")
@@ -559,16 +671,19 @@ def _xlens_augment(store, domain_node_id, pages, page_by_id, nodes, edges) -> No
                     )
                 edges.append({"source": rel, "target": ent_id, "kind": "xlens_entity"})
 
-    # Deterministic files/ → AP source-file derivation (experimental).
+    # Deterministic reference/codebase/ → AP process/symbol derivation
+    # (experimental). ingest_codebase writes these pages; the slug is the
+    # slugified process entry_point, so the symbol node is keyed on it.
+    _CODEBASE_PREFIX = "reference/codebase/"
     for p in pages:
         rel = p["rel_path"] or ""
-        if not rel.startswith("files/") or not rel.endswith(".md"):
+        if not rel.startswith(_CODEBASE_PREFIX) or not rel.endswith(".md"):
             continue
-        slug = rel[len("files/") : -len(".md")]
-        ap_id = "apfile:" + slug
+        slug = rel[len(_CODEBASE_PREFIX) : -len(".md")]
+        sym_id = "symbol:" + slug
         nodes.append(
             {
-                "id": ap_id,
+                "id": sym_id,
                 "kind": "symbol",
                 "label": slug,
                 "cluster": "_xlens",
@@ -579,7 +694,7 @@ def _xlens_augment(store, domain_node_id, pages, page_by_id, nodes, edges) -> No
         edges.append(
             {
                 "source": rel,
-                "target": ap_id,
+                "target": sym_id,
                 "kind": "xlens_symbol",
                 "experimental": True,
             }
@@ -675,21 +790,38 @@ def _wiki_graph_fs(wiki_root: Path, domain: str, cooccur: bool, xlens: bool) -> 
                 "heat": 0.0,
             }
         )
-    for n in [x for x in nodes if x["kind"] == "wiki_page"]:
+    # Classic ``- relation → [target](target)`` Related entries first…
+    wiki_link_pairs: set[tuple[str, str]] = set()
+    page_nodes = [x for x in nodes if x["kind"] == "wiki_page"]
+    for n in page_nodes:
         content = read_page(wiki_root, n["id"])
         if content is None:
             continue
         _, entries = _split_body_and_related(content)
         for entry in entries:
-            if entry.target in known:
-                edges.append(
-                    {
-                        "source": n["id"],
-                        "target": entry.target,
-                        "kind": "wiki_link",
-                        "link_kind": entry.relation,
-                    }
-                )
+            if entry.target not in known:
+                continue
+            pair = (n["id"], entry.target)
+            if pair in wiki_link_pairs:
+                continue
+            wiki_link_pairs.add(pair)
+            edges.append(
+                {
+                    "source": n["id"],
+                    "target": entry.target,
+                    "kind": "wiki_link",
+                    "link_kind": entry.relation,
+                }
+            )
+    # …then body-wide ``[[wikilink]]`` scan (the dominant link surface here),
+    # deduped against the classic entries above.
+    edges.extend(
+        _body_wiki_link_edges(
+            lambda rel: read_page(wiki_root, rel),
+            page_nodes,
+            wiki_link_pairs,
+        )
+    )
     return {
         "nodes": nodes,
         "edges": edges,
