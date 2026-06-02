@@ -424,6 +424,10 @@
   font: 600 8px 'Orbitron', sans-serif; letter-spacing: 0.1em;
   text-transform: uppercase; color: var(--cyan); margin-right: 6px;
 }
+#detail-panel .td-sha {
+  font-family: ui-monospace, 'SF Mono', monospace; font-size: 10px;
+  color: var(--amber, #ffb454); margin-right: 4px;
+}
 
 /* ── Trace detail-panel expandable sections (<details>) ── */
 #detail-panel .td-sec { border-bottom: 1px solid rgba(255,255,255,0.06); }

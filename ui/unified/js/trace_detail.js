@@ -102,6 +102,7 @@
       var path = node.path || String(node.id).replace(/^file:/, '');
       h += '<div class="conn-item" style="color:var(--text-dim)">' + esc(path) + '</div>';
       h += section('Git diff', 'td-git', 'loading diff…', { open: true, lazy: 'file', path: path });
+      h += section('Versions (git history)', 'td-versions', 'loading history…', { lazy: 'file', path: path });
       h += section('AST symbols', 'td-ast', '', { lazy: 'file', path: path });
       h += section('Impact / dependencies', 'td-impact',
         '<div class="conn-item" style="color:var(--text-dim)">Open the impact diagram →</div>',
@@ -170,12 +171,26 @@
     return h + '</div>';
   }
 
+  function _versionsHtml(v) {
+    if (!v || !v.available) return '<div class="conn-item" style="color:var(--text-dim)">no history</div>';
+    var rows = v.versions || [];
+    if (!rows.length) return '<div class="conn-item" style="color:var(--text-dim)">untracked / no commits</div>';
+    return rows.map(function (c) {
+      var date = (c.date || '').slice(0, 10);
+      return '<div class="conn-item"><span class="td-sha">' + esc(c.sha || '') + '</span> '
+        + '<span style="color:var(--text-dim)">' + esc(date) + '</span> '
+        + esc(shortStr(c.subject || '', 70)) + '</div>';
+    }).join('');
+  }
+
   var _fileCache = {};
   function _loadFile(path, content) {
     if (!path) return;
     var apply = function (d) {
       var g = document.getElementById('td-git');
       if (g) g.innerHTML = _diffHtml(d && d.git);
+      var ver = document.getElementById('td-versions');
+      if (ver) ver.innerHTML = _versionsHtml(d && d.versions);
       var a = document.getElementById('td-ast');
       if (a) {
         var ast = (d && d.ast) || {};

@@ -108,6 +108,50 @@ def _git_history(path: str) -> dict:
         return {"available": False, "error": str(exc)}
 
 
+def _git_versions(path: str, limit: int = 25) -> dict:
+    """Full commit history for one file — the 'versioning' axis.
+
+    Returns ``{available, versions:[{sha, date, author, subject}]}`` from
+    ``git log`` scoped to the file (follows renames). Pure git, no AP — a
+    reliable longitudinal view of how this file changed over time, to sit
+    next to AP's static dependency direction and causal chains.
+    """
+    try:
+        import subprocess
+
+        from mcp_server.infrastructure.git_diff import find_git_root
+
+        root = find_git_root()
+        if root is None:
+            return {"available": False}
+        rel = (path or "").replace("\\", "/")
+        # %x1f = unit separator (safe field delim); %x1e = record separator.
+        fmt = "%h%x1f%aI%x1f%an%x1f%s%x1e"
+        out = subprocess.run(
+            [
+                "git", "-C", str(root), "log", "--follow",
+                f"-n{int(limit)}", f"--format={fmt}", "--", rel,
+            ],
+            capture_output=True, text=True, timeout=8,
+        )
+        if out.returncode != 0:
+            return {"available": False, "error": (out.stderr or "").strip()[:200]}
+        versions = []
+        for rec in out.stdout.split("\x1e"):
+            rec = rec.strip("\n")
+            if not rec:
+                continue
+            parts = rec.split("\x1f")
+            if len(parts) < 4:
+                continue
+            versions.append(
+                {"sha": parts[0], "date": parts[1], "author": parts[2], "subject": parts[3]}
+            )
+        return {"available": True, "versions": versions, "count": len(versions)}
+    except Exception as exc:  # pragma: no cover - defensive
+        return {"available": False, "error": str(exc)}
+
+
 # ── AP AST source: ONE warm instance per viz process ───────────────────
 # WorkflowGraphASTSource pins a single event loop on a dedicated thread
 # (_SyncLoop) and keeps the AP MCP connection alive across calls. The old
@@ -199,6 +243,7 @@ def serve_trace_file(handler) -> None:
             {
                 "path": path,
                 "git": _git_history(path),
+                "versions": _git_versions(path),
                 "ast": _ast_and_impact(path),
                 "meta": {"schema": "trace.v1", "level": 3},
             },
@@ -274,6 +319,17 @@ def _impact_for_graph(graph_path: str, rel_path: str) -> dict | None:
                 "MATCH (s:Function) WHERE s.qualified_name STARTS WITH '%s::' "
                 "RETURN DISTINCT s.qualified_name AS name LIMIT 200" % esc
             )
+            # causal chains: execution flows (processes) ENTERED from this
+            # file — i.e. this file is the entry point of these end-to-end
+            # call BFS paths. AP traces these from main/test/handler/lib
+            # entry points (cluster_graph Stage 3c). entry_point_id is
+            # ``file::symbol``; depth/symbol_count describe the flow's reach.
+            processes_rows = await q(
+                "MATCH (p:Process) WHERE p.entry_point_id STARTS WITH '%s::' "
+                "RETURN DISTINCT p.entry_point_id AS entry, p.entry_kind AS kind, "
+                "p.depth AS depth, p.symbol_count AS n "
+                "ORDER BY p.symbol_count DESC LIMIT 40" % esc
+            )
 
             def _file_of(qn):
                 return str(qn or "").partition("::")[0]
@@ -323,7 +379,52 @@ def _impact_for_graph(graph_path: str, rel_path: str) -> dict | None:
                 for r in members_rows
                 if r.get("name")
             ]
-            return {"downstream": downstream, "upstream": upstream, "members": members}
+            processes = []
+            for r in processes_rows:
+                entry = r.get("entry")
+                if not entry:
+                    continue
+                processes.append(
+                    {
+                        "entry": entry,
+                        "label": _short_name(entry),
+                        "kind": r.get("kind"),
+                        "depth": r.get("depth"),
+                        "symbol_count": r.get("n"),
+                    }
+                )
+
+            # ── File-level rollup: the "what does changing this break" view.
+            # Collapse symbol edges to distinct FILES, with edge counts, so a
+            # developer sees file→file blast radius at a glance (direction:
+            # depends_on = downstream files, depended_on_by = upstream files).
+            def _rollup(items):
+                agg: dict[str, dict] = {}
+                for it in items:
+                    fp = it.get("file")
+                    if not fp or fp == rel_path:
+                        continue
+                    e = agg.setdefault(
+                        fp, {"file": fp, "label": _basename(fp), "edges": 0, "kinds": set()}
+                    )
+                    e["edges"] += 1
+                    if it.get("kind"):
+                        e["kinds"].add(it["kind"])
+                out = []
+                for e in agg.values():
+                    e["kinds"] = sorted(e["kinds"])
+                    out.append(e)
+                out.sort(key=lambda x: x["edges"], reverse=True)
+                return out
+
+            return {
+                "downstream": downstream,
+                "upstream": upstream,
+                "members": members,
+                "processes": processes,
+                "depends_on": _rollup(downstream),
+                "depended_on_by": _rollup(upstream),
+            }
 
     return loop_run(_run())
 
@@ -369,6 +470,7 @@ def serve_trace_impact(handler) -> None:
                 len(r.get("downstream", []))
                 + len(r.get("upstream", []))
                 + len(r.get("members", []))
+                + len(r.get("processes", []))
             )
             if n > best_edges:
                 best_edges = n
@@ -391,6 +493,7 @@ def serve_trace_impact(handler) -> None:
                 "available": True,
                 "path": path,
                 "center": {"file": path, "label": _basename(path)},
+                "versions": _git_versions(path),
                 "meta": {"schema": "trace.v1", "level": 4},
             }
         )

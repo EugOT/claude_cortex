@@ -214,13 +214,69 @@
     return h + '</div>';
   }
 
+  // File-level rollup: distinct files this one depends on / is depended on
+  // by, with edge counts — the "what does changing this break" view.
+  function _impactFiles(title, items, dir) {
+    if (!items || !items.length) return '';
+    var h = '<div class="impact-group"><div class="impact-group-title">'
+      + (dir === 'up' ? '▲ ' : '▼ ') + _esc(title)
+      + ' <span class="impact-count">' + items.length + '</span></div>';
+    items.slice(0, 40).forEach(function (it) {
+      h += '<div class="impact-box" data-file="' + _esc(it.file || '') + '">'
+        + '<span class="impact-arrow">' + (dir === 'up' ? '←' : '→') + '</span>'
+        + '<span class="impact-name">' + _esc(it.label || it.file || '?') + '</span>'
+        + '<span class="impact-edge">' + (it.edges || 0) + ' · ' + _esc((it.kinds || []).join('/')) + '</span>'
+        + '</div>';
+    });
+    if (items.length > 40) h += '<div class="impact-loading">… ' + (items.length - 40) + ' more</div>';
+    return h + '</div>';
+  }
+
+  // Causal chains: execution flows (processes) entered from this file.
+  function _impactProcesses(procs) {
+    if (!procs || !procs.length) return '';
+    var h = '<div class="impact-group"><div class="impact-group-title">⚡ Causal chains (execution flows) '
+      + '<span class="impact-count">' + procs.length + '</span></div>';
+    procs.slice(0, 30).forEach(function (p) {
+      h += '<div class="impact-box">'
+        + '<span class="impact-arrow">⚡</span>'
+        + '<span class="impact-name">' + _esc(p.label || p.entry || '?') + '</span>'
+        + '<span class="impact-edge">' + _esc(p.kind || '') + ' · d' + (p.depth != null ? p.depth : '?')
+        + ' · ' + (p.symbol_count != null ? p.symbol_count : '?') + ' sym</span>'
+        + '</div>';
+    });
+    if (procs.length > 30) h += '<div class="impact-loading">… ' + (procs.length - 30) + ' more</div>';
+    return h + '</div>';
+  }
+
+  function _impactVersions(v) {
+    if (!v || !v.available || !(v.versions || []).length) return '';
+    var h = '<div class="impact-group"><div class="impact-group-title">⎇ Versions '
+      + '<span class="impact-count">' + v.versions.length + '</span></div>';
+    v.versions.slice(0, 12).forEach(function (c) {
+      h += '<div class="impact-box"><span class="impact-arrow">·</span>'
+        + '<span class="impact-name">' + _esc(_short(c.subject || '', 44)) + '</span>'
+        + '<span class="impact-edge">' + _esc((c.sha || '')) + ' ' + _esc((c.date || '').slice(0, 10)) + '</span>'
+        + '</div>';
+    });
+    return h + '</div>';
+  }
+
   function _impactHtml(d) {
     var center = d.center || {};
     var h = '<div class="impact-center">' + _esc(center.label || center.file || 'this file') + '</div>';
-    h += _impactGroup('Calls / imports (downstream)', d.downstream, 'down');
-    h += _impactGroup('Called / imported by (upstream)', d.upstream, 'up');
+    // Lead with the file-level direction (developer blast-radius at a glance).
+    h += _impactFiles('Depends on (files)', d.depends_on, 'down');
+    h += _impactFiles('Depended on by (files)', d.depended_on_by, 'up');
+    // Causal chains this file launches.
+    h += _impactProcesses(d.processes);
+    // Then the detailed symbol-level edges.
+    h += _impactGroup('Calls / imports (symbols)', d.downstream, 'down');
+    h += _impactGroup('Called / imported by (symbols)', d.upstream, 'up');
     h += _impactGroup('Defines', d.members, 'flat');
-    if (!(d.downstream || []).length && !(d.upstream || []).length && !(d.members || []).length) {
+    h += _impactVersions(d.versions);
+    if (!(d.downstream || []).length && !(d.upstream || []).length
+        && !(d.members || []).length && !(d.processes || []).length) {
       h += '<div class="impact-loading">No dependencies found in the code-graph.</div>';
     }
     return h;

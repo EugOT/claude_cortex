@@ -295,10 +295,39 @@ class APBridge:
             {"graph_path": graph_path, "qualified_name": qualified_name},
         )
 
-    async def get_context(self, graph_path: str, symbol_id: str) -> Any:
+    async def get_context(self, graph_path: str, qualified_name: str) -> Any:
+        """360° symbol view: calls/called_by, imports/imported_by,
+        implements/implemented_by, uses/used_by, community, processes.
+
+        AP v0.0.9 keys this by ``qualified_name`` (``file::name``), not the
+        legacy ``symbol_id``. This is the full directional dependency view.
+        """
         return await self.call(
             "get_context",
-            {"graph_path": graph_path, "symbol_id": symbol_id},
+            {"graph_path": graph_path, "qualified_name": qualified_name},
+        )
+
+    async def get_processes(self, graph_path: str) -> Any:
+        """All detected execution flows (causal chains) from entry points.
+
+        Each process: entry_point, entry_kind (main/test/handler/lib_entry),
+        depth, node_count. Requires cluster_graph to have run.
+        """
+        return await self.call("get_processes", {"graph_path": graph_path})
+
+    async def resolve_graph(self, graph_path: str) -> Any:
+        """Stage 3b — resolve cross-file edges (Imports/Calls/Implements/
+        Extends/Uses) by matching string refs to concrete target nodes."""
+        return await self.call("resolve_graph", {"graph_path": graph_path})
+
+    async def cluster_graph(
+        self, graph_path: str, *, resolution_param: float = 1.0
+    ) -> Any:
+        """Stage 3c — community detection + process tracing. Must run before
+        get_impact / get_processes return non-empty results."""
+        return await self.call(
+            "cluster_graph",
+            {"graph_path": graph_path, "resolution_param": resolution_param},
         )
 
     async def search_codebase(
@@ -317,18 +346,36 @@ class APBridge:
         self,
         graph_path: str,
         *,
-        base: str = "HEAD~1",
-        head: str = "HEAD",
+        codebase_path: str | None = None,
+        base_ref: str = "HEAD~1",
+        head_ref: str = "HEAD",
+        diff_text: str | None = None,
     ) -> Any:
-        return await self.call(
-            "detect_changes",
-            {"graph_path": graph_path, "base": base, "head": head},
-        )
+        """Git-diff impact (versioning): map changed lines → affected
+        symbols/communities/processes + a heuristic risk score.
 
-    async def get_impact(self, graph_path: str, symbol_id: str) -> Any:
+        AP v0.0.9 takes ``base_ref``/``head_ref`` (+ ``codebase_path`` when
+        running git internally) or raw ``diff_text`` — not legacy
+        ``base``/``head``.
+        """
+        args: dict = {"graph_path": graph_path}
+        if diff_text is not None:
+            args["diff_text"] = diff_text
+        else:
+            args["base_ref"] = base_ref
+            args["head_ref"] = head_ref
+            if codebase_path:
+                args["codebase_path"] = codebase_path
+        return await self.call("detect_changes", args)
+
+    async def get_impact(self, graph_path: str, qualified_name: str) -> Any:
+        """Blast radius for a symbol: communities + processes affected.
+
+        AP v0.0.9 keys this by ``qualified_name``, not ``symbol_id``.
+        """
         return await self.call(
             "get_impact",
-            {"graph_path": graph_path, "symbol_id": symbol_id},
+            {"graph_path": graph_path, "qualified_name": qualified_name},
         )
 
     async def analyze_codebase(
