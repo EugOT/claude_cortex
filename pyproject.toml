@@ -99,6 +99,13 @@ packages = ["mcp_server"]
 [tool.hatch.build.targets.wheel.force-include]
 "ui" = "mcp_server/ui"
 
+[tool.ruff]
+# Agent worktrees under .claude/worktrees/ are transient copies of the
+# repo (for parallel agent runs) — they are not project source and must
+# not be format/lint-checked. Without this, `ruff format --check .` (CI)
+# trips on whatever uncommitted state an agent worktree happens to hold.
+extend-exclude = [".claude"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests_py"]
 pythonpath = ["."]

@@ -50,7 +50,9 @@ class TestPureHelpers:
         assert not hook._is_commit_command("git commit --help")
 
     def test_commit_failed_markers(self):
-        assert hook._commit_failed({"tool_response": "nothing to commit, working tree clean"})
+        assert hook._commit_failed(
+            {"tool_response": "nothing to commit, working tree clean"}
+        )
         assert hook._commit_failed({"result": {"stdout": "no changes added to commit"}})
         # No output captured → treat as success (proceed).
         assert not hook._commit_failed({})
@@ -60,7 +62,9 @@ class TestPureHelpers:
 class TestProcessEventGating:
     def test_non_bash_skips(self):
         with patch.object(hook, "_spawn_reanalyze") as spawn:
-            hook.process_event({"tool_name": "Edit", "tool_input": {"file_path": "/a.py"}})
+            hook.process_event(
+                {"tool_name": "Edit", "tool_input": {"file_path": "/a.py"}}
+            )
         spawn.assert_not_called()
 
     def test_non_commit_bash_skips(self):

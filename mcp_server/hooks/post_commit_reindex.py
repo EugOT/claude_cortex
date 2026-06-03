@@ -60,9 +60,29 @@ def _cooldown_seconds() -> int:
 # (AST-parsed languages) + the indexer's .js-family light-link post-pass
 # (File nodes + import edges, no AST symbols).
 _INDEXABLE_EXT = {
-    "rs", "py", "ts", "tsx", "java", "kt", "kts", "swift",
-    "m", "mm", "c", "h", "cc", "cpp", "cxx", "hh", "hpp", "hxx", "go",
-    "js", "jsx", "mjs", "cjs",
+    "rs",
+    "py",
+    "ts",
+    "tsx",
+    "java",
+    "kt",
+    "kts",
+    "swift",
+    "m",
+    "mm",
+    "c",
+    "h",
+    "cc",
+    "cpp",
+    "cxx",
+    "hh",
+    "hpp",
+    "hxx",
+    "go",
+    "js",
+    "jsx",
+    "mjs",
+    "cjs",
 }
 
 _COMMIT_FAILED_MARKERS = (

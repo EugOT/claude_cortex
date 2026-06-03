@@ -30,9 +30,7 @@ def _run_with_argv(argv):
 
 
 def test_reindex_flag_forces_reindex():
-    args, code = _run_with_argv(
-        ["ingest_codebase_background", "/proj", "--reindex"]
-    )
+    args, code = _run_with_argv(["ingest_codebase_background", "/proj", "--reindex"])
     assert code == 0
     assert args["project_path"] == "/proj"
     assert args["force_reindex"] is True

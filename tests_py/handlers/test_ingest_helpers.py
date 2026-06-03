@@ -128,7 +128,13 @@ class TestFindCachedGraph:
     def test_tag_mismatch_ignored(self, tmp_path):
         d = _materialised_dir(tmp_path)
         store = _FakeStore(
-            [_memo("_code_graph:other-deadbeef", str(d), tags_extra=["_code_graph:other-deadbeef"])]
+            [
+                _memo(
+                    "_code_graph:other-deadbeef",
+                    str(d),
+                    tags_extra=["_code_graph:other-deadbeef"],
+                )
+            ]
         )
         assert find_cached_graph(store, PROJECT) is None
 
@@ -143,6 +149,12 @@ class TestFindCachedGraph:
         tag = code_graph_tag(PROJECT)
         d = _materialised_dir(tmp_path)
         store = _FakeStore(
-            [{"content": f"graph_path={d}", "tags": json.dumps([tag]), "created_at": ""}]
+            [
+                {
+                    "content": f"graph_path={d}",
+                    "tags": json.dumps([tag]),
+                    "created_at": "",
+                }
+            ]
         )
         assert find_cached_graph(store, PROJECT) == str(d)

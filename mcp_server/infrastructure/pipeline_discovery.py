@@ -65,9 +65,7 @@ _BUILT_RELATIVE = (
 # own .mcp.json resolves from: installed_plugins.json -> installPath ->
 # target/release/automatised-pipeline. Preferring it means Cortex spawns the
 # exact plugin the user installed — no self-built symlink, no version drift.
-_INSTALLED_PLUGINS_PATH = (
-    Path.home() / ".claude" / "plugins" / "installed_plugins.json"
-)
+_INSTALLED_PLUGINS_PATH = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
 _AP_PLUGIN_KEY = "automatised-pipeline@automatised-pipeline-marketplace"
 _AP_BINARY_RELATIVE = Path("target") / "release" / "automatised-pipeline"
 
