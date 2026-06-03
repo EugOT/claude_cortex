@@ -231,11 +231,24 @@ class APBridge:
         if not is_enabled():
             self._unavailable_reason = "disabled"
             return False
-        if self._connected:
+        # Fast-path ONLY when the underlying client is ALSO still live.
+        # MCPClient self-closes after its idle timeout (default 5 min) and
+        # a failed call can drop the transport — but this bridge's
+        # ``_connected`` stayed True, so every later call short-circuited
+        # to a dead client and silently returned None until the process
+        # restarted (the "AST works, then stops" flakiness). Re-verify the
+        # client and reconnect on staleness. source: MCP handshake RCA,
+        # 2026-06-03.
+        if self._connected and self._client is not None and self._client.connected:
             return True
         async with self._lock:
-            if self._connected:
+            if self._connected and self._client is not None and self._client.connected:
                 return True
+            # Drop a stale/dead client (idle-closed or errored) so we
+            # rebuild rather than reuse a torn-down transport.
+            if self._client is not None and not self._client.connected:
+                self._client = None
+            self._connected = False
             cfg = self._config or _resolve_command()
             if cfg is None:
                 self._unavailable_reason = "no_command_resolved"
@@ -257,8 +270,14 @@ class APBridge:
                 }
                 await self._client.connect()
                 self._connected = True
+                self._unavailable_reason = None  # clear any stale poison
                 return True
             except (McpConnectionError, Exception) as exc:
+                # Leave _connected False so the NEXT call retries (cold-start
+                # / transient failures self-heal instead of poisoning the
+                # bridge for the process lifetime).
+                self._connected = False
+                self._client = None
                 self._unavailable_reason = f"{type(exc).__name__}: {exc}"
                 print(
                     f"[cortex] AP bridge disabled: {self._unavailable_reason}",
@@ -423,7 +442,9 @@ class APBridge:
     async def close(self) -> None:
         if self._client is not None:
             try:
-                await self._client.close()
+                # MCPClient.close() is SYNCHRONOUS — ``await self._client.close()``
+                # was ``await None`` → TypeError on every teardown.
+                self._client.close()
             except Exception:
                 pass
             self._client = None

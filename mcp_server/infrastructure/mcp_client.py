@@ -52,8 +52,27 @@ class MCPClient:
         await self._spawn_process()
         self._reader_task = asyncio.create_task(self._read_loop())
         asyncio.create_task(self._stderr_loop())
-        await asyncio.sleep(1.5)
-        await self._perform_handshake()
+        # No fixed startup sleep. The previous ``await asyncio.sleep(1.5)``
+        # was an unsourced guess at the child's "ready" time: too short
+        # races a slow binary (initialize is sent, the child exits/EOFs
+        # before reading it → "Handshake failed: Connection lost"), too
+        # long adds latency to every connect. The ``initialize`` request
+        # buffers on the child's stdin and its response is awaited, so a
+        # slow-but-live server is handled correctly by the await. We bound
+        # the handshake by the existing connect-timeout budget so a child
+        # that never answers fails fast (the caller retries) instead of
+        # hanging forever. source: AP MCP handshake flakiness RCA, 2026-06-03.
+        try:
+            await asyncio.wait_for(
+                self._perform_handshake(),
+                timeout=self._connect_timeout_ms / 1000,
+            )
+        except asyncio.TimeoutError as exc:
+            self.close()
+            raise McpConnectionError(
+                f"Handshake timed out after {self._connect_timeout_ms}ms",
+                {"command": self._config.get("command")},
+            ) from exc
 
     # Allowlisted MCP server commands. Only these binaries may be spawned.
     # Config-supplied commands are validated against this list to prevent
