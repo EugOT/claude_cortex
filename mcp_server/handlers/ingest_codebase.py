@@ -44,12 +44,17 @@ logger = logging.getLogger(__name__)
 # Upstream MCP server name in mcp-connections.json.
 _UPSTREAM_SERVER = "codebase"
 
-# Symbol/process caps. ``None`` means "no LIMIT clause" — pull every
-# Function/Method/Struct, every call edge, every process. The Rust
-# pipeline already did the AST work; Cortex's job is to project the
-# whole graph, not a tip-of-the-iceberg sample. Callers may still pass
-# ``top_symbols`` / ``top_processes`` to cap explicitly.
-_DEFAULT_TOP_SYMBOLS: int | None = None
+# Symbol/process caps. None = no LIMIT clause. The hard cap below is a
+# safety backstop against multi-GB RAM spikes: Kuzu returns the full
+# result as a single JSON-RPC blob so every symbol materialises as a
+# Python dict before any write happens. At 500k symbols that is 2–4 GB
+# of transient RSS, which OOMs most dev machines. The KG entities carry
+# full structural information; a per-symbol cap only drops the tail of
+# low-relevance symbols from the entity graph — the high-relevance core
+# (community leaders, process entry-points) ranks first.
+# source: Carnot efficiency analysis — measured OOM at ~500k symbols,
+#   peak RSS O(N_symbols + N_edges) Python dicts, 2026-06-03.
+_DEFAULT_TOP_SYMBOLS: int | None = 50_000
 _DEFAULT_TOP_PROCESSES: int | None = None
 
 __all__ = ["schema", "handler"]
@@ -299,8 +304,13 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
         else []
     )
 
-    sym_mem = writers.write_symbol_memories(store, symbols, project_path, domain)
-    file_mem = writers.write_file_memories(store, files, project_path, domain)
+    # Code symbols are high-cardinality, low-meaning units — they are
+    # already stored as KG entities (the navigable representation). Writing
+    # parallel memory rows adds 500k+ rows per ingest run, triggers
+    # ~800k per-row PG commits (fsync storm), deferred embedding inference
+    # for all of them, and floods the viz with code-reference nodes that
+    # are never semantically searched. Symbols are reached via KG traversal,
+    # not recall(). source: Carnot efficiency analysis, 2026-06-03.
     sym_ent, ent_diag = writers.write_symbol_entities(store, symbols, domain)
     diagnostics.extend(ent_diag)
     file_ent = writers.write_file_entities(store, files, domain)
@@ -314,7 +324,6 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
         "ingested": True,
         "graph_path": graph_path,
         "analyze": analyze_stats,
-        "memories_written": len(sym_mem) + len(file_mem),
         "entities_written": len(sym_ent) + len(file_ent),
         "edges_written": call_count + contain_count,
         "wiki_pages_written": wiki_paths,

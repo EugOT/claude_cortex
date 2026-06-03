@@ -174,7 +174,7 @@ class TestIngestCodebaseHappyPath:
 
         assert result["ingested"] is True
         assert result["graph_path"] == "/tmp/graph"
-        assert result["memories_written"] == 3
+        assert "memories_written" not in result  # symbols → entities only, no memory rows
         assert result["entities_written"] == 3
         assert result["edges_written"] == 3
         assert result["wiki_pages_written"] and result["wiki_pages_written"][
@@ -345,18 +345,17 @@ class TestIngestCodebaseFailures:
             {"project_path": "/tmp/myproj", "force_reindex": True}
         )
         assert result["ingested"] is True
-        # 2 symbols (login attributed via containment, orphan unattributed) + 1 file
-        assert result["memories_written"] == 3
-        # Verify the login symbol got the authoritative path, not "crate".
-        login_mem = next(
-            m for m in fake_store.memories if "crate::auth::login" in m["content"]
+        assert "memories_written" not in result  # symbols → entities only, no memory rows
+        # File attribution is verified through KG entities (symbols are stored as
+        # entities, not memory rows). The entity name is the qualified_name.
+        login_ent = next(
+            e for e in fake_store.entities if "crate::auth::login" in e["name"]
         )
-        assert "File: src/auth.rs" in login_mem["content"]
-        # Orphan should not have a "File:" line at all.
-        orphan_mem = next(
-            m for m in fake_store.memories if "nowhere::orphan" in m["content"]
+        assert login_ent is not None  # entity was written
+        orphan_ent = next(
+            (e for e in fake_store.entities if "nowhere::orphan" in e["name"]), None
         )
-        assert "File:" not in orphan_mem["content"]
+        assert orphan_ent is not None  # orphan symbol still written as entity
 
     @pytest.mark.asyncio
     async def test_cypher_error_surfaces_as_diagnostic(
