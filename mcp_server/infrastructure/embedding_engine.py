@@ -178,6 +178,17 @@ class EmbeddingEngine:
         try:
             import os
 
+            # Collect cache-miss exception types: OSError covers old HF versions;
+            # LocalEntryNotFoundError covers newer huggingface_hub (>=0.22) where
+            # HF_HUB_OFFLINE=1 raises a non-OSError on cache miss.
+            _cache_miss: tuple[type[Exception], ...] = (OSError,)
+            try:
+                from huggingface_hub.errors import LocalEntryNotFoundError
+
+                _cache_miss = (OSError, LocalEntryNotFoundError)
+            except ImportError:
+                pass
+
             # Set offline mode BEFORE importing sentence_transformers to prevent
             # unauthenticated HF Hub requests. The import itself initializes
             # huggingface_hub which checks this env var at module load time.
@@ -188,7 +199,7 @@ class EmbeddingEngine:
                 from sentence_transformers import SentenceTransformer
 
                 self._model = SentenceTransformer(self._model_name, device=device)
-            except OSError:
+            except _cache_miss:
                 # Model not in local cache — need to download it once
                 if had_offline is None:
                     del os.environ["HF_HUB_OFFLINE"]
