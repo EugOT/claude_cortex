@@ -92,12 +92,20 @@ def serve_trace_chain(handler) -> None:
 def _git_history(path: str) -> dict:
     """Working-tree/last-commit diff + when-changed for one file."""
     try:
-        from mcp_server.infrastructure.git_diff import find_git_root, get_file_diff
+        from mcp_server.infrastructure.git_diff import (
+            find_git_root,
+            get_file_diff,
+            resolve_file,
+        )
+        from mcp_server.server.http_file_diff import _git_root_for_name
 
-        root = find_git_root()
+        # Resolve the repo from the FILE's own path (graph nodes carry
+        # absolute paths), not the server CWD — which is never a repo.
+        root = _git_root_for_name(path, find_git_root)
         if root is None:
             return {"available": False}
-        diff = get_file_diff(path, root)
+        rel = resolve_file(path, root) or path
+        diff = get_file_diff(rel, root)
         return {
             "available": True,
             "diff_type": diff.get("diff_type"),
@@ -119,12 +127,14 @@ def _git_versions(path: str, limit: int = 25) -> dict:
     try:
         import subprocess
 
-        from mcp_server.infrastructure.git_diff import find_git_root
+        from mcp_server.infrastructure.git_diff import find_git_root, resolve_file
+        from mcp_server.server.http_file_diff import _git_root_for_name
 
-        root = find_git_root()
+        # Resolve the repo from the file's own path, not the server CWD.
+        root = _git_root_for_name(path, find_git_root)
         if root is None:
             return {"available": False}
-        rel = (path or "").replace("\\", "/")
+        rel = (resolve_file(path, root) or path or "").replace("\\", "/")
         # %x1f = unit separator (safe field delim); %x1e = record separator.
         fmt = "%h%x1f%aI%x1f%an%x1f%s%x1e"
         out = subprocess.run(

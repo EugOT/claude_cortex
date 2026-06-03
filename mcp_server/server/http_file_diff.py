@@ -133,19 +133,42 @@ def _git_root_for_name(name: str, find_git_root) -> "Path | None":  # noqa: F821
         clean = name.strip().strip("\"'`")
         if not clean or "\x00" in clean:
             return find_git_root()
-        # Werkzeug-style whitelist: reject ``..`` traversal and absolute
-        # inputs before any FS work. After this, ``clean`` cannot
-        # escape any base it's joined to.
-        parts = [p for p in clean.replace("\\", "/").split("/") if p]
-        if any(p == ".." for p in parts) or clean.startswith(("/", "\\")):
+        parts = [p for p in clean.replace("\\", "/").split("/") if p and p != "."]
+        # ``..`` traversal is never resolved — fall back to the CWD repo.
+        if any(p == ".." for p in parts):
             return find_git_root()
     except (ValueError, OSError):
         return find_git_root()
 
-    # CWE-22 containment via Path.resolve() + Path.is_relative_to().
-    # No Python-level ancestor loop — git's own ``rev-parse
-    # --show-toplevel`` walks the ancestry internally, so we hand
-    # it a single sanitised directory and let git do the climb.
+    # Absolute inputs are the COMMON case, not an attack: graph file
+    # nodes carry the absolute ``file_path`` captured from the original
+    # tool call, on this same machine. The server is loopback-only and
+    # ``name`` comes from the user's own stored data, so we resolve the
+    # repo from the file's own location — constrained to
+    # ``_under_allowed_root`` (HOME / cwd / temp) so a crafted ``?name=``
+    # still can't probe ``/etc`` / ``/root`` (CWE-22).
+    if clean.startswith(("/", "\\")):
+        try:
+            target = Path(clean).resolve(strict=False)
+        except (OSError, ValueError):
+            return find_git_root()
+        if not _under_allowed_root(target):
+            return find_git_root()
+        # Walk up to the first directory that exists (handles a file, or
+        # an intermediate dir, deleted after capture). Capped at 64.
+        start = target
+        for _ in range(64):
+            if start.is_dir():
+                break
+            parent = start.parent
+            if parent == start:
+                break
+            start = parent
+        root = find_git_root(start)
+        return root if root is not None else find_git_root()
+
+    # Relative inputs: join under each allowed probe root and let git
+    # walk the ancestry. ``is_relative_to`` keeps the join inside base.
     for base_root in _allowed_probe_roots():
         try:
             base = Path(base_root).resolve(strict=False)

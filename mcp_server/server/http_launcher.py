@@ -64,9 +64,12 @@ def _detect_dev_source() -> Path | None:
          inside their malicious project to influence it, which
          requires write access to the user's site-packages and is
          therefore higher-privileged than the exploit it would yield.
-      3. The conventional checkout location
-         ``$HOME/Documents/Developments/Cortex`` — controlled by the
-         user's own filesystem.
+
+    There is NO hardcoded checkout path. A client install has no dev
+    tree; signal 2 resolves the install root itself, so the sync
+    no-ops. Hardcoding ``$HOME/Documents/...`` was wrong — it never
+    matches a real client and mis-fires on developer machines whose
+    checkout lives elsewhere.
 
     ``CLAUDE_PROJECT_DIR`` (set automatically by Claude Code to
     whatever project the user has open) is **NOT** consulted: per
@@ -103,9 +106,10 @@ def _detect_dev_source() -> Path | None:
     here = Path(__file__).resolve()
     for ancestor in list(here.parents)[:6]:
         candidates.append(ancestor)
-    # Conventional location — the MCP plugin auto-syncs from here even
-    # when no env var is set. User-controlled filesystem path.
-    candidates.append(Path.home() / "Documents" / "Developments" / "Cortex")
+    # NO hardcoded checkout path. On a client desktop there is no dev
+    # tree — the walk-up above resolves the install root (the plugin
+    # cache), so ``dev_src == pkg_root`` and ``launch_server`` no-ops the
+    # sync. Developers opt in explicitly via ``CORTEX_DEV_SOURCE_SYNC``.
 
     for c in candidates:
         if _is_cortex_root(c):
@@ -114,27 +118,29 @@ def _detect_dev_source() -> Path | None:
 
 
 def _find_ap_binary() -> str | None:
-    """Locate a built ``automatised-pipeline`` (automatised-pipeline).
+    """Locate the automatised-pipeline binary the user actually installed.
 
-    Checks, in order:
-      1. ``CORTEX_AP_COMMAND`` already set — caller knows the path.
-      2. A sibling dev checkout: ``~/Documents/Developments/automatised-pipeline/target/release/automatised-pipeline``.
-      3. ``automatised-pipeline`` on ``PATH``.
+    Delegates to ``discover_pipeline_command`` — the SAME resolver the
+    pipeline uses — so the viz spawns the exact marketplace-installed AP
+    plugin (``installed_plugins.json`` -> installPath ->
+    ``target/release/automatised-pipeline``), with PATH / self-install /
+    sibling-checkout as fallbacks. No hardcoded developer paths: on a
+    client desktop there is no checkout, only the marketplace install.
 
-    Returns the absolute binary path, or ``None`` if not buildable. We
-    do NOT build here — building requires Rust + cmake and can take
-    minutes.
+    Returns the absolute binary path, or ``None`` when the caller already
+    set ``CORTEX_AP_COMMAND`` (leave it alone) or AP isn't installed.
     """
     if os.environ.get("CORTEX_AP_COMMAND"):
         return None  # caller explicitly configured it — leave alone
-    dev = (
-        Path.home()
-        / "Documents/Developments/automatised-pipeline/target/release/automatised-pipeline"
-    )
-    if dev.is_file() and os.access(dev, os.X_OK):
-        return str(dev)
-    path_hit = shutil.which("automatised-pipeline")
-    return path_hit
+    try:
+        from mcp_server.infrastructure.pipeline_discovery import (
+            discover_pipeline_command,
+        )
+
+        cmd = discover_pipeline_command()
+    except Exception:
+        return None
+    return cmd[0] if cmd else None
 
 
 def _ensure_ap_graph(dev_src: Path | None, env: dict) -> None:

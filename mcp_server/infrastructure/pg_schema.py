@@ -538,6 +538,13 @@ CREATE INDEX IF NOT EXISTS idx_memories_content_trgm
     ON memories USING gin (content gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_memories_heat_base
     ON memories (heat_base);
+-- Composite key for KEYSET pagination of the viz graph build
+-- (iter_hot_memories_chunked): ``ORDER BY heat_base DESC, id DESC`` with a
+-- ``(heat_base, id) < (...)`` cursor becomes a pure index range scan, no
+-- per-page sort even across the large heat_base tie groups (e.g. 149k rows
+-- at one heat value). source: EXPLAIN, 2026-06-03.
+CREATE INDEX IF NOT EXISTS idx_memories_heat_base_id
+    ON memories (heat_base DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_memories_domain
     ON memories (domain);
 CREATE INDEX IF NOT EXISTS idx_memories_store_type

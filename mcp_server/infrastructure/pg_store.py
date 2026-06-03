@@ -16,6 +16,7 @@ Requires: psycopg[binary]>=3.1, psycopg_pool>=3.2, pgvector>=0.3
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -304,32 +305,97 @@ class PgMemoryStore(
     # source: hashlib.sha256(b'cortex_schema_a3').hexdigest() mod 2**31
     _SCHEMA_LOCK_ID = 1357020271
 
+    # One-row table recording the content hash of the LAST-APPLIED DDL
+    # set. Construction re-applies DDL only when the code's hash differs
+    # from this — see ``_init_schema``. Created lazily by the first
+    # migration so a fresh DB bootstraps cleanly.
+    _SCHEMA_META_DDL = (
+        "CREATE TABLE IF NOT EXISTS schema_meta ("
+        " id integer PRIMARY KEY DEFAULT 1 CHECK (id = 1),"
+        " ddl_hash text NOT NULL,"
+        " applied_at timestamptz NOT NULL DEFAULT now());"
+    )
+
+    def _recorded_schema_hash(self) -> str | None:
+        """Return the DDL hash recorded in ``schema_meta``, or None.
+
+        A missing ``schema_meta`` table (fresh DB) or any read error reads
+        as None → the caller migrates. Single-row indexed lookup; no
+        table scan, no locks. ``self._conn`` is autocommit, so a failed
+        read leaves no aborted-transaction state behind.
+        """
+        try:
+            row = self._conn.execute(
+                "SELECT ddl_hash FROM schema_meta WHERE id = 1;"
+            ).fetchone()
+            return row.get("ddl_hash") if row else None
+        except Exception:
+            return None
+
+    def _record_schema_hash(self, ddl_hash: str) -> None:
+        """Persist the just-applied DDL revision (upsert the single row)."""
+        self._conn.execute(self._SCHEMA_META_DDL)
+        self._conn.execute(
+            "INSERT INTO schema_meta (id, ddl_hash, applied_at)"
+            " VALUES (1, %s, now())"
+            " ON CONFLICT (id) DO UPDATE SET"
+            " ddl_hash = EXCLUDED.ddl_hash, applied_at = EXCLUDED.applied_at;",
+            (ddl_hash,),
+        )
+
     def _init_schema(self) -> None:
-        """Create all tables, indexes, and stored procedures.
+        """Create/upgrade tables, indexes, and stored procedures — once
+        per schema REVISION, not once per ``MemoryStore``.
 
-        Each statement runs independently — one failure doesn't
-        prevent the rest from being created.
+        Migration is gated on a content hash of the full DDL set
+        (``get_all_ddl()``, a deterministic fixed-order list), recorded in
+        ``schema_meta``. On an already-provisioned DB whose recorded hash
+        matches the code, this is a single indexed SELECT — no advisory
+        lock, no DDL re-application. DDL runs only when the hash differs
+        (a fresh DB, or a code change to the schema), serialized under the
+        advisory lock with a double-check so concurrent first-time inits
+        don't re-run it.
 
-        Wrapped in a Postgres advisory lock so concurrent processes
-        bootstrapping the same database serialize through the migration
-        DDL instead of deadlocking on overlapping ALTER TABLE locks.
+        Root-cause fix for the connection storm: the 47 ``MemoryStore``
+        construction sites — including the per-tool PostToolUse hook and
+        the viz graph build — previously each re-ran 83 DDL statements
+        while HOLDING a connection on ``pg_advisory_lock``, piling dozens
+        of sessions onto one lock until ``max_connections`` was exhausted
+        and the indexing build starved. Recording the applied revision
+        decouples migration from construction: once the DB is current,
+        construction touches no lock and no DDL.
 
-        Pre: self._conn is a live psycopg connection.
-        Post: schema is at the latest version; advisory lock released
+        Pre: self._conn is a live psycopg connection (autocommit).
+        Post: schema is at the code's revision; advisory lock released
         even on failure (try/finally).
         """
-        # Acquire — blocks until peer releases. pg_advisory_lock is
-        # session-scoped; safe across the autocommit/transaction modes
-        # we use because release is paired in the finally block.
+        ddl_list = get_all_ddl()
+        ddl_hash = hashlib.sha256("\n".join(ddl_list).encode("utf-8")).hexdigest()
+
+        # Fast path: DB already at this exact DDL revision. This is the
+        # steady state for every construction once the DB is provisioned —
+        # no lock, no DDL, so no pile-up can form.
+        if self._recorded_schema_hash() == ddl_hash:
+            return
+
+        # Stale or fresh: serialize the apply. Blocking is correct here
+        # because it is RARE (only on a genuine schema change), so dozens
+        # of inits cannot stack up on it the way per-construction DDL did.
         self._conn.execute("SELECT pg_advisory_lock(%s);", (self._SCHEMA_LOCK_ID,))
         try:
-            for ddl in get_all_ddl():
+            # A peer may have applied the new revision while we waited.
+            if self._recorded_schema_hash() == ddl_hash:
+                return
+            for ddl in ddl_list:
                 try:
                     self._conn.execute(ddl)
                 except Exception as exc:
                     logger.warning(
-                        "Schema statement failed: %s — %s", ddl.split("\n")[0][:50], exc
+                        "Schema statement failed: %s — %s",
+                        ddl.split("\n")[0][:50],
+                        exc,
                     )
+            self._record_schema_hash(ddl_hash)
             self._conn.commit()
         finally:
             try:

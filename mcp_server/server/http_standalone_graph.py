@@ -735,16 +735,17 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
             # ``build_workflow_graph`` call; we can't easily partition
             # those. So we run baseline first (fast — a few seconds)
             # and merge the whole thing, then tag the phase.
-            # Temporarily disable AP for the baseline build so L0-L5
-            # land before the (slower) AST ring is streamed in L6.
-            # Uses the MemorySettings flag; cache-clear picks up the
-            # new env value for the duration of this build, then we
-            # restore the previous setting.
-            from mcp_server.infrastructure import memory_config
-
-            saved_flag = os.environ.get("CORTEX_MEMORY_AP_ENABLED")
-            os.environ["CORTEX_MEMORY_AP_ENABLED"] = "0"
-            memory_config.get_memory_settings.cache_clear()
+            # AST/AP (the slow L6 ring) is deferred from the baseline via
+            # ``defer_native_ast=True`` on the build call below — that flag
+            # already gates Phase 4 (see ``build_workflow_graph``), so the
+            # AST loaders never run during the baseline regardless of AP
+            # enablement. We deliberately do NOT mutate
+            # ``CORTEX_MEMORY_AP_ENABLED`` here: that global env write
+            # disabled AP process-wide for the whole multi-minute build, so
+            # every interactive ``/api/trace/impact`` and AST query returned
+            # ``ap_disabled`` while a build was in flight (the impact diagram
+            # was broken exactly when the user was exploring). Global mutable
+            # state — refused per coding-standards §7.2.
 
             # ── Baseline producer (2026-05-27, revised) ──
             #
@@ -872,31 +873,24 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
             # ── Stage 2: full baseline (load + ingest the heavy sources) ──
             # Replaces the cumulative cache with the full graph. The client
             # already painted the skeleton; this fills it in.
+            # Cap memory nodes at the top-N hottest so the galaxy
+            # renders fast. The DB holds 400k+ memories; rendering all
+            # of them made a 484k-node graph that never hit <=200 ms.
+            # Override with CORTEX_VIZ_MEMORY_LIMIT (0 = no cap).
+            # source: measured 2026-05-31; user decision = ~25k.
             try:
-                # Cap memory nodes at the top-N hottest so the galaxy
-                # renders fast. The DB holds 400k+ memories; rendering all
-                # of them made a 484k-node graph that never hit <=200 ms.
-                # Override with CORTEX_VIZ_MEMORY_LIMIT (0 = no cap).
-                # source: measured 2026-05-31; user decision = ~25k.
-                try:
-                    _mem_limit = int(os.environ.get("CORTEX_VIZ_MEMORY_LIMIT", "25000"))
-                except ValueError:
-                    _mem_limit = 25000
-                baseline = build_workflow_graph(
-                    store,
-                    domain_filter=domain_filter,
-                    stage="full",
-                    on_source_loaded=_on_source_loaded,
-                    on_batch=_on_batch,
-                    defer_native_ast=True,
-                    memory_limit=_mem_limit,
-                )
-            finally:
-                if saved_flag is None:
-                    os.environ.pop("CORTEX_MEMORY_AP_ENABLED", None)
-                else:
-                    os.environ["CORTEX_MEMORY_AP_ENABLED"] = saved_flag
-                memory_config.get_memory_settings.cache_clear()
+                _mem_limit = int(os.environ.get("CORTEX_VIZ_MEMORY_LIMIT", "25000"))
+            except ValueError:
+                _mem_limit = 25000
+            baseline = build_workflow_graph(
+                store,
+                domain_filter=domain_filter,
+                stage="full",
+                on_source_loaded=_on_source_loaded,
+                on_batch=_on_batch,
+                defer_native_ast=True,
+                memory_limit=_mem_limit,
+            )
 
             _merge(
                 baseline.get("nodes", []),

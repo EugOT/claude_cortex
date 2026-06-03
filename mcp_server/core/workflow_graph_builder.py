@@ -98,6 +98,14 @@ class WorkflowGraphBuilder:
 
     def __init__(self) -> None:
         self._nodes: dict[str, WorkflowNode] = {}
+        # Insertion-ordered mirror of ``_nodes.values()``. Appended in
+        # lock-step at every NEW insert so per-batch deltas slice
+        # ``_node_order[prev_n:]`` in O(new) instead of materialising
+        # ``list(_nodes.values())[prev_n:]`` in O(total) every batch — the
+        # latter was O(N²) over a streaming build and pegged a core for
+        # ~1 h on the memory phase (measured 2026-05-31). len(_node_order)
+        # == len(_nodes) always; prev_n cursors index both identically.
+        self._node_order: list[WorkflowNode] = []
         self._edges: list[WorkflowEdge] = []
         self._file_tool_counts: dict[str, Counter[ToolKind]] = defaultdict(Counter)
         self._file_domains: dict[str, set[str]] = defaultdict(set)
@@ -166,7 +174,10 @@ class WorkflowGraphBuilder:
 
         def _emit(label: str):
             nonlocal prev_n, prev_e
-            new_nodes = list(self._nodes.values())[prev_n:]
+            # O(new) slice off the insertion-ordered mirror — NOT
+            # ``list(self._nodes.values())[prev_n:]`` which is O(total)
+            # every batch (the O(N²) streaming hang).
+            new_nodes = self._node_order[prev_n:]
             new_edges_raw = self._edges[prev_e:]
             # Intra-batch dedup-and-link: collapses repeat (src,tgt,kind)
             # edges within this source and sums their weights. Cheap
@@ -272,7 +283,7 @@ class WorkflowGraphBuilder:
 
     def _ensure_domain(self, domain_id, label=None):
         if domain_id not in self._nodes:
-            self._nodes[domain_id] = WorkflowNode(
+            node = WorkflowNode(
                 id=domain_id,
                 kind=NodeKind.DOMAIN,
                 label=label or domain_id.replace("domain:", ""),
@@ -280,6 +291,8 @@ class WorkflowGraphBuilder:
                 domain_id=domain_id,
                 size=5.0,
             )
+            self._nodes[domain_id] = node
+            self._node_order.append(node)
         return domain_id
 
     def _build_tool_hubs(self, domain_id, active_tools):
@@ -298,6 +311,7 @@ class WorkflowGraphBuilder:
                 tool=tool,
             )
             self._nodes[hub_id] = node
+            self._node_order.append(node)
             self._edges.append(self._in_domain(hub_id, domain_id))
             created.append(node)
         return created
@@ -310,7 +324,7 @@ class WorkflowGraphBuilder:
         """Idempotent non-domain node + in_domain edge. Returns True if new."""
         if node_id in self._nodes:
             return False
-        self._nodes[node_id] = WorkflowNode(
+        node = WorkflowNode(
             id=node_id,
             kind=kind,
             label=label,
@@ -319,6 +333,8 @@ class WorkflowGraphBuilder:
             size=size,
             **extra,
         )
+        self._nodes[node_id] = node
+        self._node_order.append(node)
         self._edges.append(self._in_domain(node_id, domain_id))
         return True
 
@@ -378,7 +394,7 @@ class WorkflowGraphBuilder:
             if not doms:
                 raise ValueError(f"file {path} has no domain membership")
             ts = self._file_timestamps.get(path, {})
-            self._nodes[fid] = WorkflowNode(
+            node = WorkflowNode(
                 id=fid,
                 kind=NodeKind.FILE,
                 label=path.rsplit("/", 1)[-1] or path,
@@ -392,6 +408,8 @@ class WorkflowGraphBuilder:
                 last_accessed=ts.get("last_accessed"),
                 last_modified=ts.get("last_modified"),
             )
+            self._nodes[fid] = node
+            self._node_order.append(node)
             for d in doms:
                 self._edges.append(self._in_domain(fid, d))
 

@@ -33,6 +33,17 @@ _MEMORY_PASSTHROUGH_KEYS = tuple(
     ).split()
 )
 
+# Explicit SELECT list for the memory cursor — exactly the columns the
+# graph renders (the core fields _project_memory_row reads + the
+# passthrough keys). Deliberately EXCLUDES ``embedding`` (1540 B/row, 75%
+# of width), ``content_tsv``, and ``original_content``: none are used by
+# any node/edge, and pulling them streamed ~37 MB of vectors per build and
+# paid pgvector deserialization on every row. source: pg_column_size +
+# EXPLAIN measured 2026-06-03 (the watchdog-crash investigation).
+_GRAPH_MEMORY_COLUMNS = ", ".join(
+    ("id", "content", "domain", "consolidation_stage", *_MEMORY_PASSTHROUGH_KEYS)
+)
+
 
 def load_tool_events(
     pg_store, tool_from_tags, domain_from_directory, cmd_hash, first_line
@@ -218,34 +229,36 @@ def load_memories(
 
 
 def iter_memories_chunked(
-    pg_store, min_heat: float = 0.0, chunk_size: int = 1000, limit: int = 500_000
+    pg_store, min_heat: float = 0.0, chunk_size: int = 1000, limit: int = 0
 ):
-    """Stream-yield memory chunks via a server-side PG cursor.
+    """Stream-yield the FULL memory corpus in chunks via a server-side cursor.
 
-    Streaming counterpart to ``load_memories``: instead of fetching the
-    entire result set into Python memory and returning it, yields
-    ``chunk_size``-sized lists of projected memory dicts as PG sends
-    them over the wire. The workflow-graph build uses this so the SSE
-    event stream surfaces memories DURING the query, not after a ~10 s
-    blocking ``.fetchall()`` materialisation.
+    Yields ``chunk_size``-sized lists of PROJECTED memory dicts as PG sends
+    them over the wire. The build ingests + emits + DISCARDS each chunk, so
+    peak memory is one chunk — not the whole table. Two properties make the
+    full 500k+ corpus bounded without a cap:
+
+      * Projection: ``_GRAPH_MEMORY_COLUMNS`` drops the 1540-byte embedding
+        (and content_tsv / original_content), so each row is ~227 B not
+        ~2 KB. The whole corpus streams in ~113 MB, ~227 KB in flight per
+        1k-row chunk.
+      * Server-side cursor: PG streams rows in ``itersize`` batches; it
+        never materialises the full result set, and neither does Python.
+
+    ``limit`` is an OPTIONAL subset bound for callers that explicitly want
+    the top-N hottest (``0`` = stream the entire table). There is no default
+    cap: handling the full corpus IS the contract. A hard default limit
+    would be a band-aid for unbounded/bloated loading — fixed here by
+    batching + projection instead.
     """
-    # Cap total yielded rows at ``limit`` (the cursor is hottest-first via
-    # iter_hot_memories_chunked) so the viz build renders only the top-N
-    # by heat instead of all 400k+ rows. source: measured 2026-05-31 —
-    # 400k rows produced a 484k-node graph that never hit <=200 ms.
-    cap = int(limit) if limit and limit > 0 else 500_000
-    yielded = 0
+    hard = int(limit) if limit and limit > 0 else None
     for chunk in pg_store.iter_hot_memories_chunked(
         min_heat=min_heat,
         include_benchmarks=True,
         chunk_size=chunk_size,
+        columns=_GRAPH_MEMORY_COLUMNS,
+        hard_limit=hard,
     ):
-        if yielded >= cap:
-            break
-        room = cap - yielded
-        if len(chunk) > room:
-            chunk = chunk[:room]
-        yielded += len(chunk)
         yield [_project_memory_row(r) for r in chunk]
 
 

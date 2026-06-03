@@ -159,6 +159,29 @@ def _route_unified_get(
 
         serve_graph_node(handler, store)
         return
+    if path_no_qs == "/api/graph/progress":
+        from mcp_server.server.http_standalone_endpoints import serve_graph_progress
+
+        serve_graph_progress(handler, store)
+        return
+    if path_no_qs == "/api/graph/events":
+        from mcp_server.server.http_standalone_endpoints import serve_graph_events
+
+        serve_graph_events(handler, store)
+        return
+    if path_no_qs == "/api/graph/phase":
+        from mcp_server.server.http_standalone_endpoints import serve_graph_phase
+
+        serve_graph_phase(handler)
+        return
+    if path_no_qs == "/api/graph":
+        # Lazy-kicks the background build on first hit with an empty
+        # cache (see http_standalone_graph.py). Must stay AFTER the more
+        # specific ``/api/graph/*`` branches above.
+        from mcp_server.server.http_standalone_endpoints import serve_graph
+
+        serve_graph(handler, store)
+        return
     if path_no_qs == "/api/memories":
         # Keyset-paged memory listing for the Knowledge + Board tabs.
         # Scales to any N because nothing is held in memory client-side.

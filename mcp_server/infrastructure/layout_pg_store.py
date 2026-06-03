@@ -79,6 +79,46 @@ def write_layout(
     return layout_version
 
 
+def upsert_positions(
+    store,
+    rows: Iterable[tuple[str, float, float, str]],
+    *,
+    layout_version: int,
+    topology_fingerprint: str = "stream",
+) -> int:
+    """Incrementally UPSERT ``(node_id, x, y, kind)`` positions — no DELETE.
+
+    The progressive-warm-up counterpart to ``write_layout``: positions
+    land per batch AS the build streams (the LayoutAuthority assigns each
+    node a deterministic slot the moment it arrives), so the quadtree /
+    tile endpoints render the graph filling in instead of waiting for the
+    whole igraph layout to finish. ``node_id`` is the PK, so repeated
+    nodes update in place. Callers pass a single stable ``layout_version``
+    for the duration of one build so the client can poll for growth.
+
+    Returns the number of rows written.
+    """
+    payload = [
+        (nid, float(x), float(y), kind, topology_fingerprint, layout_version)
+        for nid, x, y, kind in rows
+    ]
+    if not payload:
+        return 0
+    sql = (
+        "INSERT INTO workflow_graph_layout "
+        "(node_id, x, y, kind, topology_fingerprint, layout_version) "
+        "VALUES (%s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (node_id) DO UPDATE SET "
+        "x = EXCLUDED.x, y = EXCLUDED.y, kind = EXCLUDED.kind, "
+        "topology_fingerprint = EXCLUDED.topology_fingerprint, "
+        "layout_version = EXCLUDED.layout_version, computed_at = NOW()"
+    )
+    with _conn(store) as conn, conn.cursor() as cur:
+        cur.executemany(sql, payload)
+        conn.commit()
+    return len(payload)
+
+
 def read_layout_version(store) -> dict | None:
     """Return ``{'version', 'fingerprint', 'count'}`` or None if empty."""
     sql = (

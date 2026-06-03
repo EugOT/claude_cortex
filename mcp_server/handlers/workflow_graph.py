@@ -481,8 +481,10 @@ def _build_interleaved(
         # source: measured 2026-05-31, /api/graph/progress stuck at
         # "loaded 110436 memory_entity_edges" pct=0.28 for 66 min.
         cur_n = len(builder._nodes)  # noqa: SLF001
+        # O(new) slice off the insertion-ordered mirror, not
+        # ``list(builder._nodes.values())[prev_n:]`` (O(total) per batch).
         new_nodes = (
-            list(builder._nodes.values())[prev_n:]  # noqa: SLF001
+            builder._node_order[prev_n:]  # noqa: SLF001
             if cur_n > prev_n
             else []
         )
@@ -631,7 +633,17 @@ def _build_interleaved(
     # source: measured 2026-05-31 — build log "loaded ... 412000 memories"
     # climbing; user decision = top ~25k hottest in the base galaxy.
     memories_total = 0
-    _mem_cap = memory_limit if memory_limit and memory_limit > 0 else 500_000
+    # Structural baseline — every node/edge ingested before the memory
+    # phase (domains, hubs, files, discussions, entities ≈ 30k). The
+    # memory phase is pruned back to this size after every batch.
+    _struct_n = len(builder._nodes)  # noqa: SLF001
+    _struct_e = len(builder._edges)  # noqa: SLF001
+    # memory_limit=0 → stream the FULL corpus. Bounding is by per-batch
+    # DISCARD below, not a row cap: the embedding-free projection makes
+    # each row ~227 B and pruning keeps the builder at skeleton size, so
+    # the whole corpus warms up progressively without a big-bang. A
+    # non-zero memory_limit still works as an explicit hottest-N subset.
+    _mem_cap = memory_limit if memory_limit and memory_limit > 0 else 0
     for chunk in source.iter_memories_chunked(
         store, min_heat=min_memory_heat, chunk_size=1000, limit=_mem_cap
     ):
@@ -643,6 +655,18 @@ def _build_interleaved(
             builder._ingest_memory(ev)  # noqa: SLF001
         memories_total += len(chunk)
         _emit_delta("memories", prev_n, prev_e)
+        # ── Bounded build (progressive warm-up) ──
+        # Memory nodes are LEAVES: the batch above already emitted them
+        # (SSE delta + LayoutAuthority slot + persisted position) and no
+        # later phase references them. DISCARD them so the builder stays
+        # at structural size for the whole stream instead of retaining
+        # all 500k+ nodes/edges — measured 4 GB peak / OOM watchdog
+        # (2026-06-03). They render progressively via tiles (persisted
+        # positions) + /api/memories pagination, not the monolithic graph.
+        for _nd in builder._node_order[_struct_n:]:  # noqa: SLF001
+            builder._nodes.pop(_nd.id, None)  # noqa: SLF001
+        del builder._node_order[_struct_n:]  # noqa: SLF001
+        del builder._edges[_struct_e:]  # noqa: SLF001
         # Surface progress every chunk so /api/graph/progress shows the
         # running total — the bottom-of-page poller picks this up.
         if on_source_loaded is not None:

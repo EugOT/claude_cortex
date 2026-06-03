@@ -65,58 +65,73 @@ class PgQueryMixin:
         min_heat: float = 0.0,
         include_benchmarks: bool = True,
         chunk_size: int = 1000,
+        columns: str = "*",
+        hard_limit: int | None = None,
     ) -> "Iterator[list[dict[str, Any]]]":
-        """Stream hot memories in chunks via a server-side cursor.
+        """Stream hot memories hottest-first via KEYSET pagination.
 
-        Same query as ``get_hot_memories(limit=0)`` but rows arrive in
-        ``chunk_size`` batches over the wire — the caller can ingest +
-        emit + repaint per chunk instead of waiting for a 100 k-row
-        ``.fetchall()`` to materialise. Used by the workflow-graph build
-        so the SSE event stream surfaces memories as they arrive from PG
-        rather than after the whole query finishes. Mirrors the existing
-        ``iter_memories_for_decay`` server-side-cursor pattern.
+        Each batch is an independent, index-backed range scan — NOT a
+        server-side cursor over ``ORDER BY heat_base DESC`` (which forces
+        PG to sort the entire 500k-row table before yielding the first
+        row: EXPLAIN showed ``Sort → Parallel Seq Scan``, a measured ~79 s
+        upfront stall that froze the progressive warm-up). Keyset paging
+        ``WHERE (heat_base, id) < (last_heat, last_id) ORDER BY heat_base
+        DESC, id DESC LIMIT n`` walks the composite ``(heat_base DESC, id
+        DESC)`` index forward one bounded page at a time, so the first
+        batch lands in ~ms and memories warm up continuously. This is the
+        standard pattern for streaming millions of rows. source: EXPLAIN
+        + heat_base tie-group histogram, 2026-06-03.
 
-        source: docs/program/phase-5-pool-admission-design.md (Phase 4
-        chunked iteration via ``itersize`` on named cursors).
+        ``columns`` — explicit projection allowlist (NOT user input). The
+        graph build passes only the ~34 rendered fields, EXCLUDING the
+        1540-byte ``embedding`` vector (75% of row width), ``content_tsv``
+        and ``original_content`` — pulling them streamed ~37 MB of unused
+        vectors and paid pgvector deserialization per row.
+
+        ``hard_limit`` — optional hottest-N subset bound (``None`` = the
+        full corpus). The caller paginates to exhaustion when unset;
+        per-page memory is one ``chunk_size`` batch regardless of total.
         """
-        from mcp_server.infrastructure.memory_config import get_memory_settings
-
-        if get_memory_settings().POOL_DISABLED:
-            yield self.get_hot_memories(
-                min_heat=min_heat,
-                limit=0,
-                include_benchmarks=include_benchmarks,
-            )
-            return
-
         bench_filter = (
             "" if include_benchmarks else "AND NOT coalesce(is_benchmark, FALSE) "
         )
-        sql = (
-            f"SELECT * FROM memories WHERE heat_base >= %s {bench_filter}"
-            "ORDER BY heat_base DESC"
-        )
-        # Named (server-side) cursors require an active transaction;
-        # the batch pool's connections default to autocommit, so wrap
-        # in an explicit conn.transaction() to satisfy the
-        # "DECLARE CURSOR can only be used in transaction blocks"
-        # constraint.
-        with self.batch_pool.connection() as conn:
-            with conn.transaction():
-                with conn.cursor(name="graph_hot_stream") as cur:
-                    cur.itersize = chunk_size
-                    cur.execute(sql, (min_heat,))
-                    chunk: list[dict[str, Any]] = []
-                    for row in cur:
-                        # dict(row) — match the iter_memories_for_decay
-                        # idiom; the named cursor doesn't apply
-                        # dict_row by default so rows arrive as tuples.
-                        chunk.append(self._normalize_memory_row(dict(row)))
-                        if len(chunk) >= chunk_size:
-                            yield chunk
-                            chunk = []
-                    if chunk:
-                        yield chunk
+        # ``columns`` is an internal allowlist; ``chunk_size`` is cast to
+        # int. Keyset values go through bound params (%s), never
+        # interpolated.
+        yielded = 0
+        last_heat: float | None = None
+        last_id: int | None = None
+        cap = int(hard_limit) if hard_limit and hard_limit > 0 else None
+        while True:
+            page = int(chunk_size)
+            if cap is not None:
+                remaining = cap - yielded
+                if remaining <= 0:
+                    return
+                page = min(page, remaining)
+            if last_heat is None:
+                where = "heat_base >= %s "
+                params: list[Any] = [min_heat]
+            else:
+                # Keyset cursor: strictly-after (last_heat, last_id) in the
+                # (heat_base DESC, id DESC) order. Tuple compare is index-
+                # friendly with the composite index.
+                where = "heat_base >= %s AND (heat_base, id) < (%s, %s) "
+                params = [min_heat, last_heat, last_id]
+            sql = (
+                f"SELECT {columns} FROM memories WHERE {where}{bench_filter}"
+                f"ORDER BY heat_base DESC, id DESC LIMIT {page}"
+            )
+            rows = self._execute(sql, tuple(params)).fetchall()
+            if not rows:
+                return
+            yield [self._normalize_memory_row(dict(r)) for r in rows]
+            yielded += len(rows)
+            tail = rows[-1]
+            last_heat = tail["heat_base"]
+            last_id = tail["id"]
+            if len(rows) < page:
+                return
 
     def get_all_memories_with_embeddings(self) -> list[dict[str, Any]]:
         rows = self._execute(
