@@ -641,6 +641,32 @@ def _impact_for_graph(graph_path: str, rel_path: str) -> dict | None:
     return loop_run(_run())
 
 
+def _to_repo_relative(path: str) -> str:
+    """Normalize a file path to the project-root-relative form AP indexes.
+
+    AP's ``File.id`` is repo-relative (``mcp_server/server/http_standalone.py``).
+    Graph file nodes carry the absolute tool-call path, so callers pass an
+    absolute path; make it relative to its git root so the exact ``f.id =``
+    match in ``_impact_for_graph`` lands. A relative path is just cleaned;
+    if no git root resolves, fall back to stripping the leading slash.
+    """
+    p = (path or "").replace("\\", "/")
+    if not p.startswith("/"):
+        return p.lstrip("./")
+    from pathlib import Path
+
+    from mcp_server.infrastructure.git_diff import find_git_root
+
+    try:
+        ap = Path(p).resolve(strict=False)
+        root = find_git_root(ap.parent)
+        if root is not None:
+            return str(ap.relative_to(Path(root).resolve(strict=False)))
+    except (OSError, ValueError):
+        pass
+    return p.lstrip("/")
+
+
 def serve_trace_impact(handler) -> None:
     """GET /api/trace/impact?path=<file> — dependency/impact subgraph.
 
@@ -664,7 +690,14 @@ def serve_trace_impact(handler) -> None:
             send_json_ok(handler, {"available": False, "reason": "ap_disabled"})
             return
 
-        rel = path.replace("\\", "/").lstrip("./")
+        # AP indexes File.id project-root-RELATIVE (e.g.
+        # "mcp_server/server/http_standalone.py"). File nodes in the graph
+        # carry the ABSOLUTE tool-call path, so the frontend sends an
+        # absolute path here; the old ``lstrip("./")`` turned
+        # "/Users/.../mcp_server/x.py" into "Users/.../mcp_server/x.py",
+        # matching no File.id → every diagram returned "not_indexed". Strip
+        # the git root so the exact ``f.id =`` match lands.
+        rel = _to_repo_relative(path)
         # Several graphs may contain the same relative path (a stale legacy
         # index AND the fresh Cortex code-graph). The first hit can be the
         # stale one with members-only and no edges, so pick the RICHEST
