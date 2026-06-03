@@ -92,15 +92,25 @@ def _allowed_probe_roots() -> "list[str]":
 
 
 def _under_allowed_root(p: "Path") -> bool:  # noqa: F821
-    """True iff ``p`` realpath-resolves inside any allowed probe root."""
-    import os
+    """True iff ``p`` resolves inside any allowed probe root.
+
+    Uses ``Path.resolve().is_relative_to()`` — the canonical, CodeQL-
+    recognised path-traversal sanitiser (CWE-22) — so the ``?name=`` /
+    ``?path=`` query data can never reach a filesystem op that escapes
+    ``$HOME`` / cwd / temp.
+    """
+    from pathlib import Path
 
     try:
-        target = os.path.realpath(str(p))
+        target = Path(p).resolve(strict=False)
     except (OSError, ValueError):
         return False
     for root in _allowed_probe_roots():
-        if target == root or target.startswith(root + os.sep):
+        try:
+            base = Path(root).resolve(strict=False)
+        except (OSError, ValueError):
+            continue
+        if target == base or target.is_relative_to(base):
             return True
     return False
 

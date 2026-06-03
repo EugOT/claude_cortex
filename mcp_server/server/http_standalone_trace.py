@@ -652,13 +652,36 @@ def _to_repo_relative(path: str) -> str:
     """
     p = (path or "").replace("\\", "/")
     if not p.startswith("/"):
+        # Relative input — reject ``..`` traversal, return cleaned.
+        if ".." in [seg for seg in p.split("/")]:
+            return ""
         return p.lstrip("./")
     from pathlib import Path
 
     from mcp_server.infrastructure.git_diff import find_git_root
+    from mcp_server.server.http_file_diff import _allowed_probe_roots
 
     try:
         ap = Path(p).resolve(strict=False)
+    except (OSError, ValueError):
+        return p.lstrip("/")
+    # CWE-22 containment: only derive a repo for paths that resolve inside
+    # an allowed root (HOME / cwd / temp). ``is_relative_to`` is the
+    # canonical path-traversal sanitiser — a crafted ``?path=`` cannot
+    # reach ``/etc`` / ``/root``. ``?path=`` is loopback-only and normally
+    # carries the user's own file node path; this just bounds the surface.
+    contained = False
+    for r in _allowed_probe_roots():
+        try:
+            base = Path(r).resolve(strict=False)
+        except (OSError, ValueError):
+            continue
+        if ap == base or ap.is_relative_to(base):
+            contained = True
+            break
+    if not contained:
+        return p.lstrip("/")
+    try:
         root = find_git_root(ap.parent)
         if root is not None:
             return str(ap.relative_to(Path(root).resolve(strict=False)))

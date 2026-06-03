@@ -63,12 +63,39 @@
   }
 
   function updateStats(meta) {
-    // Node/edge counts (s-dom/s-mem/s-ent/s-disc/s-nodes/s-edge) are owned
-    // by lod.js._updateLegend, which counts the ACTUALLY-RENDERED graph
-    // (lastData) on every state:lastData change. Setting them here too made
-    // the legend race the render and show server totals that don't match
-    // the canvas (e.g. 36 domains, 0 discussions). Leave them to lod.js;
-    // this poll only drives build progress + system vitals.
+    // Legend counts MUST reflect the rendered canvas, not server totals.
+    // The build cache over-counts vs the progressive render and (post
+    // memory-pruning) reports memory_count=0 while memories stream in, so
+    // server meta gave "36 domains / 0 discussions" that didn't match what's
+    // drawn. Count the actual rendered graph (JUG.state.lastData) when it
+    // exists; fall back to meta only before the first paint. (lod.js is not
+    // loaded by unified-viz.html, so polling.js owns the legend here.)
+    var d = (window.JUG && JUG.state && JUG.state.lastData) || null;
+    if (d && d.nodes && d.nodes.length) {
+      var c = { domain: 0, memory: 0, discussion: 0 };
+      for (var i = 0; i < d.nodes.length; i++) {
+        var k = d.nodes[i].kind || d.nodes[i].type || '';
+        if (c[k] !== undefined) c[k]++;
+      }
+      var total = d.nodes.length;
+      setText('s-dom', c.domain);
+      setText('s-mem', c.memory);
+      // "Entities" = every knowledge node that isn't a domain/memory/
+      // discussion (files, symbols, tools, commands, agents, skills, hooks,
+      // MCPs) — the sum, matching the server's entity_count semantics.
+      setText('s-ent', total - c.domain - c.memory - c.discussion);
+      setText('s-disc', c.discussion);
+      setText('s-nodes', total);
+      setText('s-edge', (d.edges || d.links || []).length);
+    } else {
+      // Pre-render: show server totals as a placeholder until nodes arrive.
+      setText('s-dom', meta.domain_count || 0);
+      setText('s-mem', meta.memory_count || 0);
+      setText('s-ent', meta.entity_count || 0);
+      setText('s-disc', meta.discussion_count || 0);
+      setText('s-nodes', meta.node_count || 0);
+      setText('s-edge', meta.edge_count || 0);
+    }
 
     // System vitals
     var sv = meta.system_vitals;
@@ -180,6 +207,11 @@
     JUG.on('state:activeView', function(ev) {
       if (ev && ev.value === 'graph') setTimeout(fetchGraph, 50);
     });
+    // Recount the legend from the rendered graph on every data change
+    // (phase loads + SSE deltas), so it tracks the canvas live instead of
+    // only refreshing on the 2 s build poll. updateStats ignores ``meta``
+    // when lastData is present, so an empty object is fine here.
+    JUG.on('state:lastData', function() { updateStats({}); });
   }
 
   function _loadDiscussionBatch(batch) {
