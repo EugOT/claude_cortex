@@ -597,6 +597,7 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                 kind_counts[k] = kind_counts.get(k, 0) + 1
             cur["meta"]["domain_count"] = kind_counts.get("domain", 0)
             cur["meta"]["memory_count"] = kind_counts.get("memory", 0)
+            cur["meta"]["discussion_count"] = kind_counts.get("discussion", 0)
             # "Entity" in the legend covers every non-domain, non-memory
             # knowledge node (files, symbols, tools, commands, agents,
             # skills, hooks, discussions, MCPs). Compute as the sum.

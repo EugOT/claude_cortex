@@ -119,6 +119,14 @@
     setText('s-ent',  counts.entity);
     setText('s-disc', counts.discussion);
     setText('s-nodes', d.nodes.length);
+    setText('s-edge', (d.edges || d.links || []).length);
+  }
+  // Expose so the SINGLE source of truth for the legend is the RENDERED
+  // graph (lastData), refreshed on every data change — not the server
+  // meta (which over-counts vs the progressive render and, post
+  // memory-pruning, reports memory_count=0 while memories stream in).
+  if (window.JUG && JUG.on) {
+    JUG.on('state:lastData', _updateLegend);
   }
 
   // ── Load one phase ─────────────────────────────────────────────────────────

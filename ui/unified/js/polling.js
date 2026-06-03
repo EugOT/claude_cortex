@@ -63,12 +63,12 @@
   }
 
   function updateStats(meta) {
-    setText('s-dom', meta.domain_count || 0);
-    setText('s-mem', meta.memory_count || 0);
-    setText('s-ent', meta.entity_count || 0);
-    setText('s-edge', meta.edge_count || 0);
-    setText('s-nodes', meta.node_count || 0);
-    if (meta.discussion_count != null) setText('s-disc', meta.discussion_count);
+    // Node/edge counts (s-dom/s-mem/s-ent/s-disc/s-nodes/s-edge) are owned
+    // by lod.js._updateLegend, which counts the ACTUALLY-RENDERED graph
+    // (lastData) on every state:lastData change. Setting them here too made
+    // the legend race the render and show server totals that don't match
+    // the canvas (e.g. 36 domains, 0 discussions). Leave them to lod.js;
+    // this poll only drives build progress + system vitals.
 
     // System vitals
     var sv = meta.system_vitals;
