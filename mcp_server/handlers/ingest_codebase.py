@@ -84,6 +84,39 @@ def _default_output_dir(project_path: str) -> str:
     )
 
 
+def _prune_precedent_graphs(output_dir: str) -> list[str]:
+    """Remove stale graphs for the SAME project once a fresh one is built.
+
+    Graph dirs are keyed ``<project-name>-<hash>`` (project_key) — but a
+    path move, a version-named legacy dir, or a re-index under a new hash
+    leaves the old ``<name>-*`` dir behind. Those precedents pollute
+    ``resolve_graph_paths`` (the impact query then scans 4 graphs, some
+    stale/empty, and can pick a stale hit). Per "update a version → remove
+    the precedent", drop every sibling sharing this project's name prefix
+    except the one we just wrote. Returns removed dir names.
+    """
+    import shutil
+
+    cur = Path(output_dir)
+    parent = cur.parent
+    if not parent.is_dir():
+        return []
+    # Project name = key minus the trailing ``-<hash>`` segment.
+    prefix = cur.name.rsplit("-", 1)[0] + "-"
+    removed: list[str] = []
+    for sib in parent.iterdir():
+        if sib == cur or not sib.is_dir() or not sib.name.startswith(prefix):
+            continue
+        try:
+            shutil.rmtree(sib)
+            removed.append(sib.name)
+        except OSError as exc:
+            logger.warning("could not prune precedent graph %s: %s", sib, exc)
+    if removed:
+        logger.info("pruned %d precedent graph(s): %s", len(removed), removed)
+    return removed
+
+
 def _parse_int_or_none(raw: Any) -> int | None:
     return int(raw) if raw is not None else None
 
@@ -243,6 +276,11 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
             "reason": "analyze_failed",
             "error": f"{type(exc).__name__}: {exc}",
         }
+
+    # The fresh graph supersedes any precedent for this project — remove
+    # stale ``<name>-*`` siblings so resolve_graph_paths returns only the
+    # current graph (no stale/empty hits in the impact query).
+    _prune_precedent_graphs(output_dir)
 
     if top_symbols is None or top_symbols > 0:
         (
