@@ -28,11 +28,6 @@ from mcp_server.infrastructure.ap_bridge import (
     resolve_graph_paths,
 )
 
-# Per-file paranoid cap, applied ONLY when the caller specifies paths.
-# Load-all callers (paths=[]) get an uncapped query — the L6 viz pipeline
-# legitimately needs every symbol the AP graph holds.
-_MAX_SYMBOLS_PER_FILE = 500
-
 
 def _run(coro):
     """Legacy sync wrapper — each call creates a fresh loop. Retained
@@ -339,6 +334,15 @@ class WorkflowGraphASTSource:
         """
         out: list[dict[str, Any]] = []
         # Build a set of basenames and tail fragments for fast matching.
+        # These are also used to construct server-side WHERE predicates so
+        # Kuzu filters by file prefix rather than returning ALL symbols and
+        # discarding in Python. Previously the code used a blanket
+        # ``LIMIT 500`` without a WHERE clause — on a 50k-symbol codebase
+        # alphabetically-early files consume the entire limit and the
+        # desired file's symbols are never returned.
+        # source: measured 2026-06-04 — query for consolidate.py returned 0
+        #   because the first 500 Functions all start with benchmarks/* or
+        #   _pipeline/*; mcp_server/handlers/* never appeared.
         path_tails: set[str] = set()
         for p in paths:
             if not p:
@@ -348,29 +352,55 @@ class WorkflowGraphASTSource:
             parts = p.split("/")
             for i in range(1, len(parts)):
                 path_tails.add("/".join(parts[i:]))
+
+        # Build a Cypher WHERE predicate that filters at the Kuzu level.
+        # Each tail produces one STARTS WITH predicate on qualified_name
+        # (or id for Import nodes). We emit the shortest unique tails only
+        # — if "pkg/mod.py" is present, "mod.py" is redundant because any
+        # match for "mod.py" also matches "pkg/mod.py". Cap at 10 tails
+        # to keep the WHERE clause tractable.
+        def _where_for_tails(prop: str, tails: set[str]) -> str:
+            if not tails:
+                return ""
+            # Sort longest-first so shorter redundant tails are skipped.
+            sorted_tails = sorted(tails, key=len, reverse=True)
+            kept: list[str] = []
+            for t in sorted_tails:
+                if any(t == k or k.endswith(t) for k in kept):
+                    continue  # already covered by a longer tail
+                kept.append(t)
+                if len(kept) >= 10:
+                    break
+            escaped = [t.replace("'", "\\'") for t in kept]
+            preds = " OR ".join(f"{prop} STARTS WITH '{t}::'" for t in escaped)
+            return f" WHERE {preds}"
+
         for label in _SYMBOL_LABELS:
             # Import nodes don't carry qualified_name / name — they use
             # ``id`` (``<file>::<modpath>``) and ``path`` (the imported
             # module). Use those as the qualified_name / name surrogate.
             if label in _NON_QUALIFIED_LABELS:
-                base_query = (
-                    f"MATCH (s:{label}) "
-                    "RETURN s.id   AS qualified_name, "
-                    "       s.path AS name"
+                prop = "s.id"
+                select = (
+                    f"MATCH (s:{label})"
+                    "{where}"
+                    " RETURN s.id   AS qualified_name,"
+                    "        s.path AS name"
                 )
             else:
-                base_query = (
-                    f"MATCH (s:{label}) "
-                    "RETURN s.qualified_name AS qualified_name, "
-                    "       s.name           AS name"
+                prop = "s.qualified_name"
+                select = (
+                    f"MATCH (s:{label})"
+                    "{where}"
+                    " RETURN s.qualified_name AS qualified_name,"
+                    "        s.name           AS name"
                 )
-            # No LIMIT in load-all mode (paths=[]). When paths are given,
-            # apply a per-path paranoid cap so a stray query can't drag
-            # in the world.
             if paths:
-                query = base_query + f" LIMIT {_MAX_SYMBOLS_PER_FILE * len(paths)}"
+                where = _where_for_tails(prop, path_tails)
+                query = select.format(where=where)
             else:
-                query = base_query
+                # Load-all mode: no filter, no limit — pull the full graph.
+                query = select.format(where="")
             rows = await self._bridge.call(
                 "query_graph",
                 {"graph_path": graph_path, "query": query},
@@ -383,7 +413,9 @@ class WorkflowGraphASTSource:
                 file_part, sep, _ = qn_s.partition("::")
                 if not sep:
                     continue
-                # Match the symbol's file against the known set.
+                # Python-side match as a secondary safeguard (the WHERE
+                # clause is the primary filter; this handles edge cases
+                # where a shorter tail matched a different file).
                 if path_tails and not any(
                     p == file_part or p.endswith(file_part) or file_part.endswith(p)
                     for p in path_tails

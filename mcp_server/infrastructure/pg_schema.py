@@ -1357,6 +1357,53 @@ DO $$ BEGIN
         FOR EACH ROW EXECUTE FUNCTION normalize_domain();
     END IF;
 END $$;
+
+-- ── Streaming-ingest support (sharded-popping-harbor refactor) ────────────
+-- Source: ~/.claude/plans/sharded-popping-harbor.md (genius-verified A3).
+-- The StagingResolveSink resolves entity/edge ids inside PG. The entity stage
+-- is single-writer and resolves via NOT EXISTS, so it needs only a NON-unique
+-- functional index to keep the LOWER(name) lookup index-backed — safe to
+-- create unconditionally (never fails on existing case-variant duplicates).
+CREATE INDEX IF NOT EXISTS idx_entities_lower_name ON entities (LOWER(name));
+
+-- The edge stage runs concurrency=2 and upserts via ON CONFLICT, so it needs a
+-- UNIQUE index on the directed tuple. Without it, re-ingest after a crash
+-- silently DUPLICATES every 'calls'/'contains' edge (genius Dijkstra D2). The
+-- existing unique index is PARTIAL (co_retrieval only); add the full one.
+-- Dedup keeps MIN(id) and touches only the relationships table — no cross-
+-- table repointing (mirrors uq_relationships_canonical_co_retrieval above).
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes WHERE indexname = 'uq_relationships_directed'
+    ) THEN
+        DELETE FROM relationships r
+        USING (
+            SELECT source_entity_id, target_entity_id, relationship_type,
+                   MIN(id) AS keep_id
+            FROM relationships
+            GROUP BY source_entity_id, target_entity_id, relationship_type
+            HAVING COUNT(*) > 1
+        ) dup
+        WHERE r.source_entity_id = dup.source_entity_id
+          AND r.target_entity_id = dup.target_entity_id
+          AND r.relationship_type = dup.relationship_type
+          AND r.id <> dup.keep_id;
+
+        CREATE UNIQUE INDEX uq_relationships_directed
+            ON relationships (source_entity_id, target_entity_id, relationship_type);
+    END IF;
+END $$;
+
+-- Checkpoint table for resumable ingest (genius Dijkstra D5): each batch's
+-- writes and its progress update commit inside ONE conn.transaction(), so a
+-- crashed run resumes from last_key_committed with no duplication.
+CREATE TABLE IF NOT EXISTS ingest_progress (
+    run_id text PRIMARY KEY,
+    last_key_committed text NOT NULL DEFAULT '',
+    rows_committed bigint NOT NULL DEFAULT 0,
+    updated_at timestamptz NOT NULL DEFAULT NOW()
+);
 """
 
 # ── Schema initialization ────────────────────────────────────────────────

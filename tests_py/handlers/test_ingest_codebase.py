@@ -9,43 +9,107 @@ import pytest
 from mcp_server.handlers import ingest_codebase as icb
 from mcp_server.handlers import ingest_codebase_pages as icb_pages
 from mcp_server.handlers import ingest_helpers
+from tests_py.conftest import _TEST_DB_URL, _USE_PG  # type: ignore
+
+# The entity/edge writers now stream through PostgreSQL staging tables, so the
+# write-asserting tests need a live DB. The schema migration (the LOWER(name)
+# index + the directed-edge UNIQUE index that ON CONFLICT requires) must be
+# present; apply it here so the test is self-contained.
+_INGEST_MIGRATIONS = [
+    "CREATE INDEX IF NOT EXISTS idx_entities_lower_name ON entities (LOWER(name))",
+    """DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_indexes
+                       WHERE indexname = 'uq_relationships_directed') THEN
+            DELETE FROM relationships r USING (
+                SELECT source_entity_id, target_entity_id, relationship_type,
+                       MIN(id) AS keep_id FROM relationships
+                GROUP BY source_entity_id, target_entity_id, relationship_type
+                HAVING COUNT(*) > 1) dup
+            WHERE r.source_entity_id = dup.source_entity_id
+              AND r.target_entity_id = dup.target_entity_id
+              AND r.relationship_type = dup.relationship_type
+              AND r.id <> dup.keep_id;
+            CREATE UNIQUE INDEX uq_relationships_directed
+                ON relationships (source_entity_id, target_entity_id,
+                                  relationship_type);
+        END IF;
+    END $$;""",
+]
 
 
 class _FakeStore:
+    """In-memory memo cache + a real batch_pool for the staging write path.
+
+    The graph-path memo (memoise/find_cached_graph) stays in-memory so the
+    cache/error tests need no DB; ``batch_pool`` is a real pool opened lazily
+    against the test DB, touched only when there are actual rows to write.
+    """
+
     def __init__(self):
+        import threading
+
         self.memories: list[dict] = []
-        self.entities: list[dict] = []
-        self.relationships: list[dict] = []
-        self._next_mem = 1000
-        self._next_ent = 2000
+        self._memo: dict[str, str] = {}
+        self._pool = None
+        self._pool_lock = threading.Lock()
+
+    @property
+    def batch_pool(self):
+        with self._pool_lock:
+            if self._pool is None:
+                import psycopg
+                from psycopg_pool import ConnectionPool
+
+                self._pool = ConnectionPool(
+                    conninfo=_TEST_DB_URL,
+                    min_size=1,
+                    max_size=4,
+                    kwargs={
+                        "autocommit": True,
+                        "row_factory": psycopg.rows.dict_row,
+                    },
+                    open=True,
+                )
+        return self._pool
+
+    def close_pool(self):
+        if self._pool is not None:
+            self._pool.close()
+            self._pool = None
 
     def insert_memory(self, data: dict) -> int:
-        mid = self._next_mem
-        self._next_mem += 1
+        mid = 1000 + len(self.memories)
         data["id"] = mid
         self.memories.append(data)
         return mid
 
-    def insert_entity(self, data: dict) -> int:
-        eid = self._next_ent
-        self._next_ent += 1
-        data["id"] = eid
-        self.entities.append(data)
-        return eid
-
-    def insert_relationship(self, data: dict) -> int:
-        self.relationships.append(data)
-        return len(self.relationships)
-
     def get_all_memories_for_decay(self) -> list[dict]:
         return list(self.memories)
+
+
+def _apply_ingest_migrations_and_clean():
+    import psycopg
+
+    with psycopg.connect(_TEST_DB_URL, autocommit=True) as conn:
+        for stmt in _INGEST_MIGRATIONS:
+            conn.execute(stmt)
+        conn.execute("TRUNCATE entities, relationships RESTART IDENTITY CASCADE")
+
+
+def _pg_entity_names() -> set[str]:
+    import psycopg
+
+    with psycopg.connect(_TEST_DB_URL, autocommit=True) as conn:
+        rows = conn.execute("SELECT name FROM entities").fetchall()
+    return {r[0] for r in rows}
 
 
 @pytest.fixture
 def fake_store(monkeypatch):
     store = _FakeStore()
     monkeypatch.setattr(icb, "_get_store", lambda: store)
-    return store
+    yield store
+    store.close_pool()
 
 
 # Cypher pattern → reply for the fake upstream. Tests register a list
@@ -53,6 +117,14 @@ def fake_store(monkeypatch):
 # matches the cypher query wins. Regex routing avoids the substring-
 # ordering footgun in earlier mock generations.
 def _route_cypher(routes: list[tuple[re.Pattern[str], dict]], cypher: str) -> dict:
+    # Simulate Kuzu SKIP/LIMIT pagination: a query that skips past the first
+    # page returns no rows (end of data). Without this the fixed-payload mock
+    # would return the same page for every offset and the paged symbol loop
+    # would never terminate. Real Kuzu returns empty once SKIP exceeds the row
+    # count.
+    skip = re.search(r"SKIP\s+(\d+)", cypher)
+    if skip and int(skip.group(1)) > 0:
+        return {"rows": [], "columns": []}
     for pattern, payload in routes:
         if pattern.search(cypher):
             return payload
@@ -98,10 +170,12 @@ def _re(pattern: str) -> re.Pattern[str]:
 
 
 class TestIngestCodebaseHappyPath:
+    @pytest.mark.skipif(not _USE_PG, reason="staging write path needs live PG")
     @pytest.mark.asyncio
     async def test_happy_path_writes_memories_entities_edges_and_pages(
         self, fake_store, fake_upstream, no_wiki
     ):
+        _apply_ingest_migrations_and_clean()
         calls, replies = fake_upstream
         replies["analyze_codebase"] = {"graph_path": "/tmp/graph", "node_count": 42}
         replies["query_graph"] = [
@@ -174,7 +248,9 @@ class TestIngestCodebaseHappyPath:
 
         assert result["ingested"] is True
         assert result["graph_path"] == "/tmp/graph"
-        assert "memories_written" not in result  # symbols → entities only, no memory rows
+        assert (
+            "memories_written" not in result
+        )  # symbols → entities only, no memory rows
         assert result["entities_written"] == 3
         assert result["edges_written"] == 3
         assert result["wiki_pages_written"] and result["wiki_pages_written"][
@@ -280,6 +356,7 @@ class TestIngestCodebaseFailures:
         assert ingest_helpers.find_cached_graph(fake_store, "/tmp/myproj") is None
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(not _USE_PG, reason="staging write path needs live PG")
     async def test_file_attribution_uses_containment_not_qn_split(
         self, fake_store, fake_upstream, no_wiki
     ):
@@ -288,6 +365,7 @@ class TestIngestCodebaseFailures:
         (Rust qns like ``crate::module::Type::method`` have no file
         prefix, so qn-split would fabricate a fake path).
         """
+        _apply_ingest_migrations_and_clean()
         calls, replies = fake_upstream
         replies["analyze_codebase"] = {"graph_path": "/tmp/graph"}
         replies["query_graph"] = [
@@ -345,17 +423,17 @@ class TestIngestCodebaseFailures:
             {"project_path": "/tmp/myproj", "force_reindex": True}
         )
         assert result["ingested"] is True
-        assert "memories_written" not in result  # symbols → entities only, no memory rows
-        # File attribution is verified through KG entities (symbols are stored as
-        # entities, not memory rows). The entity name is the qualified_name.
-        login_ent = next(
-            e for e in fake_store.entities if "crate::auth::login" in e["name"]
-        )
-        assert login_ent is not None  # entity was written
-        orphan_ent = next(
-            (e for e in fake_store.entities if "nowhere::orphan" in e["name"]), None
-        )
-        assert orphan_ent is not None  # orphan symbol still written as entity
+        assert (
+            "memories_written" not in result
+        )  # symbols → entities only, no memory rows
+        # Symbols are stored as KG entities (name = qualified_name), resolved
+        # server-side. Both the file-attributed symbol and the orphan are
+        # written; the orphan keeps file=None but is still an entity.
+        names = _pg_entity_names()
+        assert "crate::auth::login" in names
+        assert "nowhere::orphan" in names
+        assert "src/auth.rs" in names  # the file is an entity too
+        fake_store.close_pool()
 
     @pytest.mark.asyncio
     async def test_cypher_error_surfaces_as_diagnostic(

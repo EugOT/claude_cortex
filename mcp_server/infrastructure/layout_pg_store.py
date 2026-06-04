@@ -139,23 +139,33 @@ def read_layout_version(store) -> dict | None:
     return {"version": int(row["v"]), "fingerprint": row["fp"], "count": int(row["n"])}
 
 
-def read_all_positions(store) -> list[tuple[str, float, float, str]]:
-    """Return every persisted ``(node_id, x, y, kind)`` row.
+def iter_positions_chunked(store, chunk_size: int = 50_000):
+    """Stream ``(node_id, x, y, kind)`` rows in keyset-paged chunks.
 
-    Used by the quadtree endpoint to ship the full picking index to
-    the client. At 1M nodes the result is ~30 MB unencoded; the
-    quadtree endpoint dict-encodes ``id`` + ``kind`` and gzips the
-    Arrow IPC frame to ~7 MB.
+    The quadtree endpoint ships every node's picking coords. Materializing
+    them as four Python lists at 1M+ nodes spikes RAM on the high-cardinality
+    ``node_id`` strings; streaming keeps peak at one chunk while the endpoint
+    writes Arrow record-batches incrementally. Keyset paging on the ``node_id``
+    PK (``WHERE node_id > last``) avoids a full sort and is drift-safe.
+
+    Yields ``list[tuple[str, float, float, str]]`` per page.
     """
-    sql = "SELECT node_id, x, y, kind FROM workflow_graph_layout"
-    with _conn(store) as conn, conn.cursor() as cur:
-        cur.execute(sql)
-        # Pool returns dict rows; index by column name so the read
-        # stays correct regardless of how the pool was configured.
-        return [
-            (r["node_id"], float(r["x"]), float(r["y"]), r["kind"])
-            for r in cur.fetchall()
-        ]
+    sql = (
+        "SELECT node_id, x, y, kind FROM workflow_graph_layout "
+        "WHERE node_id > %s ORDER BY node_id LIMIT %s"
+    )
+    last = ""
+    page = int(chunk_size)
+    while True:
+        with _conn(store) as conn, conn.cursor() as cur:
+            cur.execute(sql, (last, page))
+            rows = cur.fetchall()
+        if not rows:
+            return
+        yield [(r["node_id"], float(r["x"]), float(r["y"]), r["kind"]) for r in rows]
+        last = rows[-1]["node_id"]
+        if len(rows) < page:
+            return
 
 
 def read_positions_in_bbox(

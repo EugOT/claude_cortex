@@ -22,6 +22,7 @@ from mcp_server.core.tripartite_synapse import (
     AstrocyteTerritory,
     update_territory,
 )
+from mcp_server.handlers.consolidation.chunks import iter_memory_chunks
 from mcp_server.infrastructure.memory_store import MemoryStore
 
 logger = logging.getLogger(__name__)
@@ -38,16 +39,13 @@ def run_decay_cycle(
     ``memories`` is kept in the signature for caller symmetry with
     pre-A3 but is only used to compute per-domain metabolic state.
     """
-    if memories is None:
-        memories = store.get_all_memories_for_decay()
-
     entity_updates = _decay_entities(store, settings)
-    _update_metabolic_state(settings, memories)
+    total_memories = _update_metabolic_state(settings, store, memories)
 
     return {
         "memories_decayed": 0,
         "entities_decayed": len(entity_updates),
-        "total_memories": len(memories),
+        "total_memories": total_memories,
         "reason_for_zero": "lazy_decay_via_effective_heat",
     }
 
@@ -67,33 +65,39 @@ def _decay_entities(
     return entity_updates
 
 
-def _update_metabolic_state(settings: Any, memories: list[dict]) -> None:
+def _update_metabolic_state(
+    settings: Any, store: MemoryStore, memories: list[dict] | None
+) -> int:
     """Advance astrocyte territory state per domain (observability only).
 
-    No heat writes: the A3 lazy path means territory state affects
-    future reads only if wired into effective_heat, which is out of
-    scope for this program (documented as open question in §5).
+    Streams when ``memories`` is None so the full corpus is never resident:
+    the only per-memory facts the territories need are a per-domain activity
+    sum and count, which fold into an O(num_domains) accumulator — not the
+    O(N) ``_group_by_domain`` list-of-lists this replaced. Returns the total
+    memory count seen. No heat writes (A3 lazy path).
     """
+    agg: dict[str, dict[str, int]] = {}
+    total = 0
+    for chunk in iter_memory_chunks(store, memories):
+        for mem in chunk:
+            total += 1
+            domain = mem.get("domain", "default") or "default"
+            bucket = agg.setdefault(domain, {"activity": 0, "count": 0})
+            bucket["activity"] += int(mem.get("access_count", 0) or 0)
+            bucket["count"] += 1
     try:
-        for domain, mems in _group_by_domain(memories).items():
+        for domain, st in agg.items():
             territory = AstrocyteTerritory(
                 territory_id=domain,
                 domain=domain,
-                total_activity=sum(m.get("access_count", 0) for m in mems),
+                total_activity=st["activity"],
             )
             territory = update_territory(
                 territory,
-                synaptic_events=len(mems),
+                synaptic_events=st["count"],
                 hours_elapsed=1.0,
             )
             apply_metabolic_modulation(settings.DECAY_FACTOR, territory.metabolic_rate)
     except Exception as exc:
         logger.debug("Metabolic observability update failed: %s", exc)
-
-
-def _group_by_domain(memories: list[dict]) -> dict[str, list]:
-    groups: dict[str, list] = {}
-    for mem in memories:
-        d = mem.get("domain", "default") or "default"
-        groups.setdefault(d, []).append(mem)
-    return groups
+    return total

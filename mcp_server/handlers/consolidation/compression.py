@@ -14,6 +14,7 @@ from mcp_server.core.compression import (
     generate_tag,
     get_compression_schedule,
 )
+from mcp_server.handlers.consolidation.chunks import iter_memory_chunks
 from mcp_server.infrastructure.embedding_engine import EmbeddingEngine
 from mcp_server.infrastructure.memory_store import MemoryStore
 
@@ -30,26 +31,29 @@ def run_compression_cycle(
 
     `memories` may be pre-loaded by the consolidate handler (issue #13).
     """
-    if memories is None:
-        memories = store.get_all_memories_for_decay()
-
     stats = {
         "compressed_to_gist": 0,
         "compressed_to_tag": 0,
         "protected_skipped": 0,
         "semantic_skipped": 0,
-        "rows_scanned": len(memories),
+        "rows_scanned": 0,
     }
 
-    for mem in memories:
-        if mem.get("is_protected"):
-            stats["protected_skipped"] += 1
-            continue
-        if mem.get("store_type") == "semantic":
-            stats["semantic_skipped"] += 1
-            continue
-
-        _compress_memory(store, settings, embeddings, mem, stats)
+    # Stream in chunks when not pre-loaded so peak RAM is one chunk, not the
+    # whole corpus. Writes go through the interactive pool / persistent conn
+    # (update_memory_compression, insert_archive), while the read cursor holds
+    # a batch-pool connection — different pools, so no contention, and the
+    # cursor's MVCC snapshot means compressed rows are never re-processed.
+    for chunk in iter_memory_chunks(store, memories):
+        for mem in chunk:
+            stats["rows_scanned"] += 1
+            if mem.get("is_protected"):
+                stats["protected_skipped"] += 1
+                continue
+            if mem.get("store_type") == "semantic":
+                stats["semantic_skipped"] += 1
+                continue
+            _compress_memory(store, settings, embeddings, mem, stats)
 
     return stats
 

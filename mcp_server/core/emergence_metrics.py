@@ -149,6 +149,20 @@ def compute_forgetting_curve(
         return dict(_INSUFFICIENT)
 
     bin_means = _bin_memories_by_age(memories_by_age)
+    return _forgetting_from_bin_means(bin_means, n_points=len(memories_by_age))
+
+
+def _forgetting_from_bin_means(
+    bin_means: list[tuple[float, float]], n_points: int
+) -> dict[str, float]:
+    """Fit the curve from already-binned (center, mean_heat) data.
+
+    Shared by ``compute_forgetting_curve`` (list path) and the streaming
+    emergence report, which accumulates the bins online and so never holds the
+    raw point set.
+    """
+    if n_points < 5:
+        return dict(_INSUFFICIENT)
     if len(bin_means) < 3:
         return {
             "curve_type": "insufficient_bins",
@@ -171,52 +185,155 @@ def compute_forgetting_curve(
     return _fit_log_linear(log_heats)
 
 
+def _bins_to_means(bins: dict[int, list]) -> list[tuple[float, float]]:
+    """Convert online ``bin_idx -> [heat_sum, count]`` to sorted bin means."""
+    return [
+        (bin_idx * 6.0 + 3.0, hs / cnt)
+        for bin_idx, (hs, cnt) in sorted(bins.items())
+        if cnt
+    ]
+
+
 # ── Aggregate Report ─────────────────────────────────────────────────────
-
-
-def _compute_stage_distribution(memories: list[dict]) -> dict[str, int]:
-    """Count memories per consolidation stage."""
-    stages: dict[str, int] = {}
-    for m in memories:
-        stage = m.get("consolidation_stage", "unknown")
-        stages[stage] = stages.get(stage, 0) + 1
-    return stages
-
-
-def _compute_avg_interference(memories: list[dict]) -> float:
-    """Compute average interference pressure across memories."""
-    scores = [m.get("interference_score", 0) for m in memories]
-    return round(sum(scores) / max(len(scores), 1), 4)
 
 
 def generate_emergence_report(
     memories: list[dict],
     events: list | None = None,
 ) -> dict:
-    """Generate a full emergence report from memory data."""
-    from mcp_server.core.emergence_tracker import (
-        compute_phase_locking_benefit,
-        compute_schema_acceleration_metric,
-    )
+    """Generate a full emergence report from an in-memory list.
 
-    age_heat = [
-        (m.get("hours_in_stage", 0) + 1.0, m.get("heat", 0.5))
-        for m in memories
-        if m.get("heat", 0) > 0.01
-    ]
-    consistent = [m for m in memories if m.get("schema_match_score", 0) >= 0.5]
-    inconsistent = [m for m in memories if m.get("schema_match_score", 0) < 0.3]
-    enc_phase = [m for m in memories if m.get("theta_phase_at_encoding", 0) < 0.5]
-    ret_phase = [m for m in memories if m.get("theta_phase_at_encoding", 0) >= 0.5]
+    Thin wrapper over ``generate_emergence_report_streamed`` (one chunk) so the
+    list path and the streaming path can never diverge.
+    """
+    return generate_emergence_report_streamed([memories], events=events)
+
+
+def _schema_acceleration_from_agg(cons: dict, incons: dict) -> dict:
+    """schema-acceleration metric from streamed cohort aggregates.
+
+    Mirrors emergence_tracker.compute_schema_acceleration_metric exactly, but
+    from ``{count, consolidated, time_sum}`` per cohort instead of two lists.
+    """
+    c_count, i_count = cons["count"], incons["count"]
+    c_time = (
+        cons["time_sum"] / cons["consolidated"]
+        if cons["consolidated"]
+        else float("inf")
+    )
+    i_time = (
+        incons["time_sum"] / incons["consolidated"]
+        if incons["consolidated"]
+        else float("inf")
+    )
+    ratio_defined = True
+    reason = ""
+    if c_count == 0:
+        ratio_defined, reason, ratio = False, "no_schemas_promoted_yet", 1.0
+    elif i_count == 0:
+        ratio_defined, reason, ratio = False, "no_baseline_population", 1.0
+    elif i_time > 0 and c_time < float("inf"):
+        ratio = i_time / max(c_time, 0.1)
+    else:
+        ratio_defined, reason, ratio = False, "no_consolidated_memories", 1.0
+    out = {
+        "consistent_count": c_count,
+        "inconsistent_count": i_count,
+        "consistent_consolidated_fraction": round(
+            cons["consolidated"] / c_count if c_count else 0.0, 4
+        ),
+        "inconsistent_consolidated_fraction": round(
+            incons["consolidated"] / i_count if i_count else 0.0, 4
+        ),
+        "acceleration_ratio": round(ratio, 4),
+        "ratio_defined": ratio_defined,
+    }
+    if reason:
+        out["reason_for_undefined"] = reason
+    return out
+
+
+def _phase_locking_from_agg(enc: dict, ret: dict) -> dict:
+    """phase-locking metric from streamed per-phase aggregates."""
+
+    def avg(d: dict) -> float:
+        return d["heat_sum"] / d["count"] if d["count"] else 0.0
+
+    def surv(d: dict) -> float:
+        return d["alive"] / d["count"] if d["count"] else 0.0
+
+    enc_heat, ret_heat = avg(enc), avg(ret)
+    return {
+        "encoding_phase_count": enc["count"],
+        "retrieval_phase_count": ret["count"],
+        "encoding_phase_avg_heat": round(enc_heat, 4),
+        "retrieval_phase_avg_heat": round(ret_heat, 4),
+        "phase_benefit": round(enc_heat - ret_heat, 4),
+        "encoding_phase_survival": round(surv(enc), 4),
+        "retrieval_phase_survival": round(surv(ret), 4),
+    }
+
+
+def generate_emergence_report_streamed(
+    memory_chunks,
+    events: list | None = None,
+) -> dict:
+    """Constant-memory emergence report: one streaming pass of bounded reducers.
+
+    Every metric in the legacy report is an aggregate (binned forgetting curve,
+    schema/phase cohort sums, stage counts, interference mean), so the whole
+    report needs only O(num_bins + num_stages) RAM regardless of corpus size.
+    """
+    bins: dict[int, list] = {}  # bin_idx -> [heat_sum, count]
+    n_age = 0
+    cons = {"count": 0, "consolidated": 0, "time_sum": 0.0}
+    incons = {"count": 0, "consolidated": 0, "time_sum": 0.0}
+    enc = {"count": 0, "heat_sum": 0.0, "alive": 0}
+    ret = {"count": 0, "heat_sum": 0.0, "alive": 0}
+    stage_dist: dict[str, int] = {}
+    interference_sum = 0.0
+    total = 0
+
+    for chunk in memory_chunks:
+        for m in chunk:
+            total += 1
+            heat = m.get("heat", 0)
+            if heat > 0.01:
+                bucket = bins.setdefault(
+                    max(0, int((m.get("hours_in_stage", 0) + 1.0) / 6.0)), [0.0, 0]
+                )
+                bucket[0] += heat
+                bucket[1] += 1
+                n_age += 1
+            score = m.get("schema_match_score", 0)
+            consolidated = m.get("consolidation_stage") == "consolidated"
+            if score >= 0.5:
+                _fold_schema_cohort(cons, m, consolidated)
+            elif score < 0.3:
+                _fold_schema_cohort(incons, m, consolidated)
+            phase = enc if m.get("theta_phase_at_encoding", 0) < 0.5 else ret
+            phase["count"] += 1
+            phase["heat_sum"] += m.get("heat", 0)
+            if m.get("heat", 0) >= 0.1:
+                phase["alive"] += 1
+            stage = m.get("consolidation_stage", "unknown")
+            stage_dist[stage] = stage_dist.get(stage, 0) + 1
+            interference_sum += m.get("interference_score", 0)
 
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "memory_count": len(memories),
-        "forgetting_curve": compute_forgetting_curve(age_heat),
-        "schema_acceleration": compute_schema_acceleration_metric(
-            consistent, inconsistent
-        ),
-        "phase_locking": compute_phase_locking_benefit(enc_phase, ret_phase),
-        "stage_distribution": _compute_stage_distribution(memories),
-        "avg_interference": _compute_avg_interference(memories),
+        "memory_count": total,
+        "forgetting_curve": _forgetting_from_bin_means(_bins_to_means(bins), n_age),
+        "schema_acceleration": _schema_acceleration_from_agg(cons, incons),
+        "phase_locking": _phase_locking_from_agg(enc, ret),
+        "stage_distribution": stage_dist,
+        "avg_interference": round(interference_sum / max(total, 1), 4),
     }
+
+
+def _fold_schema_cohort(cohort: dict, mem: dict, consolidated: bool) -> None:
+    """Fold one memory into a schema cohort aggregate."""
+    cohort["count"] += 1
+    if consolidated:
+        cohort["consolidated"] += 1
+        cohort["time_sum"] += mem.get("hours_in_stage", 0) + 24.0

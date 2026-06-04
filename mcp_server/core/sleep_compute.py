@@ -11,9 +11,9 @@ Pure business logic — no I/O.  All storage is done by the caller (consolidate 
 
 from __future__ import annotations
 
+import heapq
 import re
-from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Iterable
 
 from mcp_server.core.enrichment import (
     build_enriched_content,
@@ -22,36 +22,26 @@ from mcp_server.core.enrichment import (
 # ── Dream Replay ──────────────────────────────────────────────────────────────
 
 
-def dream_replay(
-    memories: list[dict[str, Any]],
-    max_memories: int = 50,
+def _replay_updates_for(
+    hottest: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Re-process the hottest memories through query-enrichment.
+    """Enrich an already-selected set of hottest memories.
 
-    Returns a list of update dicts: {memory_id, enriched_content}.
-    Caller is responsible for persisting these.
+    Returns update dicts ``{memory_id, enriched_content}``. The hottest set is
+    chosen by the streaming heap in ``run_sleep_compute_streamed`` (bounded),
+    so this only ever processes ``max_replay`` items.
     """
-    # Sort by heat descending; take top slice
-    hot = sorted(memories, key=lambda m: m.get("heat", 0), reverse=True)[:max_memories]
-
     updates = []
-    for mem in hot:
+    for mem in hottest:
         content = mem.get("content", "")
         if not content or len(content) < 30:
             continue
-        # Skip already-enriched content to avoid double-appending
+        # Skip already-enriched content to avoid double-appending.
         if "<!-- doc2query -->" in content:
             continue
-
         enriched = build_enriched_content(content)
         if enriched != content:
-            updates.append(
-                {
-                    "memory_id": mem["id"],
-                    "enriched_content": enriched,
-                }
-            )
-
+            updates.append({"memory_id": mem["id"], "enriched_content": enriched})
     return updates
 
 
@@ -117,118 +107,127 @@ def summarize_clusters(
 # ── Re-embedding ──────────────────────────────────────────────────────────────
 
 
-def select_stale_embeddings(
-    memories: list[dict[str, Any]],
-    max_memories: int = 100,
-) -> list[dict[str, Any]]:
-    """Return memories that should be re-embedded.
-
-    Criteria:
-    - embedding is None / missing
-    - compression_level > 0 (content changed after compression)
-    - content hash doesn't match stored hash (if available)
-    """
-    candidates = []
-    for mem in memories:
-        if not mem.get("embedding"):
-            candidates.append(mem)
-            continue
-        if mem.get("compression_level", 0) > 0 and not mem.get(
-            "reembedded_after_compression"
-        ):
-            candidates.append(mem)
-            continue
-    return candidates[:max_memories]
-
-
-# ── Auto-narration ────────────────────────────────────────────────────────────
+# ── Auto-narration (streaming accumulators) ───────────────────────────────────
 
 _FILLER_RE = re.compile(
     r"\b(the|a|an|is|are|was|were|this|that|it|be|been|being)\b", re.I
 )
 
 
-def _keyword_frequency(texts: list[str], top_n: int = 10) -> list[tuple[str, int]]:
-    """Extract top N keywords from a list of texts."""
-    freq: dict[str, int] = {}
-    for text in texts:
-        words = re.findall(r"[a-zA-Z]{4,}", text.lower())
-        for w in words:
-            if not _FILLER_RE.match(w):
-                freq[w] = freq.get(w, 0) + 1
-    return sorted(freq.items(), key=lambda x: x[1], reverse=True)[:top_n]
+def _accumulate_keywords(freq: dict[str, int], text: str) -> None:
+    """Fold one memory's keywords into a running frequency dict (bounded vocab).
+
+    O(words-in-text) work, O(vocabulary) memory — independent of corpus size,
+    so it composes into the single streaming pass.
+    """
+    for w in re.findall(r"[a-zA-Z]{4,}", text.lower()):
+        if not _FILLER_RE.match(w):
+            freq[w] = freq.get(w, 0) + 1
 
 
-def _memory_timestamp(m: dict) -> float:
-    """Extract a sortable timestamp from a memory's created_at field."""
-    raw = m.get("created_at", "")
-    if not raw:
-        return 0.0
-    try:
-        dt = datetime.fromisoformat(raw)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.timestamp()
-    except (ValueError, TypeError):
-        return 0.0
-
-
-def _build_narration_prose(
-    memories: list[dict[str, Any]],
-    keywords: list[tuple[str, int]],
+def _narration_from_accumulators(
+    freq: dict[str, int],
+    top_importance: dict[str, Any] | None,
+    count: int,
     directory: str,
     period_label: str,
-) -> str:
-    """Assemble narrative prose from keywords and most important memory."""
-    kw_phrase = (
-        ", ".join(kw for kw, _ in keywords[:5]) if keywords else "various topics"
-    )
-    label = directory or "this project"
-
-    lines = [
-        f"During {period_label}, {len(memories)} memories were stored for {label}.",
-        f"Key themes: {kw_phrase}.",
-    ]
-
-    by_importance = sorted(memories, key=lambda m: m.get("importance", 0), reverse=True)
-    if by_importance:
-        top = by_importance[0].get("content", "")[:120]
-        lines.append(f'Most important: "{top}"')
-
-    return " ".join(lines)
-
-
-def auto_narrate(
-    memories: list[dict[str, Any]],
-    directory: str = "",
-    period_label: str = "recent",
 ) -> dict[str, Any]:
-    """Generate a brief narrative from memory contents.
-
-    Returns {narrative_text, keyword_summary, memory_count, period}.
-    """
-    if not memories:
+    """Build the narration dict from the streaming pass's accumulators."""
+    if count == 0:
         return {
             "narrative_text": "No memories found for narration.",
             "keyword_summary": [],
             "memory_count": 0,
             "period": period_label,
         }
-
-    sorted_mems = sorted(memories, key=_memory_timestamp, reverse=True)
-    texts = [m.get("content", "") for m in sorted_mems if m.get("content")]
-    keywords = _keyword_frequency(texts, top_n=8)
-    narrative_text = _build_narration_prose(memories, keywords, directory, period_label)
-
+    keywords = sorted(freq.items(), key=lambda x: x[1], reverse=True)[:8]
+    kw_phrase = (
+        ", ".join(kw for kw, _ in keywords[:5]) if keywords else "various topics"
+    )
+    label = directory or "this project"
+    lines = [
+        f"During {period_label}, {count} memories were stored for {label}.",
+        f"Key themes: {kw_phrase}.",
+    ]
+    if top_importance is not None:
+        lines.append(f'Most important: "{top_importance.get("content", "")[:120]}"')
     return {
-        "narrative_text": narrative_text,
+        "narrative_text": " ".join(lines),
         "keyword_summary": [{"keyword": kw, "count": cnt} for kw, cnt in keywords],
-        "memory_count": len(memories),
+        "memory_count": count,
         "period": period_label,
     }
 
 
 # ── Sleep Compute Orchestrator ────────────────────────────────────────────────
+
+
+def _is_stale_embedding(mem: dict[str, Any]) -> bool:
+    """Whether a memory needs re-embedding (mirrors select_stale_embeddings)."""
+    if not mem.get("embedding"):
+        return True
+    return mem.get("compression_level", 0) > 0 and not mem.get(
+        "reembedded_after_compression"
+    )
+
+
+def run_sleep_compute_streamed(
+    memory_chunks: Iterable[list[dict[str, Any]]],
+    clusters: list[dict[str, Any]] | None = None,
+    directory: str = "",
+    period_label: str = "recent",
+    max_replay: int = 50,
+    max_reembed: int = 100,
+) -> dict[str, Any]:
+    """Single-pass, constant-memory sleep compute over chunked memories.
+
+    Every full-list scan in the legacy pass is a BOUNDED reduction, so the
+    whole computation needs only O(max_replay + max_reembed + vocab) RAM
+    regardless of corpus size:
+      - dream replay  → a size-``max_replay`` min-heap of hottest memories;
+      - re-embedding  → the first ``max_reembed`` stale memories;
+      - narration     → a streaming keyword-frequency dict + running top-1
+        importance + a count.
+    Peak RAM is one chunk plus those bounded accumulators — so it scales to
+    millions of memories. ``run_sleep_compute`` delegates here with a single
+    chunk for callers that already hold a list.
+    """
+    heat_heap: list[tuple[float, int, dict[str, Any]]] = []
+    stale: list[dict[str, Any]] = []
+    freq: dict[str, int] = {}
+    top_imp: dict[str, Any] | None = None
+    count = 0
+    order = 0
+    for chunk in memory_chunks:
+        for mem in chunk:
+            count += 1
+            order += 1
+            heat = float(mem.get("heat", 0) or 0)
+            if len(heat_heap) < max_replay:
+                heapq.heappush(heat_heap, (heat, order, mem))
+            elif heat > heat_heap[0][0]:
+                heapq.heapreplace(heat_heap, (heat, order, mem))
+            if len(stale) < max_reembed and _is_stale_embedding(mem):
+                stale.append(mem)
+            content = mem.get("content", "")
+            if content:
+                _accumulate_keywords(freq, content)
+            if top_imp is None or float(mem.get("importance", 0) or 0) > float(
+                top_imp.get("importance", 0) or 0
+            ):
+                top_imp = mem
+
+    hottest = [m for _, _, m in sorted(heat_heap, key=lambda t: t[0], reverse=True)]
+    return {
+        "replay_updates": _replay_updates_for(hottest),
+        "cluster_summaries": summarize_clusters(clusters or []),
+        "stale_embeddings": [
+            {"memory_id": m["id"], "content": m.get("content", "")} for m in stale
+        ],
+        "narration": _narration_from_accumulators(
+            freq, top_imp, count, directory, period_label
+        ),
+    }
 
 
 def run_sleep_compute(
@@ -239,30 +238,16 @@ def run_sleep_compute(
     max_replay: int = 50,
     max_reembed: int = 100,
 ) -> dict[str, Any]:
-    """Run the full sleep compute pass.
+    """Run the full sleep compute pass over an in-memory list.
 
-    Returns a plan dict with all updates — the caller (consolidate handler)
-    is responsible for persisting these to the store.
-
-    Returns:
-        {
-            replay_updates: [{memory_id, enriched_content}],
-            cluster_summaries: [{cluster_id, level, summary, memory_count}],
-            stale_embeddings: [{memory_id, content}],
-            narration: {narrative_text, keyword_summary, memory_count, period},
-        }
+    Thin wrapper over ``run_sleep_compute_streamed`` (one chunk) so existing
+    list-holding callers keep working; new callers should stream chunks.
     """
-    replay_updates = dream_replay(memories, max_memories=max_replay)
-    cluster_summaries = summarize_clusters(clusters or [])
-    stale = select_stale_embeddings(memories, max_memories=max_reembed)
-    stale_embeddings = [
-        {"memory_id": m["id"], "content": m.get("content", "")} for m in stale
-    ]
-    narration = auto_narrate(memories, directory=directory, period_label=period_label)
-
-    return {
-        "replay_updates": replay_updates,
-        "cluster_summaries": cluster_summaries,
-        "stale_embeddings": stale_embeddings,
-        "narration": narration,
-    }
+    return run_sleep_compute_streamed(
+        [memories],
+        clusters=clusters,
+        directory=directory,
+        period_label=period_label,
+        max_replay=max_replay,
+        max_reembed=max_reembed,
+    )

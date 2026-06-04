@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import logging
 
-from mcp_server.core.sleep_compute import run_sleep_compute
+from mcp_server.core.sleep_compute import (
+    run_sleep_compute,
+    run_sleep_compute_streamed,
+)
 from mcp_server.infrastructure.embedding_engine import EmbeddingEngine
 from mcp_server.infrastructure.memory_store import MemoryStore
 
@@ -22,11 +25,18 @@ def run_deep_sleep(
 ) -> dict:
     """Run deep sleep compute: dream replay, summarization, re-embedding.
 
-    `memories` may be pre-loaded by the consolidate handler (issue #13).
+    When the consolidate handler pre-loads the memory list (issue #13) we
+    reduce over it directly. When called standalone (``memories is None``) we
+    STREAM via the chunked decay cursor so peak RAM is one chunk plus the
+    bounded replay/stale/narration accumulators — not the whole corpus (the
+    old ``get_all_memories_for_decay()`` materialized 500k+ rows at once).
     """
     if memories is None:
-        memories = store.get_all_memories_for_decay()
-    plan = run_sleep_compute(memories, clusters=[], directory="")
+        plan = run_sleep_compute_streamed(
+            store.iter_memories_for_decay(), clusters=[], directory=""
+        )
+    else:
+        plan = run_sleep_compute(memories, clusters=[], directory="")
 
     replayed = _apply_dream_replay(store, embeddings, plan["replay_updates"])
     reembedded = _fix_stale_embeddings(

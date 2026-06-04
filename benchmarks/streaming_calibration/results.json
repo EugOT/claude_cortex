@@ -1,0 +1,146 @@
+{
+  "sizes": [
+    100,
+    200,
+    500,
+    1000,
+    2000,
+    5000,
+    10000
+  ],
+  "batches_per_size": 20,
+  "entity": [
+    {
+      "kind": "entity",
+      "batch_size": 100,
+      "row_bytes": 213,
+      "p50_ms": 7.947,
+      "p99_ms": 10.432,
+      "rows_per_s": 12583
+    },
+    {
+      "kind": "entity",
+      "batch_size": 200,
+      "row_bytes": 213,
+      "p50_ms": 14.587,
+      "p99_ms": 18.149,
+      "rows_per_s": 13710
+    },
+    {
+      "kind": "entity",
+      "batch_size": 500,
+      "row_bytes": 213,
+      "p50_ms": 16.382,
+      "p99_ms": 29.265,
+      "rows_per_s": 30522
+    },
+    {
+      "kind": "entity",
+      "batch_size": 1000,
+      "row_bytes": 213,
+      "p50_ms": 19.846,
+      "p99_ms": 22.765,
+      "rows_per_s": 50389
+    },
+    {
+      "kind": "entity",
+      "batch_size": 2000,
+      "row_bytes": 213,
+      "p50_ms": 39.921,
+      "p99_ms": 57.099,
+      "rows_per_s": 50099
+    },
+    {
+      "kind": "entity",
+      "batch_size": 5000,
+      "row_bytes": 213,
+      "p50_ms": 68.478,
+      "p99_ms": 111.51,
+      "rows_per_s": 73016
+    },
+    {
+      "kind": "entity",
+      "batch_size": 10000,
+      "row_bytes": 213,
+      "p50_ms": 151.676,
+      "p99_ms": 270.98,
+      "rows_per_s": 65930
+    }
+  ],
+  "edge": [
+    {
+      "kind": "edge",
+      "batch_size": 100,
+      "row_bytes": 206,
+      "p50_ms": 17.846,
+      "p99_ms": 19.58,
+      "rows_per_s": 5604
+    },
+    {
+      "kind": "edge",
+      "batch_size": 200,
+      "row_bytes": 206,
+      "p50_ms": 22.822,
+      "p99_ms": 24.487,
+      "rows_per_s": 8763
+    },
+    {
+      "kind": "edge",
+      "batch_size": 500,
+      "row_bytes": 206,
+      "p50_ms": 25.075,
+      "p99_ms": 29.327,
+      "rows_per_s": 19940
+    },
+    {
+      "kind": "edge",
+      "batch_size": 1000,
+      "row_bytes": 206,
+      "p50_ms": 29.251,
+      "p99_ms": 67.77,
+      "rows_per_s": 34187
+    },
+    {
+      "kind": "edge",
+      "batch_size": 2000,
+      "row_bytes": 206,
+      "p50_ms": 35.839,
+      "p99_ms": 72.269,
+      "rows_per_s": 55806
+    },
+    {
+      "kind": "edge",
+      "batch_size": 5000,
+      "row_bytes": 206,
+      "p50_ms": 33.736,
+      "p99_ms": 93.775,
+      "rows_per_s": 148210
+    },
+    {
+      "kind": "edge",
+      "batch_size": 10000,
+      "row_bytes": 206,
+      "p50_ms": 45.148,
+      "p99_ms": 130.59,
+      "rows_per_s": 221495
+    }
+  ],
+  "derived": {
+    "entity": {
+      "row_bytes": 213,
+      "w_target_ms": 22.765,
+      "b_min": 1000,
+      "b_max": 1000,
+      "best_throughput_size": 5000,
+      "best_rows_per_s": 73016
+    },
+    "edge": {
+      "row_bytes": 206,
+      "w_target_ms": 67.77,
+      "b_min": 5000,
+      "b_max": 5000,
+      "best_throughput_size": 10000,
+      "best_rows_per_s": 221495
+    }
+  }
+}

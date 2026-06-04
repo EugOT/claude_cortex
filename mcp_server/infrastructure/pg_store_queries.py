@@ -210,19 +210,24 @@ class PgQueryMixin:
             return
 
         # Batch pool: consolidate is the dominant caller; long-lived
-        # connection for cursor iteration.
+        # connection for cursor iteration. The pool is autocommit=True, but a
+        # named (server-side) cursor needs ``DECLARE CURSOR`` inside an open
+        # transaction — so wrap the iteration in ``conn.transaction()`` (which
+        # issues BEGIN/COMMIT even under autocommit). The read transaction also
+        # gives the whole stream a single consistent snapshot.
         with self.batch_pool.connection() as conn:
-            with conn.cursor(name="decay_stream") as cur:
-                cur.itersize = chunk_size
-                cur.execute("SELECT * FROM memories WHERE NOT is_stale")
-                chunk: list[dict[str, Any]] = []
-                for row in cur:
-                    chunk.append(self._normalize_memory_row(dict(row)))
-                    if len(chunk) >= chunk_size:
+            with conn.transaction():
+                with conn.cursor(name="decay_stream") as cur:
+                    cur.itersize = chunk_size
+                    cur.execute("SELECT * FROM memories WHERE NOT is_stale")
+                    chunk: list[dict[str, Any]] = []
+                    for row in cur:
+                        chunk.append(self._normalize_memory_row(dict(row)))
+                        if len(chunk) >= chunk_size:
+                            yield chunk
+                            chunk = []
+                    if chunk:
                         yield chunk
-                        chunk = []
-                if chunk:
-                    yield chunk
 
     def search_by_tag_vector(
         self,

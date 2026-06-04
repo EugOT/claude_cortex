@@ -191,14 +191,16 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
     embeddings = get_embedding_engine()
     start = time.monotonic()
 
-    # Phase B (issue #13): load the full memory list once and thread it
-    # through every stage that needs it, so consolidate does ONE load
-    # instead of 6 (decay, compression, memify, homeostatic, sleep,
-    # emergence). Cheap stages still load ad-hoc for standalone callers.
-    memories = store.get_all_memories_for_decay()
-
-    stats = _run_cycles(args, store, settings, embeddings, memories)
-    stats = _run_always_cycles(args, store, stats, memories)
+    # Constant-memory consolidate (sharded-popping-harbor): every stage now
+    # STREAMS the memory corpus in bounded chunks via
+    # ``store.iter_memories_for_decay()`` (decay/compression/memify/sleep/
+    # homeostatic) or a streaming reducer (emergence, wiki cluster count), so
+    # peak RAM is one chunk plus bounded accumulators rather than the whole
+    # ~1GB corpus. This trades the single issue-13 shared load for one bounded
+    # cursor scan per stage — the correct trade at scale, where the shared list
+    # would OOM. A future single-pass combined reducer can fold these scans.
+    stats = _run_cycles(args, store, settings, embeddings)
+    stats = _run_always_cycles(args, store, stats)
 
     # 2026-05-18: autonomous wiki maintenance. The wiki has to stay up
     # to date without a human in the loop, so every consolidation cycle
@@ -212,7 +214,7 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
         cap = int(cap_raw) if cap_raw is not None and int(cap_raw) > 0 else None
         wiki_stats = _timed(
             run_wiki_maintenance,
-            memories,
+            store,
             apply_stubs=bool(args.get("wiki_apply_stubs", True)),
             apply_classifier_rejects=bool(
                 args.get("wiki_apply_classifier_rejects", True)
@@ -257,33 +259,32 @@ def _run_cycles(
     store: MemoryStore,
     settings: Any,
     embeddings: EmbeddingEngine,
-    memories: list[dict],
 ) -> dict[str, Any]:
     """Run optional maintenance cycles based on args flags.
 
-    `memories` is the consolidation-scoped snapshot so stages share one
-    load across the whole run (issue #13).
+    Each memory-consuming stage is passed no list, so it streams the corpus in
+    bounded chunks (constant memory) instead of sharing a single resident load.
     """
     stats: dict[str, Any] = {}
 
     if args.get("decay", True):
-        stats["decay"] = _timed(run_decay_cycle, store, settings, memories)
+        stats["decay"] = _timed(run_decay_cycle, store, settings, None)
         stats["plasticity"] = _timed(run_plasticity_cycle, store)
         stats["pruning"] = _timed(run_pruning_cycle, store)
 
     if args.get("compress", True):
         stats["compression"] = _timed(
-            run_compression_cycle, store, settings, embeddings, memories
+            run_compression_cycle, store, settings, embeddings, None
         )
 
     if args.get("cls", True):
         stats["cls"] = _timed(run_cls_cycle, store, settings, embeddings)
 
     if args.get("memify", True):
-        stats["memify"] = _timed(run_memify_cycle, store, memories)
+        stats["memify"] = _timed(run_memify_cycle, store, None)
 
     if args.get("deep", False):
-        stats["deep_sleep"] = _timed(run_deep_sleep, store, embeddings, memories)
+        stats["deep_sleep"] = _timed(run_deep_sleep, store, embeddings, None)
 
     return stats
 
@@ -292,22 +293,22 @@ def _run_always_cycles(
     args: dict,
     store: MemoryStore,
     stats: dict[str, Any],
-    memories: list[dict],
 ) -> dict[str, Any]:
     """Run cycles that always execute regardless of flags."""
     stats["cascade"] = _timed(run_cascade_advancement, store)
-    stats["homeostatic"] = _timed(run_homeostatic_cycle, store, memories)
+    stats["homeostatic"] = _timed(run_homeostatic_cycle, store, None)
 
     if args.get("deep", False):
         stats["transfer"] = _timed(run_two_stage_transfer, store)
 
     def _run_emergence() -> dict[str, Any]:
-        # Uses the consolidation-scoped memory list — no extra load.
-        # Source: issue #13 (darval) — was importing emergence_tracker
-        # which doesn't define generate_emergence_report (lives in
-        # emergence_metrics). Same shape as the homeostatic_health
-        # AttributeError fixed in 69d81fb.
-        return emergence_metrics.generate_emergence_report(memories) or {}
+        # Streaming reducer: one bounded cursor pass, no resident corpus.
+        chunks = (
+            store.iter_memories_for_decay()
+            if hasattr(store, "iter_memories_for_decay")
+            else [store.get_all_memories_for_decay()]
+        )
+        return emergence_metrics.generate_emergence_report_streamed(chunks) or {}
 
     stats["emergence"] = _timed(_run_emergence)
 

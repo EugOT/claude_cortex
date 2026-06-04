@@ -323,18 +323,67 @@ def count_pending_clusters(
 ) -> int:
     """Count how many clusters would yield a fresh authoring job.
 
-    Cheap-to-call summary for SessionStart preamble and ``consolidate``
-    telemetry. Uses the same defaults as ``build_clusters`` so the
-    count matches what ``curate_wiki`` would return on full invocation.
+    Thin wrapper over the streaming counter (one chunk) so the list and
+    streaming paths can't diverge.
     """
-    return len(
-        build_clusters(
-            memories,
-            domain=domain,
-            wiki_root=wiki_root,
-            skip_recently_authored=True,
-        )
+    return count_pending_clusters_streamed(
+        [memories], domain=domain, wiki_root=wiki_root
     )
+
+
+def count_pending_clusters_streamed(
+    memory_chunks,
+    *,
+    domain: str | None = None,
+    min_memories: int = MIN_MEMORIES_PER_CLUSTER,
+    min_avg_heat: float = MIN_AVG_HEAT_FOR_PAGE,
+    wiki_root: str | None = None,
+    skip_recently_authored: bool = True,
+) -> int:
+    """Count pending cluster jobs in ONE streaming pass — no resident corpus.
+
+    ``build_clusters`` buckets each memory by its dominant entity (a per-memory
+    key, not pairwise clustering), so the *count* needs only per-entity
+    aggregates: a count, a heat sum, a tag counter (for the kind→path the
+    recently-authored filter needs), and the first-seen domain. Peak RAM is
+    O(num_entities), not O(N). Mirrors ``build_clusters``'s gates exactly; the
+    full memory-bearing clusters are still built on demand by ``curate_wiki``.
+    """
+    buckets: dict[str, dict] = {}
+    for chunk in memory_chunks:
+        for mem in chunk:
+            if domain and mem.get("domain") != domain:
+                continue
+            entities = _extract_entities_from_content(mem.get("content") or "")
+            if not entities:
+                continue
+            top_entity = Counter(entities).most_common(1)[0][0]
+            if top_entity.lower() in _TOPIC_STOPWORDS or len(top_entity) < 4:
+                continue
+            b = buckets.get(top_entity)
+            if b is None:
+                b = {"count": 0, "heat_sum": 0.0, "tags": Counter(), "domain": None}
+                buckets[top_entity] = b
+            b["count"] += 1
+            b["heat_sum"] += mem.get("effective_heat", mem.get("heat", 0.0))
+            for t in mem.get("tags") or []:
+                b["tags"][t.lower()] += 1
+            if b["domain"] is None:
+                b["domain"] = (mem.get("domain") or "cortex").lower()
+
+    count = 0
+    for entity, b in buckets.items():
+        if b["count"] < min_memories:
+            continue
+        if b["heat_sum"] / b["count"] < min_avg_heat:
+            continue
+        if skip_recently_authored and wiki_root:
+            kind = _infer_kind_from_tags(b["tags"])
+            path = f"{_kind_dir(kind)}/{b['domain']}/{_slugify(entity)}.md"
+            if is_path_recently_authored(path, wiki_root):
+                continue
+        count += 1
+    return count
 
 
 def _infer_kind(memories: list[dict]) -> str:
@@ -343,7 +392,15 @@ def _infer_kind(memories: list[dict]) -> str:
     for m in memories:
         for t in m.get("tags") or []:
             tag_counter[t.lower()] += 1
-    # Prefer explicit signals
+    return _infer_kind_from_tags(tag_counter)
+
+
+def _infer_kind_from_tags(tag_counter: Counter[str]) -> str:
+    """Kind decision from an already-accumulated lower-cased tag counter.
+
+    Shared by ``_infer_kind`` (list path) and the streaming cluster counter,
+    which folds tags per bucket online instead of holding the memory list.
+    """
     if tag_counter.get("decision", 0) > 0 or tag_counter.get("adr", 0) > 0:
         return "adr"
     if (

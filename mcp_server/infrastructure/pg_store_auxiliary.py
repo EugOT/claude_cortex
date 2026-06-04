@@ -17,6 +17,45 @@ class PgAuxiliaryMixin:
         """Provided by PgMemoryStore."""
         return dict(row)
 
+    # ── Ingest checkpoint (resumable streaming ingest) ────────────────
+
+    def get_ingest_progress(self, run_id: str) -> tuple[str, int]:
+        """Return ``(last_key_committed, rows_committed)`` for ``run_id``.
+
+        Returns ``("", 0)`` when no checkpoint exists (fresh run). A resumed
+        ingest starts after ``last_key_committed``; because entity/edge writes
+        are idempotent (NOT EXISTS / ON CONFLICT), an advisory — possibly one
+        page stale — checkpoint is always safe.
+        """
+        row = self._execute(
+            "SELECT last_key_committed, rows_committed FROM ingest_progress "
+            "WHERE run_id = %s",
+            (run_id,),
+        ).fetchone()
+        if not row:
+            return "", 0
+        return row["last_key_committed"], int(row["rows_committed"] or 0)
+
+    def set_ingest_progress(
+        self, run_id: str, last_key_committed: str, rows_committed: int
+    ) -> None:
+        """Upsert the ingest checkpoint for ``run_id``."""
+        self._execute(
+            "INSERT INTO ingest_progress "
+            "(run_id, last_key_committed, rows_committed, updated_at) "
+            "VALUES (%s, %s, %s, NOW()) "
+            "ON CONFLICT (run_id) DO UPDATE SET "
+            "last_key_committed = EXCLUDED.last_key_committed, "
+            "rows_committed = EXCLUDED.rows_committed, updated_at = NOW()",
+            (run_id, last_key_committed, int(rows_committed)),
+        )
+        self._conn.commit()
+
+    def clear_ingest_progress(self, run_id: str) -> None:
+        """Delete the checkpoint once a run completes cleanly."""
+        self._execute("DELETE FROM ingest_progress WHERE run_id = %s", (run_id,))
+        self._conn.commit()
+
     # ── Prospective Memory ────────────────────────────────────────────
 
     def insert_prospective_memory(self, data: dict[str, Any]) -> int:

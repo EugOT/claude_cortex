@@ -38,24 +38,42 @@ from mcp_server.handlers.ingest_codebase_schema import schema  # re-exported
 from mcp_server.handlers.ingest_helpers import call_upstream, normalise_mcp_payload
 from mcp_server.infrastructure.memory_config import get_memory_settings
 from mcp_server.infrastructure.memory_store import MemoryStore
+from mcp_server.core.streaming.adaptive_writer import (
+    AdaptiveBatchWriter,
+    adaptive_drain,
+)
+from mcp_server.core.streaming.calibrated import (
+    edge_queue_cap,
+    make_edge_controller,
+    make_entity_controller,
+)
+from mcp_server.infrastructure.staging_resolve_sink import (
+    build_edge_sink,
+    build_entity_sink,
+)
 
 logger = logging.getLogger(__name__)
 
 # Upstream MCP server name in mcp-connections.json.
 _UPSTREAM_SERVER = "codebase"
 
-# Symbol/process caps. None = no LIMIT clause. The hard cap below is a
-# safety backstop against multi-GB RAM spikes: Kuzu returns the full
-# result as a single JSON-RPC blob so every symbol materialises as a
-# Python dict before any write happens. At 500k symbols that is 2–4 GB
-# of transient RSS, which OOMs most dev machines. The KG entities carry
-# full structural information; a per-symbol cap only drops the tail of
-# low-relevance symbols from the entity graph — the high-relevance core
-# (community leaders, process entry-points) ranks first.
-# source: Carnot efficiency analysis — measured OOM at ~500k symbols,
-#   peak RSS O(N_symbols + N_edges) Python dicts, 2026-06-03.
-_DEFAULT_TOP_SYMBOLS: int | None = 50_000
+# Symbol ingest page size. Symbols are fetched and written in pages of
+# this size so the peak RAM stays at O(page_size) rather than O(N_symbols).
+# Kuzu queries use SKIP/LIMIT pagination per page so the MCP JSON-RPC
+# blob per request is bounded regardless of total corpus size.
+# Call edges and containment edges are pulled once after all symbol pages
+# complete (they reference qualified_names that must already exist).
+# source: Carnot analysis — root cause of OOM is accumulating all symbols
+#   in one Python list before any write; adaptive pagination removes that.
+_SYMBOL_PAGE_SIZE: int = 5_000
+_DEFAULT_TOP_SYMBOLS: int | None = None  # None = ingest full graph, paged
 _DEFAULT_TOP_PROCESSES: int | None = None
+
+# Edge fetch+write page size. Edges are paged out of Kuzu via SKIP/LIMIT and
+# written one page at a time to a single staging sink on the loop thread —
+# constant memory on both sides. source: benchmark — the proven 1000-row chunk
+# (74MB peak RSS / ~49.5k rows/s streaming 500k rows, measured 2026-06-03).
+_EDGE_PAGE_SIZE: int = 1_000
 
 __all__ = ["schema", "handler"]
 
@@ -126,105 +144,161 @@ def _parse_int_or_none(raw: Any) -> int | None:
     return int(raw) if raw is not None else None
 
 
-def _attribute_files_to_symbols(
-    symbols: list[dict[str, Any]],
-    file_edges: list[tuple[str, str]],
-    known_files: set[str],
-) -> list[str]:
-    """Assign ``sym["file"]`` from the authoritative File→symbol
-    containment edges. Returns diagnostic strings for symbols that
-    fell through to the qn-split fallback (so non-Python indexers
-    that don't emit containment edges are visible to the user).
-
-    The qn-split fallback is only trusted when its derived path
-    appears in ``known_files`` — otherwise we leave file=None rather
-    than fabricating a Rust crate/module name as a file path.
-    """
-    qn_to_file: dict[str, str] = {qn: f for (f, qn) in file_edges}
-    fallback_used = 0
-    fallback_unverified = 0
-    for sym in symbols:
-        qn = sym.get("qualified_name")
-        if not qn:
-            continue
-        authoritative = qn_to_file.get(qn)
-        if authoritative is not None:
-            sym["file"] = authoritative
-            continue
-        # No containment edge — try the qn-split fallback, but only
-        # accept candidates that correspond to actual File nodes.
-        # ``file_path_from_qn`` returns a priority-ordered list; pick
-        # the first candidate present in ``known_files``.
-        candidates = cypher.file_path_from_qn(qn)
-        match = next((c for c in candidates if c in known_files), None)
-        if match is not None:
-            sym["file"] = match
-            fallback_used += 1
-        else:
-            sym["file"] = None
-            if candidates:
-                fallback_unverified += 1
-    diagnostics: list[str] = []
-    if fallback_used:
-        diagnostics.append(
-            f"file-attribution: {fallback_used} symbols had no "
-            f"(:File)-[]->(:symbol) edge; used qn-split fallback "
-            f"(verified against known files)"
-        )
-    if fallback_unverified:
-        diagnostics.append(
-            f"file-attribution: {fallback_unverified} symbols had no "
-            f"containment edge AND no qn-split candidate matched a "
-            f"known file; file=None (orphan symbols or qn format the "
-            f"fallback heuristics don't cover)"
-        )
-    return diagnostics
+def _entity_rows_from_files(
+    files: list[dict[str, Any]], domain: str
+) -> list[writers.EntityRow]:
+    """Project the file list into entity rows (None-safe)."""
+    rows: list[writers.EntityRow] = []
+    for f in files:
+        row = writers.file_entity_row(f, domain)
+        if row is not None:
+            rows.append(row)
+    return rows
 
 
-async def _pull_symbols_and_files(
+async def _ingest_entities(
+    store: Any,
     graph_path: str,
+    domain: str,
+    files: list[dict[str, Any]],
+    diagnostics: list[str],
+    page_size: int,
     top_symbols: int | None,
-) -> tuple[
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[tuple[str, str]],
-    list[tuple[str, str]],
-    list[str],
-]:
-    """Project the full chain hierarchy: symbols, files, call edges,
-    file-containment edges. Returns the four artefacts plus a flat
-    diagnostics list (one entry per failed sub-query)."""
-    diagnostics: list[str] = []
-    symbols, sym_diag = await cypher.fetch_top_symbols(graph_path, top_symbols)
-    diagnostics.extend(sym_diag)
-    # Files are pulled UNCAPPED regardless of ``top_symbols``. The
-    # File→symbol containment join (cypher.fetch_file_containment)
-    # filters by the known-files set; if files are truncated to a slice
-    # smaller than the symbols' file population, the join collapses to
-    # near-zero edges. Decouple: always pull every File node so
-    # containment edges resolve. ``top_symbols`` only caps symbols.
-    files, file_diag = await cypher.fetch_files(graph_path, limit=None)
-    diagnostics.extend(file_diag)
-    call_edges: list[tuple[str, str]] = []
-    file_edges: list[tuple[str, str]] = []
-    if symbols:
-        known_symbols = {
-            s["qualified_name"] for s in symbols if s.get("qualified_name")
-        }
-        call_edges, call_diag = await cypher.fetch_call_edges(graph_path, known_symbols)
-        diagnostics.extend(call_diag)
-        known_files = {f["path"] for f in files if f.get("path")}
-        if known_files:
-            file_edges, contain_diag = await cypher.fetch_file_containment(
-                graph_path, known_files, known_symbols
+) -> int:
+    """Stream files + paged symbols into KG entities via the staging sink.
+
+    Entities resolve their ids server-side (NOT EXISTS dedup on LOWER(name));
+    NO qualified_name -> id map is held in Python -- that map was the
+    O(total_symbols) buffer that broke constant memory. The sink is
+    SINGLE-WRITER on this (the event loop's) thread: its borrowed connection
+    is created and used on one thread only, and Kuzu fetch / PG write are
+    sequential per page, so peak RAM is O(page_size). Kuzu is read-only during
+    ingest (graph built by ensure_graph first), so SKIP/LIMIT paging is
+    drift-safe. Returns the number of symbol rows seen.
+    """
+    run_id = f"ingest-symbols:{domain}"
+    sink = build_entity_sink(lambda: store.batch_pool.connection())
+    # Single-writer (NOT EXISTS dedup needs no race) but ADAPTIVELY sized: the
+    # writer buffers Kuzu pages and flushes AIMD-sized batches (measured bounds
+    # in calibrated.py), growing while PG keeps up and shrinking when it slows.
+    writer = AdaptiveBatchWriter(sink, make_entity_controller())
+    offset, total_symbols = _checkpoint_read(store, run_id)  # 0,0 on a fresh run
+    try:
+        # File entities are idempotent (NOT EXISTS), so re-running them on a
+        # resume is harmless; write them once at the start regardless.
+        file_rows = _entity_rows_from_files(files, domain)
+        if file_rows:
+            writer.add_many(file_rows)
+        while True:
+            page, page_diag = await cypher.fetch_symbols_page(
+                graph_path, offset=offset, page_size=page_size
             )
-            diagnostics.extend(contain_diag)
-        else:
-            known_files = set()
-        diagnostics.extend(
-            _attribute_files_to_symbols(symbols, file_edges, known_files)
-        )
-    return symbols, files, call_edges, file_edges, diagnostics
+            diagnostics.extend(page_diag)
+            if not page:
+                break
+            rows = [
+                r
+                for s in page
+                if (r := writers.symbol_entity_row(s, domain)) is not None
+            ]
+            if rows:
+                writer.add_many(rows)
+            total_symbols += len(page)
+            offset += page_size
+            # Advisory checkpoint after the page committed. A crash before this
+            # write re-does at most one page on resume (idempotent → safe).
+            _checkpoint_write(store, run_id, offset, total_symbols)
+            if top_symbols is not None and total_symbols >= top_symbols:
+                break
+        writer.flush_remaining()  # flush the buffered tail
+    finally:
+        sink.close()
+    _checkpoint_clear(store, run_id)  # clean completion — drop the checkpoint
+    return total_symbols
+
+
+def _checkpoint_read(store: Any, run_id: str) -> tuple[int, int]:
+    """Resume ``(offset, rows_seen)`` from the ingest checkpoint, or (0, 0).
+
+    Guarded so stores without the checkpoint API (SQLite / test fakes) simply
+    start fresh.
+    """
+    if not hasattr(store, "get_ingest_progress"):
+        return 0, 0
+    last_key, rows = store.get_ingest_progress(run_id)
+    try:
+        return (int(last_key) if last_key else 0), int(rows or 0)
+    except (TypeError, ValueError):
+        return 0, int(rows or 0)
+
+
+def _checkpoint_write(store: Any, run_id: str, offset: int, total: int) -> None:
+    if hasattr(store, "set_ingest_progress"):
+        store.set_ingest_progress(run_id, str(offset), total)
+
+
+def _checkpoint_clear(store: Any, run_id: str) -> None:
+    if hasattr(store, "clear_ingest_progress"):
+        store.clear_ingest_progress(run_id)
+
+
+def _edge_rows(batch: list[tuple[str, str]], builder: Any) -> list[writers.EdgeRow]:
+    """Project a raw-edge page through ``builder``, dropping None rows."""
+    out: list[writers.EdgeRow] = []
+    for e in batch:
+        row = builder(e)
+        if row is not None:
+            out.append(row)
+    return out
+
+
+async def _ingest_edges(
+    store: Any,
+    graph_path: str,
+    domain: str,
+    files: list[dict[str, Any]],
+    diagnostics: list[str],
+    page_size: int,
+) -> tuple[int, int]:
+    """Stream call + containment edges into LOAD-BALANCED adaptive writers.
+
+    The async Kuzu pagers feed ``adaptive_drain``: ``concurrency=2`` worker
+    threads (safe here — edges use ``ON CONFLICT DO NOTHING``, unlike the
+    race-prone single-writer entity stage) each run an AIMD-sized
+    ``AdaptiveBatchWriter`` with its own ``batch_pool`` connection. The bounded
+    queue applies backpressure to the pagers, and under PG contention both
+    controllers shrink together (AIMD fair-share) — emergent load balancing.
+    Endpoints resolve by SQL JOIN against the entities committed in Phase 2
+    (the staged barrier). Returns (edges_written, edges_seen); the difference is
+    the dangling-endpoint count.
+    """
+    seen = [0]  # producer-side count (mutable box, updated on the loop thread)
+
+    async def _edge_pages():
+        async for batch, diag in cypher.iter_call_edges(graph_path, page_size):
+            diagnostics.extend(diag)
+            rows = _edge_rows(batch, writers.call_edge_row)
+            seen[0] += len(rows)
+            yield rows
+        known_files = {f["path"] for f in files if f.get("path")}
+        async for batch, diag in cypher.iter_containment_edges(
+            graph_path, known_files, page_size
+        ):
+            diagnostics.extend(diag)
+            rows = _edge_rows(batch, writers.containment_edge_row)
+            seen[0] += len(rows)
+            yield rows
+
+    result = await adaptive_drain(
+        _edge_pages(),
+        lambda: build_edge_sink(lambda: store.batch_pool.connection()),
+        make_edge_controller,
+        concurrency=2,
+        queue_cap=edge_queue_cap(),
+    )
+    for err in result.errors:
+        logger.warning("edge drain: %s", err)
+    return result.rows_written, seen[0]
 
 
 async def _pull_processes(
@@ -287,36 +361,51 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
     # current graph (no stale/empty hits in the impact query).
     _prune_precedent_graphs(output_dir)
 
-    if top_symbols is None or top_symbols > 0:
-        (
-            symbols,
-            files,
-            call_edges,
-            file_edges,
-            diagnostics,
-        ) = await _pull_symbols_and_files(graph_path, top_symbols)
-    else:
-        symbols, files, call_edges, file_edges, diagnostics = [], [], [], [], []
+    diagnostics: list[Any] = []
+    do_symbols = top_symbols is None or top_symbols > 0
 
+    # ── Phase 1: files (small; become file entities + containment sources) ─
+    files: list[dict[str, Any]] = []
+    if do_symbols:
+        files, file_diag = await cypher.fetch_files(graph_path, limit=None)
+        diagnostics.extend(file_diag)
+
+    # ── Phase 2: entities — files + paged symbols streamed to the staging
+    # sink. No qualified_name->id map is held; ids resolve server-side. ─────
+    total_symbols_seen = 0
+    if do_symbols:
+        total_symbols_seen = await _ingest_entities(
+            store=store,
+            graph_path=graph_path,
+            domain=domain,
+            files=files,
+            diagnostics=diagnostics,
+            page_size=_SYMBOL_PAGE_SIZE,
+            top_symbols=top_symbols,
+        )
+
+    # ── Phase 3: edges — call + containment, streamed page-by-page and
+    # resolved by SQL JOIN against the entities committed in Phase 2 (the
+    # staged barrier: Phase 2 has fully returned before any edge resolves).
+    # Constant memory on both fetch and write sides — no edge list, no
+    # name-set. ───────────────────────────────────────────────────────────
+    edges_written = 0
+    edges_seen = 0
+    if total_symbols_seen:
+        edges_written, edges_seen = await _ingest_edges(
+            store=store,
+            graph_path=graph_path,
+            domain=domain,
+            files=files,
+            diagnostics=diagnostics,
+            page_size=_EDGE_PAGE_SIZE,
+        )
+
+    # ── Phase 4: processes ───────────────────────────────────────────────
     processes = (
         await _pull_processes(graph_path, top_processes)
         if (top_processes is None or top_processes > 0)
         else []
-    )
-
-    # Code symbols are high-cardinality, low-meaning units — they are
-    # already stored as KG entities (the navigable representation). Writing
-    # parallel memory rows adds 500k+ rows per ingest run, triggers
-    # ~800k per-row PG commits (fsync storm), deferred embedding inference
-    # for all of them, and floods the viz with code-reference nodes that
-    # are never semantically searched. Symbols are reached via KG traversal,
-    # not recall(). source: Carnot efficiency analysis, 2026-06-03.
-    sym_ent, ent_diag = writers.write_symbol_entities(store, symbols, domain)
-    diagnostics.extend(ent_diag)
-    file_ent = writers.write_file_entities(store, files, domain)
-    call_count = writers.write_symbol_relationships(store, call_edges, sym_ent)
-    contain_count = writers.write_file_relationships(
-        store, file_edges, file_ent, sym_ent
     )
     wiki_paths = pages.write_process_pages(processes)
 
@@ -324,10 +413,11 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
         "ingested": True,
         "graph_path": graph_path,
         "analyze": analyze_stats,
-        "entities_written": len(sym_ent) + len(file_ent),
-        "edges_written": call_count + contain_count,
+        "entities_written": total_symbols_seen + len(files),
+        "edges_written": edges_written,
+        "edges_seen": edges_seen,
         "wiki_pages_written": wiki_paths,
-        "symbol_count_seen": len(symbols),
+        "symbol_count_seen": total_symbols_seen,
         "file_count_seen": len(files),
         "process_count_seen": len(processes),
     }

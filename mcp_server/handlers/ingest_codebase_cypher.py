@@ -24,7 +24,7 @@ edge in the graph (orphan symbols, virtual symbols).
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, AsyncIterator
 
 from mcp_server.errors import McpConnectionError
 from mcp_server.handlers.ingest_helpers import call_upstream, normalise_mcp_payload
@@ -211,91 +211,155 @@ async def fetch_top_symbols(
     return rows, diagnostics
 
 
-async def fetch_call_edges(
+async def fetch_symbols_page(
     graph_path: str,
-    known: set[str],
-) -> tuple[list[tuple[str, str]], list[str]]:
-    """Pull every call edge whose endpoints are in ``known``.
+    offset: int,
+    page_size: int,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Fetch one page of symbols starting at ``offset``.
 
-    Pushes the target-label filter server-side via Kuzu's label-OR
-    pattern so Function→Process / Function→Community noise doesn't
-    cross the wire. Returns (edges, diagnostics).
+    Uses ``SKIP``/``LIMIT`` in each per-label Cypher query so the
+    JSON-RPC payload per call is bounded by ``page_size`` regardless of
+    total corpus size. ``ORDER BY qualified_name`` gives stable pagination
+    across calls (no duplicates / gaps as long as the graph is unchanged).
+
+    Returns ``(symbols, diagnostics)``. An empty ``symbols`` list with an
+    empty ``diagnostics`` list means the page is exhausted (end of data).
     """
-    if not known:
-        return [], []
-    edges: list[tuple[str, str]] = []
-    seen: set[tuple[str, str]] = set()
+    rows: list[dict[str, Any]] = []
     diagnostics: list[str] = []
-    for src_label in ("Function", "Method", "Struct"):
+    per_label = max(1, page_size // len(_SYMBOL_LABELS))
+    for label, kind in _SYMBOL_LABELS:
         cypher = (
-            f"MATCH (a:{src_label})-[]->(b:Function|Method|Struct) "
-            f"RETURN a.qualified_name AS src, b.qualified_name AS dst"
+            f"MATCH (n:{label}) "
+            "RETURN n.qualified_name AS qualified_name, n.name AS name, "
+            "n.start_line AS start_line, n.end_line AS end_line, "
+            "n.visibility AS visibility "
+            "ORDER BY n.qualified_name "
+            f"SKIP {offset} LIMIT {per_label}"
         )
         try:
             result, err = await _run_query(graph_path, cypher)
         except _TRANSPORT_ERRORS as exc:
-            diagnostics.append(f"call-edges/{src_label}: {type(exc).__name__}: {exc}")
+            diagnostics.append(f"{label}@{offset}: {type(exc).__name__}: {exc}")
             continue
         if err is not None:
-            diagnostics.append(f"call-edges/{src_label}: {err}")
+            diagnostics.append(f"{label}@{offset}: {err}")
             continue
+        columns = result.get("columns") or [
+            "qualified_name",
+            "name",
+            "start_line",
+            "end_line",
+            "visibility",
+        ]
         for row in result.get("rows") or []:
-            if len(row) < 2:
+            record = dict(zip(columns, row))
+            qn = record.get("qualified_name") or record.get("name")
+            if not qn:
                 continue
-            src, dst = row[0], row[1]
-            if not src or not dst:
-                continue
-            if src not in known or dst not in known or src == dst:
-                continue
-            key = (src, dst)
-            if key in seen:
-                continue
-            seen.add(key)
-            edges.append(key)
-    return edges, diagnostics
+            rows.append(
+                {
+                    "qualified_name": qn,
+                    "name": record.get("name") or qn,
+                    "kind": kind,
+                    "file": None,
+                    "start_line": record.get("start_line"),
+                    "end_line": record.get("end_line"),
+                    "visibility": record.get("visibility"),
+                }
+            )
+    return rows, diagnostics
 
 
-async def fetch_file_containment(
+_CALL_SRC_LABELS: tuple[str, ...] = ("Function", "Method", "Struct")
+
+
+async def iter_call_edges(
+    graph_path: str,
+    page_size: int,
+) -> "AsyncIterator[tuple[list[tuple[str, str]], list[str]]]":
+    """Stream call edges page by page, ``(batch, diagnostics)`` per yield.
+
+    Pages each source-label query via SKIP/LIMIT so no full edge list (nor an
+    O(total_edges) dedup ``seen`` set) is ever held — duplicate edges are
+    deduped server-side by the staging ``ON CONFLICT DO NOTHING``, and dangling
+    endpoints by the JOIN. Kuzu is read-only during ingest, so OFFSET paging is
+    drift-safe. Self-edges are dropped. Peak RAM is one page.
+    """
+    for src_label in _CALL_SRC_LABELS:
+        offset = 0
+        while True:
+            cypher = (
+                f"MATCH (a:{src_label})-[]->(b:Function|Method|Struct) "
+                f"RETURN a.qualified_name AS src, b.qualified_name AS dst "
+                f"SKIP {offset} LIMIT {page_size}"
+            )
+            try:
+                result, err = await _run_query(graph_path, cypher)
+            except _TRANSPORT_ERRORS as exc:
+                yield (
+                    [],
+                    [f"call-edges/{src_label}@{offset}: {type(exc).__name__}: {exc}"],
+                )
+                break
+            if err is not None:
+                yield [], [f"call-edges/{src_label}@{offset}: {err}"]
+                break
+            rows = result.get("rows") or []
+            batch: list[tuple[str, str]] = []
+            for row in rows:
+                if len(row) < 2:
+                    continue
+                src, dst = row[0], row[1]
+                if src and dst and src != dst:
+                    batch.append((src, dst))
+            yield batch, []
+            if len(rows) < page_size:
+                break
+            offset += page_size
+
+
+async def iter_containment_edges(
     graph_path: str,
     known_files: set[str],
-    known_symbols: set[str],
-) -> tuple[list[tuple[str, str]], list[str]]:
-    """Pull (file_path, symbol_qn) containment edges.
+    page_size: int,
+) -> "AsyncIterator[tuple[list[tuple[str, str]], list[str]]]":
+    """Stream (file_path, symbol_qn) containment edges page by page.
 
-    Single label-OR query (push-down) instead of three round-trips.
-    Returns (edges, diagnostics).
+    Pages via SKIP/LIMIT — no full list, no ``seen`` set. ``known_files``
+    (bounded by file count) filters to ingested files; dangling symbol
+    endpoints are dropped by the staging JOIN. Peak RAM is one page.
     """
-    if not known_files or not known_symbols:
-        return [], []
-    edges: list[tuple[str, str]] = []
-    seen: set[tuple[str, str]] = set()
-    diagnostics: list[str] = []
-    cypher = (
-        "MATCH (f:File)-[]->(n:Function|Method|Struct) "
-        "RETURN f.path AS file_path, n.qualified_name AS qn"
-    )
-    try:
-        result, err = await _run_query(graph_path, cypher)
-    except _TRANSPORT_ERRORS as exc:
-        diagnostics.append(f"file-containment: {type(exc).__name__}: {exc}")
-        return edges, diagnostics
-    if err is not None:
-        diagnostics.append(f"file-containment: {err}")
-        return edges, diagnostics
-    for row in result.get("rows") or []:
-        if len(row) < 2:
-            continue
-        f, qn = row[0], row[1]
-        if not f or not qn:
-            continue
-        if f not in known_files or qn not in known_symbols:
-            continue
-        key = (f, qn)
-        if key in seen:
-            continue
-        seen.add(key)
-        edges.append(key)
-    return edges, diagnostics
+    if not known_files:
+        return
+    offset = 0
+    while True:
+        cypher = (
+            "MATCH (f:File)-[]->(n:Function|Method|Struct) "
+            "RETURN f.path AS file_path, n.qualified_name AS qn "
+            f"SKIP {offset} LIMIT {page_size}"
+        )
+        try:
+            result, err = await _run_query(graph_path, cypher)
+        except _TRANSPORT_ERRORS as exc:
+            yield [], [f"file-containment@{offset}: {type(exc).__name__}: {exc}"]
+            return
+        if err is not None:
+            yield [], [f"file-containment@{offset}: {err}"]
+            return
+        rows = result.get("rows") or []
+        batch: list[tuple[str, str]] = []
+        for row in rows:
+            if len(row) < 2:
+                continue
+            f, qn = row[0], row[1]
+            if f and qn and f in known_files:
+                batch.append((f, qn))
+        yield batch, []
+        if len(rows) < page_size:
+            return
+        offset += page_size
 
 
 async def fetch_files(

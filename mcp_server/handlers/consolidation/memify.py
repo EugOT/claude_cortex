@@ -17,6 +17,7 @@ from mcp_server.core.curation import (
     identify_prunable,
     identify_strengtheneable,
 )
+from mcp_server.handlers.consolidation.chunks import iter_memory_chunks
 from mcp_server.infrastructure.memory_store import MemoryStore
 
 logger = logging.getLogger(__name__)
@@ -53,11 +54,7 @@ def run_memify_cycle(
       * When any of ``pruned`` / ``strengthened`` is non-zero → both
         diagnostic keys are absent.
     """
-    if memories is None:
-        memories = store.get_all_memories_for_decay()
-
-    pruned = _prune_memories(store, memories)
-    strengthened = _strengthen_memories(store, memories)
+    pruned, strengthened, flags, scanned = _stream_prune_strengthen(store, memories)
     reweighted = _reweight_relationships(store)
 
     stats = {
@@ -66,48 +63,98 @@ def run_memify_cycle(
         "reweighted": reweighted,
     }
 
-    reason = _classify_memify_reason(pruned, strengthened, reweighted, memories)
+    reason = _classify_memify_reason(pruned, strengthened, reweighted, scanned, flags)
     if reason is not None:
         if pruned == 0 and strengthened == 0 and reweighted == 0:
             stats["reason_for_zero"] = reason
         elif pruned == 0 and strengthened == 0 and reweighted > 0:
             stats["reason_for_inaction"] = reason
-        _log_if_passed_through("memify", stats, scanned=len(memories))
+        _log_if_passed_through("memify", stats, scanned=scanned)
 
     return stats
+
+
+def _accumulate_memify_flags(flags: dict[str, bool], mem: dict) -> None:
+    """Fold one memory into the diagnostic candidate-presence flags.
+
+    Replaces the post-hoc ``any(...)`` scans over the full list with a single
+    streaming accumulation, so classification needs no resident corpus.
+    """
+    heat = mem.get("heat", 1.0)
+    if heat < _PRUNE_HEAT_THRESHOLD and mem.get("confidence", 1.0) < (
+        _PRUNE_CONFIDENCE_THRESHOLD
+    ):
+        flags["prune_cand"] = True
+    access = mem.get("access_count", 0)
+    if access >= _STRENGTHEN_MIN_ACCESS and mem.get("confidence", 0) >= (
+        _STRENGTHEN_MIN_CONFIDENCE
+    ):
+        flags["strengthen_cand"] = True
+    if access > 0:
+        flags["access_gt0"] = True
+    if heat < 0.5:
+        flags["heat_lt05"] = True
+
+
+def _stream_prune_strengthen(
+    store: MemoryStore, memories: list[dict] | None
+) -> tuple[int, int, dict[str, bool], int]:
+    """Stream prune + strengthen + diagnostic flags in ONE pass.
+
+    ``identify_prunable`` / ``identify_strengtheneable`` are per-memory
+    threshold filters, so applying them per chunk and unioning the effects is
+    equivalent to one full-list call — at O(chunk) RAM instead of O(N). Deletes
+    / importance updates go through the interactive pool, so they don't contend
+    with the batch-pool read cursor, and the cursor's MVCC snapshot keeps the
+    scan stable across the deletes. Returns (pruned, strengthened, flags,
+    scanned).
+    """
+    pruned = strengthened = scanned = 0
+    flags = {
+        "prune_cand": False,
+        "strengthen_cand": False,
+        "access_gt0": False,
+        "heat_lt05": False,
+    }
+    for chunk in iter_memory_chunks(store, memories):
+        for mem in chunk:
+            scanned += 1
+            _accumulate_memify_flags(flags, mem)
+        for mid in identify_prunable(chunk):
+            try:
+                store.delete_memory(mid)
+                pruned += 1
+            except Exception:
+                pass
+        for mid, new_importance in identify_strengtheneable(chunk):
+            try:
+                store.update_memory_importance(mid, new_importance)
+                strengthened += 1
+            except Exception:
+                pass
+    return pruned, strengthened, flags, scanned
 
 
 def _classify_memify_reason(
     pruned: int,
     strengthened: int,
     reweighted: int,
-    memories: list[dict],
+    scanned: int,
+    flags: dict[str, bool],
 ) -> str | None:
-    """Classify the early-return path for memify.
+    """Classify the early-return path for memify (from streamed flags).
 
-    Precondition: counters reflect the actual cycle outcome.
-    Postcondition: returns None unless (a) all three counters are zero,
-    or (b) ``pruned == 0 AND strengthened == 0 AND reweighted > 0``.
-    Otherwise returns one of:
+    Same decision table as before, but driven by the streaming-accumulated
+    candidate-presence flags and the scanned count rather than a resident list:
 
-      * ``below_stale_threshold`` — candidate memories exist but none
-        are cold / low-confidence / zero-access enough to prune.
-      * ``below_access_threshold`` — candidates exist but none have
-        crossed the strengthen access-count gate.
-      * ``reweight_only_gate`` — intentional gating: nothing crossed
-        either the prune or the strengthen thresholds, yet the
-        relationship reweight step did fire. Used only when
-        ``reweighted > 0`` (the "inaction" shape).
-      * ``passed_through`` — candidates exist that would cross at
-        least one gate if the thresholds matched them, AND the
-        candidates did not materialise. True quiet-store no-op.
-
-    Priority: when all counters are zero and memories is empty →
-    ``passed_through`` (nothing to inspect). Else: prefer the tightest
-    gate that rejected candidates.
+      * ``below_stale_threshold`` — memories exist but none are cold /
+        low-confidence enough to prune.
+      * ``below_access_threshold`` — none crossed the strengthen access gate.
+      * ``reweight_only_gate`` — nothing crossed prune/strengthen, yet reweight
+        fired (only in the ``reweighted > 0`` "inaction" shape).
+      * ``passed_through`` — genuine quiet-store no-op.
     """
-    action_nonzero = (pruned != 0) or (strengthened != 0)
-    if action_nonzero:
+    if (pruned != 0) or (strengthened != 0):
         return None
 
     all_zero = (pruned == 0) and (strengthened == 0) and (reweighted == 0)
@@ -115,33 +162,19 @@ def _classify_memify_reason(
     if not (all_zero or inaction):
         return None
 
-    if not memories:
+    if scanned == 0:
         return "passed_through"
 
-    # Inspect which gate rejected candidates that were present.
-    has_prune_candidates = any(
-        m.get("heat", 1.0) < _PRUNE_HEAT_THRESHOLD
-        and m.get("confidence", 1.0) < _PRUNE_CONFIDENCE_THRESHOLD
-        for m in memories
-    )
-    has_strengthen_candidates = any(
-        m.get("access_count", 0) >= _STRENGTHEN_MIN_ACCESS
-        and m.get("confidence", 0) >= _STRENGTHEN_MIN_CONFIDENCE
-        for m in memories
-    )
+    has_prune_candidates = flags["prune_cand"]
+    has_strengthen_candidates = flags["strengthen_cand"]
 
-    # Reweight happened but no prune/strengthen → intentional gating.
     if inaction and not has_prune_candidates and not has_strengthen_candidates:
         return "reweight_only_gate"
-
-    # All three zero: identify which threshold is missing signal.
     if has_prune_candidates or has_strengthen_candidates:
         return "passed_through"
-    if not has_strengthen_candidates and any(
-        m.get("access_count", 0) > 0 for m in memories
-    ):
+    if not has_strengthen_candidates and flags["access_gt0"]:
         return "below_access_threshold"
-    if not has_prune_candidates and any(m.get("heat", 1.0) < 0.5 for m in memories):
+    if not has_prune_candidates and flags["heat_lt05"]:
         return "below_stale_threshold"
 
     return "passed_through"
@@ -171,32 +204,6 @@ def _log_if_passed_through(
         scanned,
         0,
     )
-
-
-def _prune_memories(store: MemoryStore, memories: list[dict]) -> int:
-    """Delete prunable low-quality memories."""
-    prunable_ids = identify_prunable(memories)
-    count = 0
-    for mid in prunable_ids:
-        try:
-            store.delete_memory(mid)
-            count += 1
-        except Exception:
-            pass
-    return count
-
-
-def _strengthen_memories(store: MemoryStore, memories: list[dict]) -> int:
-    """Boost importance of memories that deserve strengthening."""
-    strengthen_list = identify_strengtheneable(memories)
-    count = 0
-    for mid, new_importance in strengthen_list:
-        try:
-            store.update_memory_importance(mid, new_importance)
-            count += 1
-        except Exception:
-            pass
-    return count
 
 
 def _reweight_relationships(store: MemoryStore) -> int:

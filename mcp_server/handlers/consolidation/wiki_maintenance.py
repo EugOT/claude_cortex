@@ -99,7 +99,7 @@ def _run_purge_axis(
 
 
 def run_wiki_maintenance(
-    memories: list[dict],
+    store: Any,
     *,
     apply_stubs: bool = _AUTONOMOUS_STUB_APPLY_DEFAULT,
     apply_classifier_rejects: bool = _AUTONOMOUS_CLASSIFIER_APPLY_DEFAULT,
@@ -210,7 +210,7 @@ def run_wiki_maintenance(
 
     # Curation backlog.
     try:
-        from mcp_server.core.auto_curator import count_pending_clusters
+        from mcp_server.core.auto_curator import count_pending_clusters_streamed
         from mcp_server.core.wiki_coverage import (
             _project_source_root,
             audit_all_domains,
@@ -219,7 +219,14 @@ def run_wiki_maintenance(
         from mcp_server.core.wiki_drift import audit_wiki_drift
         from mcp_server.infrastructure.config import WIKI_ROOT
 
-        out["cluster_jobs"] = count_pending_clusters(memories, wiki_root=str(WIKI_ROOT))
+        chunks = (
+            store.iter_memories_for_decay()
+            if hasattr(store, "iter_memories_for_decay")
+            else [store.get_all_memories_for_decay()]
+        )
+        out["cluster_jobs"] = count_pending_clusters_streamed(
+            chunks, wiki_root=str(WIKI_ROOT)
+        )
         coverages = audit_all_domains(str(WIKI_ROOT))
         out["coverage_gaps"] = sum(c.missing_count for c in coverages)
         # File-level coverage: count files that aren't referenced
