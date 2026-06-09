@@ -19,9 +19,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from mcp_server.core.response_budget import ListTarget, bound_payload
 from mcp_server.core.unified_search_fusion import DEFAULT_K, fuse
 from mcp_server.handlers.recall import handler as recall_handler
 from mcp_server.infrastructure.ap_bridge import is_enabled
+from mcp_server.infrastructure.memory_config import get_memory_settings
 from mcp_server.infrastructure.workflow_graph_source_ast import (
     WorkflowGraphASTSource,
 )
@@ -106,7 +108,7 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
         k=k,
         top_n=top_n,
     )
-    return {
+    resp = {
         "status": "ok" if is_enabled() else "partial",
         "query": query,
         "sources": sources,
@@ -118,6 +120,20 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
         "results": fused,
         "k": k,
     }
+    # Bounded I/O (core/response_budget.py): truncated memory hits keep
+    # their ``memory:<id>`` fusion id — full content via recall(memory_id).
+    # AP symbol hits carry text in ``snippet`` (see
+    # workflow_graph_source_ast.search_codebase), hence the second target.
+    resp = bound_payload(
+        resp,
+        [
+            ListTarget("results", weight_key="score"),
+            ListTarget("results", content_key="snippet", weight_key="score"),
+        ],
+        get_memory_settings().MAX_RESPONSE_CHARS,
+    )
+    resp["counts"]["fused"] = len(resp["results"])
+    return resp
 
 
 __all__ = ["handler", "schema"]

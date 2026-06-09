@@ -14,6 +14,7 @@ from typing import Any
 from mcp_server.core.context_generator import generate_context
 from mcp_server.core.domain_detector import detect_domain
 from mcp_server.core.prospective import check_trigger
+from mcp_server.core.response_budget import ListTarget, TextTarget, bound_payload
 from mcp_server.infrastructure.profile_store import load_profiles
 from mcp_server.handlers._tool_meta import READ_ONLY
 
@@ -128,6 +129,9 @@ def _get_hot_memories(
 
         return [
             {
+                # id ships so items truncated by the response budget stay
+                # retrievable in full via recall(memory_id=...).
+                "id": m.get("id"),
                 "content": m["content"],
                 "heat": round(m.get("heat", 0), 4),
                 "domain": m.get("domain", ""),
@@ -167,6 +171,7 @@ def _get_fired_triggers(directory: str, first_message: str) -> list[dict[str, An
                 seen_contents.add(content)
                 fired.append(
                     {
+                        "id": trigger.get("id"),
                         "content": content,
                         "trigger_type": trigger["trigger_type"],
                         "trigger_condition": trigger["trigger_condition"],
@@ -268,6 +273,26 @@ def _inject_memories(
     return resp
 
 
+def _bounded(resp: dict) -> dict:
+    """Fit the response to the host's tool-result budget.
+
+    Hot-memory / trigger contents are cut first (they carry ids for full
+    retrieval via recall); the assembled ``context`` string is the other
+    unbounded text (core/response_budget.py for the measured budget).
+    """
+    from mcp_server.infrastructure.memory_config import get_memory_settings
+
+    return bound_payload(
+        resp,
+        [
+            ListTarget("hotMemories", weight_key="heat"),
+            ListTarget("firedTriggers"),
+            TextTarget("context"),
+        ],
+        get_memory_settings().MAX_RESPONSE_CHARS,
+    )
+
+
 async def handler(args: dict | None = None) -> dict:
     args = args or {}
     cwd = args.get("cwd", "")
@@ -285,7 +310,7 @@ async def handler(args: dict | None = None) -> dict:
             context=detection.get("context")
             or "No cognitive profile yet. Building one as we go.",
         )
-        return _inject_memories(resp, cwd, first_message)
+        return _bounded(_inject_memories(resp, cwd, first_message))
 
     domain_id = detection.get("domain")
     profile = profiles.get("domains", {}).get(domain_id) if domain_id else None
@@ -300,16 +325,18 @@ async def handler(args: dict | None = None) -> dict:
         )
         resp["hotMemories"] = hot_memories
         resp["firedTriggers"] = fired_triggers
-        return resp
+        return _bounded(resp)
 
     context = generate_context(domain_id, profile)
     context = _enrich_context_with_memories(context, hot_memories, fired_triggers)
 
-    return _build_profile_response(
-        domain_id,
-        profile,
-        detection,
-        context,
-        hot_memories,
-        fired_triggers,
+    return _bounded(
+        _build_profile_response(
+            domain_id,
+            profile,
+            detection,
+            context,
+            hot_memories,
+            fired_triggers,
+        )
     )

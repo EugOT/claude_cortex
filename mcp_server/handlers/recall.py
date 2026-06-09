@@ -16,6 +16,7 @@ from mcp_server.handlers._telemetry_wrap import instrument
 from mcp_server.core.knowledge_graph import extract_entities
 from mcp_server.core.pg_recall import recall as pg_recall
 from mcp_server.core.query_intent import QueryIntent, classify_query_intent
+from mcp_server.core.response_budget import ListTarget, bound_payload
 from mcp_server.handlers._tool_meta import READ_ONLY
 from mcp_server.handlers.recall_helpers import (
     build_enhancements,
@@ -53,6 +54,18 @@ schema = {
                         "tags": {"type": "array", "items": {"type": "string"}},
                         "created_at": {"type": "string", "format": "date-time"},
                         "source": {"type": "string"},
+                        "truncated": {
+                            "type": "boolean",
+                            "description": (
+                                "Present and true when content was cut to fit "
+                                "the response budget. Fetch the full body via "
+                                "the memory_id argument."
+                            ),
+                        },
+                        "content_length": {
+                            "type": "integer",
+                            "description": "Original content size in chars (set when truncated).",
+                        },
                     },
                 },
             },
@@ -173,6 +186,27 @@ schema = {
                 ),
                 "default": False,
             },
+            "memory_id": {
+                "type": "integer",
+                "description": (
+                    "Fetch one memory by id, bypassing search. Use to "
+                    "retrieve the full content of a result that came back "
+                    "with ``truncated: true``. ``query`` is ignored when "
+                    "set (still required by the schema; pass the id as a "
+                    "string if nothing better)."
+                ),
+            },
+            "content_offset": {
+                "type": "integer",
+                "description": (
+                    "With ``memory_id``: start the returned content at this "
+                    "character offset. Page through contents larger than "
+                    "the response budget by re-calling with the previous "
+                    "offset + the length of the slice received."
+                ),
+                "default": 0,
+                "minimum": 0,
+            },
         },
     },
 }
@@ -270,8 +304,38 @@ def _track_recall_replay(results: list[dict], store: Any) -> None:
             pass
 
 
+def _fetch_by_id(memory_id: int, content_offset: int) -> dict[str, Any]:
+    """Fetch one memory by id — the retrieval path for truncated results.
+
+    ``content_offset`` pages through contents larger than the response
+    budget: the slice starts there, ``content_length`` carries the full
+    size, and ``bound_payload`` marks the slice ``truncated`` if it
+    still overflows.
+    """
+    stored = _get_store().get_memory(memory_id)
+    if stored is None:
+        return {"memories": [], "count": 0, "intent": "general"}
+    # Copy before mutating: truncation must never write back into
+    # whatever object the store handed us.
+    memory = {**stored}
+    content = memory.get("content") or ""
+    if content_offset > 0:
+        memory["content"] = content[content_offset:]
+    memory["content_length"] = len(content)
+    memory["content_offset"] = content_offset
+    resp = {"memories": [memory], "count": 1, "intent": "general"}
+    settings = get_memory_settings()
+    return bound_payload(
+        resp, [ListTarget("memories", weight_key="score")], settings.MAX_RESPONSE_CHARS
+    )
+
+
 async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
     """Retrieve memories: pg_recall base + production enrichments."""
+    if args and args.get("memory_id") is not None:
+        return _fetch_by_id(
+            int(args["memory_id"]), int(args.get("content_offset") or 0)
+        )
     if not args or not args.get("query"):
         # Issue #46: even the early-return must satisfy the outputSchema's
         # required keys (`memories`).
@@ -336,7 +400,7 @@ async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
     # every memory on the wire (measured: 815KB response for 15 memories,
     # 50% pure duplication — 2026-06-09 audit). All consumers now read the
     # schema-aligned keys.
-    return {
+    resp = {
         "memories": results,
         "count": len(results),
         "intent": str(intent),
@@ -345,6 +409,14 @@ async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
         "signals": {},
         "enhancements": build_enhancements(query, intent, "pg", settings),
     }
+    # Bounded I/O: the host rejects tool results over its token cap
+    # (core/response_budget.py docstring for the measured derivation).
+    # Truncated items keep their id; full content via the memory_id arg.
+    resp = bound_payload(
+        resp, [ListTarget("memories", weight_key="score")], settings.MAX_RESPONSE_CHARS
+    )
+    resp["count"] = len(resp["memories"])
+    return resp
 
 
 # Telemetry-instrumented public entry. Wrapper records latency, byte

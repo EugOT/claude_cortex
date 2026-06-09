@@ -133,6 +133,15 @@ class MemorySettings(BaseSettings):
     CO_ACTIVATION_LEARNING_RATE: float = 0.1
     CO_ACTIVATION_MIN_SCORE: float = 0.3
 
+    # ── Response budget (bounded MCP I/O) ─────────────────────────────────
+    # source: Claude Code 2.1.170 binary, extracted 2026-06-10 —
+    # MAX_MCP_OUTPUT_TOKENS default 25000 tokens × 4 chars/token = 100,000
+    # chars of compact-JSON payload, × 0.75 safety factor (UTF-16 vs
+    # code-point divergence guard, ai-prd-builder ContextManager.swift
+    # commit 462de01). Full derivation + char-exact verification:
+    # mcp_server/core/response_budget.py module docstring.
+    MAX_RESPONSE_CHARS: int = 75_000
+
     # ── Embedding ─────────────────────────────────────────────────────────
     EMBEDDING_DIM: int = 384
     EMBEDDING_DEVICE: str = "cpu"  # "cpu" | "auto" | "cuda" | "mps"

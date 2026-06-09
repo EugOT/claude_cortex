@@ -113,6 +113,7 @@ Handlers are the **composition roots**: they wire infrastructure (I/O) to core (
 - `memory_decomposer.py` — Decompose complex memories into atomic units
 - `compression.py` — Full-text → gist → tag compression
 - `staleness.py` — File-reference staleness scoring
+- `response_budget.py` — Bounded MCP responses: total payload budget (measured 100k-char Claude Code MAX_MCP_OUTPUT_TOKENS cap × 0.75 UTF-16-divergence safety factor) + priority-weighted water-filling (budget proportional to retrieval score/heat, least relevant condensed first); truncated items keep ids for dynamic fetch-by-id
 
 *Oscillatory & Cascade:*
 - `oscillatory_clock.py` — Theta/gamma/SWR phase gating (Hasselmo 2005, Buzsaki 2015)

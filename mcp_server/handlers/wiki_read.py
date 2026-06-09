@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mcp_server.core.response_budget import TextTarget, bound_payload
 from mcp_server.core.wiki_redirect import (
     MAX_REDIRECT_DEPTH,
     parse_frontmatter,
@@ -23,6 +24,7 @@ from mcp_server.core.wiki_redirect import (
 )
 from mcp_server.handlers._tool_meta import READ_ONLY
 from mcp_server.infrastructure.config import WIKI_ROOT
+from mcp_server.infrastructure.memory_config import get_memory_settings
 from mcp_server.infrastructure.wiki_store import read_page
 
 schema = {
@@ -39,7 +41,9 @@ schema = {
         "Read-only; never mutates state. Distinct from `wiki_list` which "
         "enumerates available pages, and from `wiki_export` which renders a "
         "page through Pandoc to PDF/DOCX/HTML. Latency <10ms. Returns "
-        "{path, content, root, redirect_chain} or {error}."
+        "{path, content, content_length, offset, root, redirect_chain} or "
+        "{error}. Pages larger than the response budget come back with "
+        "``content_truncated: true`` — page via the ``offset`` argument."
     ),
     "inputSchema": {
         "type": "object",
@@ -67,9 +71,39 @@ schema = {
                 ),
                 "default": True,
             },
+            "offset": {
+                "type": "integer",
+                "description": (
+                    "Start the returned content at this character offset. "
+                    "Page through pages larger than the response budget: "
+                    "when the response carries ``content_truncated: true``, "
+                    "re-call with offset = previous offset + length of the "
+                    "content received. ``content_length`` is the full page "
+                    "size."
+                ),
+                "default": 0,
+                "minimum": 0,
+            },
         },
     },
 }
+
+
+def _bounded(resp: dict[str, Any], offset: int) -> dict[str, Any]:
+    """Slice content at ``offset`` and fit the response to the budget.
+
+    ``content_length`` always carries the full page size so callers can
+    page; ``content_truncated`` appears when the slice was cut (set by
+    bound_payload, core/response_budget.py).
+    """
+    content = resp.get("content") or ""
+    resp["content_length"] = len(content)
+    resp["offset"] = offset
+    if offset > 0:
+        resp["content"] = content[offset:]
+    return bound_payload(
+        resp, [TextTarget("content")], get_memory_settings().MAX_RESPONSE_CHARS
+    )
 
 
 def _frontmatter_reader(rel_path: str) -> dict[str, object]:
@@ -93,6 +127,7 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
     if not rel_path:
         return {"error": "path is required"}
     follow = bool(args.get("follow_redirects", True))
+    offset = max(0, int(args.get("offset") or 0))
 
     try:
         content = read_page(WIKI_ROOT, rel_path)
@@ -103,21 +138,27 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
 
     # Fast path: caller wants the stub itself, or the page isn't a stub.
     if not follow:
-        return {
-            "path": rel_path,
-            "content": content,
-            "root": str(WIKI_ROOT),
-            "redirect_chain": [],
-        }
+        return _bounded(
+            {
+                "path": rel_path,
+                "content": content,
+                "root": str(WIKI_ROOT),
+                "redirect_chain": [],
+            },
+            offset,
+        )
 
     fm = parse_frontmatter(content)
     if parse_redirect(fm) is None:
-        return {
-            "path": rel_path,
-            "content": content,
-            "root": str(WIKI_ROOT),
-            "redirect_chain": [],
-        }
+        return _bounded(
+            {
+                "path": rel_path,
+                "content": content,
+                "root": str(WIKI_ROOT),
+                "redirect_chain": [],
+            },
+            offset,
+        )
 
     # Stub — walk the chain to the terminal page.
     resolved = resolve_chain(rel_path, _frontmatter_reader)
@@ -144,9 +185,12 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
             "redirect_chain": list(resolved.chain),
         }
 
-    return {
-        "path": resolved.final_path,
-        "content": target_content,
-        "root": str(WIKI_ROOT),
-        "redirect_chain": list(resolved.chain),
-    }
+    return _bounded(
+        {
+            "path": resolved.final_path,
+            "content": target_content,
+            "root": str(WIKI_ROOT),
+            "redirect_chain": list(resolved.chain),
+        },
+        offset,
+    )
