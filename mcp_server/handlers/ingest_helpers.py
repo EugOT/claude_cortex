@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp_server.infrastructure.mcp_client_pool import get_client
+from mcp_server.infrastructure.upstream_governor import govern
 
 CODE_GRAPH_TAG_PREFIX = "_code_graph:"
 
@@ -166,7 +167,13 @@ async def call_upstream(
     the tool result as a plain dict when the server answers successfully.
     """
     client = await get_client(server_name)
-    response = await client.call(tool_name, args)
+    # Bound concurrent in-flight calls to this single-process upstream child
+    # across every Cortex handler. Without this, two batch tools (distinct
+    # admission semaphores) can hammer the shared child until it OOMs and the
+    # next stdin write raises ConnectionResetError: Connection lost.
+    # source: upstream_governor.py / ingest_codebase RCA 2026-06-09.
+    async with govern(server_name, client.max_concurrent_calls):
+        response = await client.call(tool_name, args)
     if isinstance(response, dict):
         return response
     if isinstance(response, str):

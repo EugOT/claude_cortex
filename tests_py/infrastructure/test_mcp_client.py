@@ -62,6 +62,42 @@ def _mock_proc(stdout_lines: list[bytes] | None = None):
     return proc
 
 
+# ── Reader-loop teardown (stale-client root fix) ─────────────────────────────
+
+
+class TestReaderLoopMarksDisconnected:
+    """When the child's stdout closes (EOF/crash), _read_loop's finally must
+    set _connected = False so the pool discards the dead client instead of
+    handing it back (which caused ConnectionResetError: Connection lost on the
+    next stdin write). source: ingest_codebase RCA 2026-06-09.
+    """
+
+    def test_eof_marks_disconnected_and_fails_pending(self):
+        async def _test():
+            _, client = _make_client()
+            client._connected = True
+            client._proc = _mock_proc(stdout_lines=[])  # readline → b"" (EOF)
+            fut = asyncio.get_running_loop().create_future()
+            client._pending[1] = fut
+
+            await client._read_loop()
+
+            assert client.connected is False
+            assert fut.done()
+            with pytest.raises(McpConnectionError):
+                fut.result()
+
+        _run(_test())
+
+    def test_max_concurrent_calls_default_and_config(self):
+        _, client = _make_client()
+        assert client.max_concurrent_calls == 1  # default: serialise child
+        _, c2 = _make_client(maxConcurrentCalls=3)
+        assert c2.max_concurrent_calls == 3
+        _, c3 = _make_client(maxConcurrentCalls="bogus")
+        assert c3.max_concurrent_calls == 1  # malformed → safe default
+
+
 # ── Constructor ──────────────────────────────────────────────────────────────
 
 

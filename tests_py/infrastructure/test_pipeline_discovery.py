@@ -14,9 +14,21 @@ from pathlib import Path
 from mcp_server.infrastructure import pipeline_discovery
 
 
-def _isolate_install_symlink(monkeypatch, tmp_path):
-    """Point _INSTALL_SYMLINK at a path that does not exist so tests
-    don't see the user's real auto-installed binary."""
+def _isolate_real_installs(monkeypatch, tmp_path):
+    """Neutralise BOTH real-install discovery sources so tests exercise the
+    intended fallback deterministically on a machine that actually has the
+    pipeline installed.
+
+    discover_pipeline_command resolves the marketplace install FIRST
+    (installed_plugins.json), then the self-installed symlink. On a dev box
+    where the AP plugin is installed, both leak the real binary and make
+    these fallback tests fail. Point each at a non-existent path.
+    """
+    monkeypatch.setattr(
+        pipeline_discovery,
+        "_INSTALLED_PLUGINS_PATH",
+        tmp_path / "nonexistent" / "installed_plugins.json",
+    )
     monkeypatch.setattr(
         pipeline_discovery,
         "_INSTALL_SYMLINK",
@@ -27,7 +39,7 @@ def _isolate_install_symlink(monkeypatch, tmp_path):
 class TestDiscoverCommand:
     def test_binary_on_path_found(self, tmp_path, monkeypatch):
         """shutil.which returning a hit wins over source-checkout lookup."""
-        _isolate_install_symlink(monkeypatch, tmp_path)
+        _isolate_real_installs(monkeypatch, tmp_path)
         fake_binary = tmp_path / "cortex-pipeline"
         fake_binary.write_text("#!/bin/sh\n")
         fake_binary.chmod(0o755)
@@ -40,7 +52,7 @@ class TestDiscoverCommand:
         assert cmd == [str(fake_binary)]
 
     def test_no_pipeline_returns_none(self, monkeypatch, tmp_path):
-        _isolate_install_symlink(monkeypatch, tmp_path)
+        _isolate_real_installs(monkeypatch, tmp_path)
         monkeypatch.setattr(pipeline_discovery.shutil, "which", lambda n: None)
         # No sibling checkouts exist at /nonexistent.
         monkeypatch.setattr(
@@ -52,10 +64,10 @@ class TestDiscoverCommand:
 
     def test_source_checkout_with_built_binary(self, tmp_path, monkeypatch):
         """Sibling git checkout wins when PATH has nothing."""
-        _isolate_install_symlink(monkeypatch, tmp_path)
+        _isolate_real_installs(monkeypatch, tmp_path)
         monkeypatch.setattr(pipeline_discovery.shutil, "which", lambda n: None)
         source = tmp_path / "ai-automatised-pipeline"
-        built = source / "target/release/ai-architect-mcp"
+        built = source / "target/release/automatised-pipeline"
         built.parent.mkdir(parents=True)
         built.write_text("#!/bin/sh\n")
         built.chmod(0o755)
@@ -67,8 +79,15 @@ class TestDiscoverCommand:
         """Auto-installed symlink under ~/.claude/methodology/bin/ takes
         precedence over PATH/source-checkout discovery so the user's
         last successful install is sticky."""
+        # Isolate the marketplace install (resolved first) so the symlink
+        # fallback is actually reached on a machine with AP installed.
+        monkeypatch.setattr(
+            pipeline_discovery,
+            "_INSTALLED_PLUGINS_PATH",
+            tmp_path / "nonexistent" / "installed_plugins.json",
+        )
         symlink = tmp_path / "mcp-server"
-        target = tmp_path / "ai-architect-mcp"
+        target = tmp_path / "automatised-pipeline"
         target.write_text("#!/bin/sh\n")
         target.chmod(0o755)
         symlink.symlink_to(target)
@@ -88,7 +107,7 @@ class TestEnsureConnection:
         monkeypatch.setattr(
             pipeline_discovery,
             "discover_pipeline_command",
-            lambda: ["/usr/local/bin/ai-architect-mcp"],
+            lambda: ["/usr/local/bin/automatised-pipeline"],
         )
 
         result = pipeline_discovery.ensure_pipeline_connection()
@@ -96,7 +115,7 @@ class TestEnsureConnection:
         assert config_path.exists()
         data = json.loads(config_path.read_text())
         assert (
-            data["servers"]["codebase"]["command"] == "/usr/local/bin/ai-architect-mcp"
+            data["servers"]["codebase"]["command"] == "/usr/local/bin/automatised-pipeline"
         )
 
     def test_no_pipeline_leaves_config_untouched(self, tmp_path, monkeypatch):
@@ -132,7 +151,7 @@ class TestEnsureConnection:
         monkeypatch.setattr(
             pipeline_discovery,
             "discover_pipeline_command",
-            lambda: ["/usr/local/bin/ai-architect-mcp"],  # would overwrite
+            lambda: ["/usr/local/bin/automatised-pipeline"],  # would overwrite
         )
 
         result = pipeline_discovery.ensure_pipeline_connection()
@@ -195,7 +214,7 @@ class TestEnsureConnection:
         monkeypatch.setattr(
             pipeline_discovery,
             "discover_pipeline_command",
-            lambda: ["/usr/local/bin/ai-architect-mcp"],
+            lambda: ["/usr/local/bin/automatised-pipeline"],
         )
 
         result = pipeline_discovery.ensure_pipeline_connection()
@@ -204,7 +223,7 @@ class TestEnsureConnection:
         # Both entries preserved
         assert "prd-gen" in data["servers"]
         assert (
-            data["servers"]["codebase"]["command"] == "/usr/local/bin/ai-architect-mcp"
+            data["servers"]["codebase"]["command"] == "/usr/local/bin/automatised-pipeline"
         )
 
     def test_new_entries_set_unbounded_call_timeout(self, tmp_path, monkeypatch):
@@ -215,7 +234,7 @@ class TestEnsureConnection:
         monkeypatch.setattr(
             pipeline_discovery,
             "discover_pipeline_command",
-            lambda: ["/usr/local/bin/ai-architect-mcp"],
+            lambda: ["/usr/local/bin/automatised-pipeline"],
         )
         pipeline_discovery.ensure_pipeline_connection()
         data = json.loads(config_path.read_text())

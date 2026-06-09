@@ -229,6 +229,20 @@ class MCPClient:
         return self._connected
 
     @property
+    def max_concurrent_calls(self) -> int:
+        """Permitted concurrent in-flight calls to this upstream child.
+
+        Read from the server's ``maxConcurrentCalls`` in mcp-connections.json;
+        defaults to 1 (serialise the single-process child) when absent. Used
+        by the per-server upstream governor. source: upstream_governor.py.
+        """
+        raw = self._config.get("maxConcurrentCalls")
+        try:
+            return max(1, int(raw)) if raw is not None else 1
+        except (TypeError, ValueError):
+            return 1
+
+    @property
     def idle(self) -> bool:
         loop = asyncio.get_running_loop()
         return (loop.time() - self._last_activity) > (self._idle_timeout_ms / 1000)
@@ -370,6 +384,16 @@ class MCPClient:
                 file=sys.stderr,
             )
         finally:
+            # Reader is exiting → the child's stdout is gone, so the
+            # connection is dead. Mark it disconnected at the ROOT here
+            # (not only in close()) so the pool's ``existing.connected``
+            # check discards this client and reconnects on the next call.
+            # Without this the flag stayed True after a child crash and
+            # the pool handed back a dead client, whose next stdin write
+            # raised ``ConnectionResetError: Connection lost`` — the fast
+            # failure seen on every ingest retry. source: ingest_codebase
+            # ConnectionResetError RCA 2026-06-09.
+            self._connected = False
             # Reader is exiting — wake every pending caller. Without
             # this, ``_send``'s ``await future`` blocks forever
             # (deadlock observed on long upstream responses).

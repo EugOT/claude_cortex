@@ -54,10 +54,7 @@ _SOURCE_DIRS = (
     "../ai-automatised-pipeline",
 )
 
-_BUILT_RELATIVE = (
-    "target/release/automatised-pipeline",
-    "target/release/ai-architect-mcp",
-)
+_BUILT_RELATIVE = ("target/release/automatised-pipeline",)
 
 # ── Marketplace install (canonical) ─────────────────────────────────────
 
