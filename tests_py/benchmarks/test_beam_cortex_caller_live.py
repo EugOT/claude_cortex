@@ -22,7 +22,7 @@ def fake_handler(monkeypatch: pytest.MonkeyPatch) -> dict:
     Returns a dict that gets populated with ``{'calls': [...], 'response': ...}``
     so the test can assert on call args.
     """
-    state: dict = {"calls": [], "response": {"results": [], "total": 0}}
+    state: dict = {"calls": [], "response": {"memories": [], "count": 0}}
 
     async def fake(args: dict | None = None) -> dict:
         state["calls"].append(args)
@@ -34,11 +34,11 @@ def fake_handler(monkeypatch: pytest.MonkeyPatch) -> dict:
 
 def test_cortex_recall_calls_production_handler_once(fake_handler) -> None:
     fake_handler["response"] = {
-        "results": [
+        "memories": [
             {"id": "m-1", "content": "hello", "score": 0.9},
             {"id": "m-2", "content": "world", "score": 0.5},
         ],
-        "total": 2,
+        "count": 2,
     }
     out = cortex_caller.cortex_recall("why did we choose pgvector?", domain="beam")
     assert len(fake_handler["calls"]) == 1
@@ -53,8 +53,8 @@ def test_cortex_recall_calls_production_handler_once(fake_handler) -> None:
         f"cortex_recall passed off-schema kwargs: {set(args.keys()) - declared}"
     )
 
-    # Returns the response's ``results`` list verbatim (no post-processing).
-    assert out == fake_handler["response"]["results"]
+    # Returns the response's ``memories`` list verbatim (no post-processing).
+    assert out == fake_handler["response"]["memories"]
 
 
 def test_cortex_recall_empty_question_returns_empty(fake_handler) -> None:
@@ -71,5 +71,5 @@ def test_cortex_recall_handles_non_dict_response(fake_handler) -> None:
 
 
 def test_cortex_recall_handles_missing_results_key(fake_handler) -> None:
-    fake_handler["response"] = {"total": 0}  # no 'results' key
+    fake_handler["response"] = {"count": 0}  # no 'memories' key
     assert cortex_caller.cortex_recall("q") == []

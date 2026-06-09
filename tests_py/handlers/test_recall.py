@@ -48,12 +48,12 @@ class TestWRRFFuse:
 class TestRecallHandler:
     def test_no_query_returns_empty(self):
         result = asyncio.run(recall_handler(None))
-        assert result["results"] == []
-        assert result["total"] == 0
+        assert result["memories"] == []
+        assert result["count"] == 0
 
     def test_empty_query_returns_empty(self):
         result = asyncio.run(recall_handler({"query": ""}))
-        assert result["results"] == []
+        assert result["memories"] == []
 
     def test_issue_46_schema_aligned_keys(self):
         """Issue #46: every recall response must satisfy the MCP outputSchema.
@@ -62,8 +62,9 @@ class TestRecallHandler:
         Code's MCP host, which would otherwise reject the response with
         ``Output validation error: 'memories' is a required property``.
 
-        Back-compat aliases (``results``/``total``/``query_intent``) stay
-        for one minor release so existing consumers don't break.
+        The legacy ``results``/``total``/``query_intent`` aliases were
+        removed 2026-06-10: they byte-duplicated every memory on the wire
+        (815KB response for 15 memories, 50% duplication — bounded-I/O audit).
         """
         # Early-return path (no query)
         result = asyncio.run(recall_handler(None))
@@ -72,8 +73,8 @@ class TestRecallHandler:
         assert "intent" in result, "issue #46: schema declares 'intent'"
         assert result["memories"] == []
         assert result["count"] == 0
-        # Back-compat aliases still present
-        assert "results" in result and "total" in result
+        # Legacy aliases must NOT come back — they double the payload.
+        assert "results" not in result and "total" not in result
 
         # Empty-query path
         result = asyncio.run(recall_handler({"query": ""}))
@@ -138,9 +139,9 @@ class TestRecallHandler:
                 }
             )
         )
-        assert result["total"] >= 1
+        assert result["count"] >= 1
         assert "signals" in result
-        first = result["results"][0]
+        first = result["memories"][0]
         assert "content" in first
         assert "score" in first
         assert "heat" in first
@@ -155,8 +156,8 @@ class TestRecallHandler:
             )
         )
         result = asyncio.run(recall_handler({"query": "shape test"}))
-        assert isinstance(result["results"], list)
-        assert isinstance(result["total"], int)
+        assert isinstance(result["memories"], list)
+        assert isinstance(result["count"], int)
         assert "signals" in result
         assert isinstance(result["signals"], dict)
         assert "dispatch_tier" in result
@@ -189,7 +190,7 @@ class TestRecallHandler:
             )
         )
         # Should include results (may include both via FTS, but domain-scoped heat signal favors alpha)
-        assert result["total"] >= 1
+        assert result["count"] >= 1
 
     def test_global_memory_visible_across_domains(self):
         """Global memories should appear in domain-scoped recall."""
@@ -218,7 +219,7 @@ class TestRecallHandler:
                 }
             )
         )
-        contents = [r.get("content", "") for r in result["results"]]
+        contents = [r.get("content", "") for r in result["memories"]]
         assert any("PostgreSQL server" in c for c in contents), (
             "Global memory should be visible from a different domain"
         )

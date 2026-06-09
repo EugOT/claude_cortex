@@ -92,7 +92,7 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
     recall_args = {k: v for k, v in args.items() if k != "k"}
     recall_args["max_results"] = max(top_n * 2, top_n)
     cortex_result = await recall_handler(recall_args)
-    memories = _prep_memories(cortex_result.get("results") or [])
+    memories = _prep_memories(cortex_result.get("memories") or [])
 
     sources = ["cortex"]
     ap_hits: list[dict] = []

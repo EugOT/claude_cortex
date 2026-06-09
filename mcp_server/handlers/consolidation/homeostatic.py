@@ -109,7 +109,7 @@ def run_homeostatic_cycle(
             # branch (needs ids + per-row heats). Only materialize when
             # bimodality triggers cohort path.
             if health["bimodality_coefficient"] > _BIMODALITY_TRIGGER:
-                memories = store.get_all_memories_for_decay()
+                memories = _slim_memories_for_dispatch(store)
             else:
                 memories = []  # not needed for scalar / no-op paths
         else:
@@ -146,6 +146,31 @@ def run_homeostatic_cycle(
             "health_score": None,
             "error": f"{type(exc).__name__}: {exc}",
         }
+
+
+def _slim_row(m: dict) -> dict:
+    """Project a memory row to the fields dispatch actually reads."""
+    return {
+        "id": m.get("id"),
+        "heat": m.get("heat", 0.5),
+        "domain": m.get("domain", ""),
+    }
+
+
+def _slim_memories_for_dispatch(store: MemoryStore) -> list[dict]:
+    """(id, heat, domain) projection of all active memories.
+
+    Cohort dispatch reads ``id`` + per-row heat; scalar dispatch reads
+    ``domain``. The previous ``get_all_memories_for_decay()`` call
+    materialized full rows — content + embeddings, multi-KB each — for
+    the whole table (bounded-I/O audit 2026-06-09, worst-offender #5).
+    Streams chunks and discards everything but the three fields, so the
+    full-row peak is one chunk.
+    """
+    if not hasattr(store, "iter_memories_for_decay"):
+        # SQLite / test fakes: keep the materializing path.
+        return [_slim_row(m) for m in store.get_all_memories_for_decay()]
+    return [_slim_row(m) for chunk in store.iter_memories_for_decay() for m in chunk]
 
 
 def _streaming_health(store: MemoryStore) -> tuple[dict, int]:

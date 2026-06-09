@@ -151,12 +151,23 @@ def _get_fired_triggers(directory: str, first_message: str) -> list[dict[str, An
     try:
         active_triggers = store.get_active_prospective_memories()
         fired = []
+        # Dedupe by content: trigger extraction at remember-time accumulates
+        # byte-identical reminders (measured 4-7 copies of the same content
+        # in one response; firedTriggers alone was 55.6% of a 262KB
+        # query_methodology payload — 2026-06-09 bounded-I/O audit). Every
+        # fired trigger still gets its triggered_count bumped; only one
+        # copy of each distinct content ships in the response.
+        seen_contents: set[str] = set()
         for trigger in active_triggers:
             if check_trigger(trigger, directory=directory, content=first_message):
                 store.trigger_prospective_memory(trigger["id"])
+                content = trigger["content"]
+                if content in seen_contents:
+                    continue
+                seen_contents.add(content)
                 fired.append(
                     {
-                        "content": trigger["content"],
+                        "content": content,
                         "trigger_type": trigger["trigger_type"],
                         "trigger_condition": trigger["trigger_condition"],
                         "triggered_count": trigger.get("triggered_count", 0) + 1,
@@ -208,7 +219,11 @@ def _enrich_context_with_memories(
     if fired_triggers:
         lines.append(f"\n## Triggered Reminders ({len(fired_triggers)})")
         for t in fired_triggers:
-            lines.append(f"  ⚡ {t['content']}")
+            # Summary line only — the full content already ships in the
+            # structured `firedTriggers` field. Embedding it here too made
+            # the response carry every trigger body twice (same 120-char
+            # display cap as the hot-memory lines above).
+            lines.append(f"  ⚡ {t['content'][:120]}")
 
     return context + "\n".join(lines)
 

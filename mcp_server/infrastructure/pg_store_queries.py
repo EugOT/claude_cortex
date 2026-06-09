@@ -181,6 +181,23 @@ class PgQueryMixin:
         rows = self._execute("SELECT * FROM memories WHERE NOT is_stale").fetchall()
         return [self._normalize_memory_row(r) for r in rows]
 
+    def get_memories_by_tag(self, tag: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Most-recent-first memories carrying ``tag``.
+
+        Replaces full-table scans that filtered by tag in Python
+        (bounded-I/O audit 2026-06-09). Recency correctness is guaranteed
+        by the ORDER BY; ``limit`` only bounds the scan — callers that
+        skip dead entries (e.g. graph memos whose path was deleted) get
+        ``limit`` candidates of headroom.
+        """
+        rows = self._execute(
+            "SELECT * FROM memories "
+            "WHERE tags @> %s::jsonb AND NOT is_stale "
+            "ORDER BY created_at DESC LIMIT %s",
+            (json.dumps([tag]), limit),
+        ).fetchall()
+        return [self._normalize_memory_row(r) for r in rows]
+
     def iter_memories_for_decay(
         self,
         chunk_size: int = 1000,

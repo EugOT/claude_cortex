@@ -274,14 +274,11 @@ async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
     """Retrieve memories: pg_recall base + production enrichments."""
     if not args or not args.get("query"):
         # Issue #46: even the early-return must satisfy the outputSchema's
-        # required keys (`memories`). The legacy `results`/`total` are
-        # kept for back-compat with consumers that haven't migrated yet.
+        # required keys (`memories`).
         return {
             "memories": [],
             "count": 0,
             "intent": "semantic",
-            "results": [],
-            "total": 0,
         }
 
     query = args["query"]
@@ -335,20 +332,14 @@ async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
 
     intent_info = classify_query_intent(query)
     intent = intent_info.get("intent", QueryIntent.GENERAL)
-    # Issue #46: align the response with the declared outputSchema while
-    # preserving the legacy keys (`results`/`total`/`query_intent`) for
-    # consumers that already migrated to them. The schema enum was
-    # broadened to include every QueryIntent value so the classifier's
-    # `general` fallback no longer fails validation.
+    # The legacy `results`/`total`/`query_intent` aliases byte-duplicated
+    # every memory on the wire (measured: 815KB response for 15 memories,
+    # 50% pure duplication — 2026-06-09 audit). All consumers now read the
+    # schema-aligned keys.
     return {
         "memories": results,
         "count": len(results),
         "intent": str(intent),
-        # Back-compat aliases — drop after one minor release once consumers
-        # migrate to the schema-aligned key names.
-        "results": results,
-        "total": len(results),
-        "query_intent": intent,
         "low_signal_dropped": low_signal_dropped,
         "dispatch_tier": "pg",
         "signals": {},
@@ -358,4 +349,4 @@ async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
 
 # Telemetry-instrumented public entry. Wrapper records latency, byte
 # volume, and result count per call (Popper C6 read/write ratio audit).
-handler = instrument("recall", _handler_impl, result_count_key="results")
+handler = instrument("recall", _handler_impl, result_count_key="memories")

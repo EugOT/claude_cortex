@@ -59,8 +59,8 @@ class TestFullLifecycle:
                 "min_heat": 0.0,
             }
         )
-        assert recall_result["total"] > 0
-        contents = [m["content"] for m in recall_result["results"]]
+        assert recall_result["count"] > 0
+        contents = [m["content"] for m in recall_result["memories"]]
         # At least one of our memories should appear
         assert any("UTC" in c or "WAL" in c or "index" in c for c in contents)
 
@@ -118,7 +118,7 @@ class TestFullLifecycle:
                 "min_heat": 0.0,
             }
         )
-        assert recall_result["total"] > 0
+        assert recall_result["count"] > 0
 
     @pytest.mark.asyncio
     async def test_memory_stats_after_operations(self):
@@ -180,7 +180,7 @@ class TestFullLifecycle:
             }
         )
         # Should find the backend memory
-        assert result["total"] > 0
+        assert result["count"] > 0
 
 
 class TestHookScripts:

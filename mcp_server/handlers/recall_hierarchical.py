@@ -251,10 +251,20 @@ async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
     # Filter memories that have embeddings (newly stored may lack them)
     memories_with_emb = [m for m in memories if m.get("embedding")]
     if len(memories_with_emb) < 3:
-        # Too few embeddings for clustering — fall back to flat vector search
+        # Too few embeddings for clustering — fall back to flat vector search.
+        # Adapt the flat response to THIS handler's contract (results/total/
+        # hierarchy) instead of leaking the flat shape through; previously the
+        # passthrough only satisfied the contract via recall's now-removed
+        # duplicate `results`/`total` alias keys.
         from mcp_server.handlers.recall import handler as flat_recall
 
-        return await flat_recall(args)
+        flat = await flat_recall(args)
+        return {
+            "results": flat.get("memories", []),
+            "total": flat.get("count", 0),
+            "hierarchy": {"stats": {}},
+            "fallback": "flat_recall",
+        }
 
     raw_results, hierarchy = _score_memories_against_hierarchy(
         memories_with_emb,

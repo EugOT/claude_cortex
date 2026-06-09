@@ -68,11 +68,11 @@ def cortex_recall(question: str, domain: str = "beam") -> list[dict[str, Any]]:
     }
     response = asyncio.run(handler(args))
 
-    # The production handler returns {"results": [...], "total": N, ...}
-    # per ``recall.py::_handler_impl``. We pull the ``results`` list and
+    # The production handler returns {"memories": [...], "count": N, ...}
+    # per ``recall.py::_handler_impl``. We pull the ``memories`` list and
     # return it verbatim.
     if isinstance(response, dict):
-        results = response.get("results", [])
+        results = response.get("memories", [])
         if isinstance(results, list):
             return results
     return []

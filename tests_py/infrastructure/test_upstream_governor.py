@@ -6,7 +6,6 @@ MCP child, across handlers running on independent worker-thread event loops.
 
 import asyncio
 import threading
-import time
 
 import pytest
 

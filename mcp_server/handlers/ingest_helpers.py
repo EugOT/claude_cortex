@@ -110,7 +110,14 @@ def find_cached_graph(store, project_path: str) -> str | None:
     """
     tag = code_graph_tag(project_path)
     try:
-        mems = store.get_all_memories_for_decay()
+        if hasattr(store, "get_memories_by_tag"):
+            # Tag-filtered, recency-ordered SQL lookup. The previous
+            # full-table scan materialized every memory (content +
+            # embeddings) to find a handful of graph memos
+            # (bounded-I/O audit 2026-06-09).
+            mems = store.get_memories_by_tag(tag, limit=20)
+        else:  # test fakes / stores without the tag query
+            mems = store.get_all_memories_for_decay()
     except Exception:
         return None
 

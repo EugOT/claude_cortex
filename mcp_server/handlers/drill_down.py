@@ -93,8 +93,10 @@ def _fetch_candidate_memories(
     if domain:
         return store.get_memories_for_domain(domain, min_heat=min_heat, limit=500)
 
-    all_mems = store.get_all_memories_for_decay()
-    return [m for m in all_mems if m.get("heat", 0) >= min_heat]
+    # No-domain path: same 500-row bound as the domain path above. The
+    # previous full-table materialization + Python heat filter was the
+    # last uncapped scan in this handler (bounded-I/O audit 2026-06-09).
+    return store.get_hot_memories(min_heat=min_heat, limit=500)
 
 
 def _enrich_leaf_memories(
