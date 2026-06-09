@@ -91,36 +91,114 @@ def _allowed_probe_roots() -> "list[str]":
     return roots
 
 
+def _within(real_path: str, root: str) -> bool:
+    """True iff ``real_path`` is ``root`` or nested beneath it.
+
+    ``os.path.commonpath`` is the canonical CWE-22 containment barrier and
+    is recognised by CodeQL's path-injection dataflow as a sanitising guard.
+    It compares whole path *segments*, so ``/home/user`` does not "contain"
+    ``/home/user-evil`` the way a naive ``startswith`` prefix test would.
+    Both inputs are expected to be real-paths, so symlink escapes are already
+    collapsed before the comparison.
+    """
+    import os
+
+    try:
+        return os.path.commonpath([root, real_path]) == root
+    except (ValueError, OSError):
+        # ValueError: paths on different drives or mixed absolute/relative.
+        return False
+
+
 def _contained_resolved(p: "str | Path") -> "Path | None":  # noqa: F821
-    """Resolve ``p`` and return it ONLY if it lands inside an allowed probe
+    """Real-path ``p`` and return it ONLY if it lands inside an allowed probe
     root; otherwise ``None``.
 
-    Sanitise-and-return: the returned Path is the *validated* value, and
-    callers must use it (never the raw input) for any subsequent filesystem
-    op. This places the ``is_relative_to`` barrier (the canonical CWE-22
-    path-traversal sanitiser) directly on the tainted→sink dataflow, which
-    CodeQL recognises — so ``?name=`` / ``?path=`` query data can never
-    reach a filesystem op that escapes ``$HOME`` / cwd / temp.
+    Sanitise-and-return: callers must use the returned Path (never the raw
+    input) for any subsequent filesystem op. ``os.path.realpath`` normalises
+    ``..`` and symlink segments, and ``_within`` (``os.path.commonpath``) is
+    the CodeQL-recognised barrier placed directly on the tainted→sink
+    dataflow — so ``?name=`` / ``?path=`` query data can never reach a
+    filesystem op that escapes ``$HOME`` / cwd / temp.
     """
+    import os
     from pathlib import Path
 
     try:
-        target = Path(p).resolve(strict=False)
+        real = os.path.realpath(str(p))
     except (OSError, ValueError):
         return None
     for root in _allowed_probe_roots():
-        try:
-            base = Path(root).resolve(strict=False)
-        except (OSError, ValueError):
-            continue
-        if target == base or target.is_relative_to(base):
-            return target
+        if _within(real, root):
+            return Path(real)
     return None
 
 
-def _under_allowed_root(p: "Path") -> bool:  # noqa: F821
-    """Back-compat boolean wrapper around :func:`_contained_resolved`."""
-    return _contained_resolved(p) is not None
+def _descend_trusted(root: str, names: "list[str]") -> "Path | None":  # noqa: F821
+    """Descend from a TRUSTED ``root`` into child directories whose names
+    match the successive user-supplied ``names``, returning the deepest
+    existing directory reached.
+
+    CWE-22 taint break: this is the ``git_diff._match_in_whitelist`` pattern
+    applied to directory traversal. At every level the candidate paths come
+    from ``os.scandir(cur)`` — a trusted enumeration of what is actually on
+    disk — and a user component selects among them ONLY via ``entry.name ==
+    name`` equality. The path that reaches the ``is_dir`` / ``scandir`` sink
+    (``cur`` / ``entry.path``) is composed entirely from the constant
+    ``root`` plus scandir output; the user ``names`` never construct a probed
+    path. Static analysers (CodeQL ``py/path-injection``) therefore see the
+    sink operand as not derived from user input. Capped at 64 levels.
+    """
+    import os
+    from pathlib import Path
+
+    cur = os.path.realpath(root)  # ``root`` is a constant probe root → trusted
+    if not os.path.isdir(cur):
+        return None
+    deepest = cur
+    for name in names[:64]:
+        nxt = None
+        try:
+            with os.scandir(cur) as entries:
+                for entry in entries:
+                    # Equality match only — ``name`` selects a trusted entry,
+                    # it never builds the path that gets probed.
+                    if entry.name == name and entry.is_dir():
+                        nxt = entry.path
+                        break
+        except (OSError, ValueError):
+            break
+        if nxt is None:
+            break
+        cur = nxt
+        deepest = cur
+    return Path(deepest)
+
+
+def _first_existing_dir_within(target: "Path") -> "Path | None":  # noqa: F821
+    """Deepest existing directory on ``target``'s path chain, found by
+    DESCENDING from the allowed probe root that contains it — never by
+    probing a ``realpath(user_input)``-derived path.
+
+    CWE-22 taint break (redesign): the up-walk variant fed ``is_dir()`` a
+    value derived from the user-controlled ``target`` on every iteration,
+    which CodeQL's loop-carried dataflow re-taints and refuses to treat as
+    sanitised. Instead we locate the constant allowed root that prefixes
+    ``target`` (a pure segment comparison — no filesystem op on user data),
+    then hand the remaining components to :func:`_descend_trusted`, where the
+    filesystem sinks only ever touch trusted enumerated paths. ``target`` is
+    used solely to *choose* a root and *compare* component names.
+    """
+    import os
+
+    real = os.path.realpath(str(target))
+    target_parts = [p for p in real.split(os.sep) if p]
+    for root in _allowed_probe_roots():
+        root_parts = [p for p in root.split(os.sep) if p]
+        if target_parts[: len(root_parts)] != root_parts:
+            continue
+        return _descend_trusted(root, target_parts[len(root_parts) :])
+    return None
 
 
 def _git_root_for_name(name: str, find_git_root) -> "Path | None":  # noqa: F821
@@ -136,14 +214,18 @@ def _git_root_for_name(name: str, find_git_root) -> "Path | None":  # noqa: F821
     query parameter). Defences:
 
       * Strip surrounding quotes, reject empty/null-byte inputs.
-      * ``os.path.normpath`` collapses ``..`` and ``//`` segments.
-      * Require absolute paths — relative inputs go straight to CWD.
-      * ``_under_allowed_root`` constrains the probe surface to the
-        user's ``$HOME``, server CWD, and system temp directories —
-        attackers cannot probe ``/etc``, ``/root``, etc.
-      * Ancestor walk capped at 64 levels.
-      * Only ``is_dir()`` / ``git rev-parse`` run against the
-        ancestry — no file content is read in this function.
+      * ``..`` segments are rejected outright — input falls back to CWD.
+      * ``_contained_resolved`` bounds the input to ``$HOME`` / cwd / temp
+        (``os.path.commonpath``), so anything outside falls back to CWD.
+      * The directory actually probed is reached by DESCENDING from a
+        constant allowed root via ``_first_existing_dir_within`` /
+        ``_descend_trusted`` (``os.scandir``): the value that reaches
+        ``is_dir`` / ``git rev-parse --cwd`` is composed from trusted
+        enumeration, not from ``name`` — the CWE-22 taint flow is broken
+        the same way ``git_diff._match_in_whitelist`` breaks it.
+      * Descent capped at 64 levels.
+      * Only directory probes / ``git rev-parse`` run against the path —
+        no file content is read in this function.
     """
     from pathlib import Path
 
@@ -158,49 +240,30 @@ def _git_root_for_name(name: str, find_git_root) -> "Path | None":  # noqa: F821
     except (ValueError, OSError):
         return find_git_root()
 
-    # Absolute inputs are the COMMON case, not an attack: graph file
-    # nodes carry the absolute ``file_path`` captured from the original
-    # tool call, on this same machine. The server is loopback-only and
-    # ``name`` comes from the user's own stored data, so we resolve the
-    # repo from the file's own location — constrained to
-    # ``_under_allowed_root`` (HOME / cwd / temp) so a crafted ``?name=``
-    # still can't probe ``/etc`` / ``/root`` (CWE-22).
+    # Absolute inputs are the COMMON case, not an attack: graph file nodes
+    # carry the absolute ``file_path`` captured from the original tool call,
+    # on this same machine. ``_contained_resolved`` bounds the path to
+    # HOME / cwd / temp, then ``_first_existing_dir_within`` DESCENDS from the
+    # containing trusted root via ``os.scandir`` to the deepest existing dir —
+    # so the path reaching the git sink is trusted enumeration (CWE-22).
     if clean.startswith(("/", "\\")):
-        # Sanitise-and-return: ``target`` is the validated resolved path
-        # (gated by is_relative_to), so the value reaching ``is_dir()`` /
-        # ``git rev-parse`` below carries the CWE-22 barrier inline.
         target = _contained_resolved(clean)
         if target is None:
             return find_git_root()
-        # Walk up to the first directory that exists (handles a file, or
-        # an intermediate dir, deleted after capture). Capped at 64.
-        start = target
-        for _ in range(64):
-            if start.is_dir():
-                break
-            parent = start.parent
-            if parent == start:
-                break
-            start = parent
+        start = _first_existing_dir_within(target)
+        if start is None:
+            return find_git_root()
         root = find_git_root(start)
         return root if root is not None else find_git_root()
 
-    # Relative inputs: join under each allowed probe root and let git
-    # walk the ancestry. ``is_relative_to`` keeps the join inside base.
+    # Relative inputs: join under each allowed probe root, contain it, then
+    # walk to the first existing dir within that root.
     for base_root in _allowed_probe_roots():
-        try:
-            base = Path(base_root).resolve(strict=False)
-            target = (base / Path(*parts)).resolve(strict=False)
-        except (OSError, ValueError):
+        target = _contained_resolved(str(Path(base_root) / Path(*parts)))
+        if target is None:
             continue
-        # Canonical CodeQL-recognised sanitiser.
-        if not (target == base or target.is_relative_to(base)):
-            continue
-        try:
-            start = target if target.is_dir() else target.parent
-        except OSError:
-            continue
-        if not (start == base or start.is_relative_to(base)):
+        start = _first_existing_dir_within(target)
+        if start is None:
             continue
         root = find_git_root(start)
         if root is not None:
