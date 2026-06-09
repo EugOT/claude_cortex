@@ -43,9 +43,9 @@ When two matched groups have wildly different outcomes and nobody has investigat
 
 | Tool | Use when |
 |---|---|
-| `mcp__ai-architect__verify_semantic_diff` | **Primary tool for the Semmelweis pattern.** Compares two graphs (before / after, or group A / group B) and reports nodes added/removed, edges added/removed, dangling references, new unresolved imports, new strongly-connected cycles. The regression-score IS the anomaly signal. |
-| `mcp__ai-architect__detect_changes` | Single-graph variant: maps a git diff to affected symbols + risk score. Use when investigating "why did THIS commit break things?" |
-| `mcp__ai-architect__get_impact` | After spotting an anomaly, enumerate every caller affected — Semmelweis's data was per-ward; this is per-symbol. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__verify_semantic_diff` | **Primary tool for the Semmelweis pattern.** Compares two graphs (before / after, or group A / group B) and reports nodes added/removed, edges added/removed, dangling references, new unresolved imports, new strongly-connected cycles. The regression-score IS the anomaly signal. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__detect_changes` | Single-graph variant: maps a git diff to affected symbols + risk score. Use when investigating "why did THIS commit break things?" |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_impact` | After spotting an anomaly, enumerate every caller affected — Semmelweis's data was per-ward; this is per-symbol. |
 
 **Graceful degradation:** without MCP, compare before/after by running the test suite and `git log` — a more anecdotal anomaly signal but still actionable. Mark the anomaly evidence as `signal: test-derived` versus `signal: graph-verified`.
 </codebase-intelligence>

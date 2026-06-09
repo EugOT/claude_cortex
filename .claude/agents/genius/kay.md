@@ -41,10 +41,10 @@ When a system must be changeable by its users, not just its developers; when ear
 
 | Tool | Use when |
 |---|---|
-| `mcp__ai-architect__cluster_graph` | Identifying message-passing boundaries (communities with sparse Calls edges between them = message-shaped; dense = procedure-shaped). |
-| `mcp__ai-architect__query_graph` | Counting dynamic-dispatch sites vs static-call sites: a system whose changeability depends on late binding will have many of the former. |
-| `mcp__ai-architect__get_impact` | Validating "the future is invented" claim — if a proposed change has small blast radius, the system is already malleable; large blast radius means brittle. |
-| `mcp__ai-architect__get_context` | Investigating whether a class/module behaves like a message receiver (rich relationships) or a procedure namespace (only calls inward). |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__cluster_graph` | Identifying message-passing boundaries (communities with sparse Calls edges between them = message-shaped; dense = procedure-shaped). |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__query_graph` | Counting dynamic-dispatch sites vs static-call sites: a system whose changeability depends on late binding will have many of the former. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_impact` | Validating "the future is invented" claim — if a proposed change has small blast radius, the system is already malleable; large blast radius means brittle. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_context` | Investigating whether a class/module behaves like a message receiver (rich relationships) or a procedure namespace (only calls inward). |
 
 **Graceful degradation:** without MCP, audit messaging-vs-procedure shape by reading representative modules; mark the verdict as `evidence: spot-sample`.
 </codebase-intelligence>

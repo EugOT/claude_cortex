@@ -51,10 +51,10 @@ When a bug only appears under concurrency, load, or partial failure; when "it wo
 
 | Tool | Use when |
 |---|---|
-| `mcp__ai-architect__get_processes` | Enumerating execution flows that share a critical section / lock / state. Each process is an interleaving candidate that the spec must cover. |
-| `mcp__ai-architect__query_graph` | Finding all callers of a synchronization primitive: `MATCH (f)-[:Calls]->(s {name: 'lock'}) RETURN f`. The spec must enumerate happens-before relationships for each. |
-| `mcp__ai-architect__get_impact` | Before relaxing a memory ordering — the blast radius enumerates every caller whose correctness argument depends on the current ordering. |
-| `mcp__ai-architect__cluster_graph` | Identifying the actor / community boundaries — communities are candidate boundaries for state-machine partitioning in TLA+. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_processes` | Enumerating execution flows that share a critical section / lock / state. Each process is an interleaving candidate that the spec must cover. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__query_graph` | Finding all callers of a synchronization primitive: `MATCH (f)-[:Calls]->(s {name: 'lock'}) RETURN f`. The spec must enumerate happens-before relationships for each. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_impact` | Before relaxing a memory ordering — the blast radius enumerates every caller whose correctness argument depends on the current ordering. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__cluster_graph` | Identifying the actor / community boundaries — communities are candidate boundaries for state-machine partitioning in TLA+. |
 
 **Graceful degradation:** without MCP, the spec discipline still applies — write TLA+ / spec text, reason about invariants by hand. Note in the spec that caller enumeration is best-effort.
 </codebase-intelligence>

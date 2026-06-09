@@ -40,9 +40,9 @@ When a system has inputs and outputs and nobody has verified that the totals mat
 
 | Tool | Use when |
 |---|---|
-| `mcp__ai-architect__get_impact` | Tracing where the output of a function ends up — every caller is a downstream "output" sink. Missing sinks indicate an unaccounted residual. |
-| `mcp__ai-architect__get_processes` | Following data flow from an entry point — the process trace is the mass-balance ledger. Inputs at entry must equal outputs + drops + side effects at exit. |
-| `mcp__ai-architect__query_graph` | Hunting for orphan symbols: `MATCH (f:Function) WHERE NOT (f)<-[:Calls]-() AND NOT (f)<-[:EntryPointOf]-() RETURN f`. Orphans are mass that entered the codebase but has no outflow — name the new entity or remove it. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_impact` | Tracing where the output of a function ends up — every caller is a downstream "output" sink. Missing sinks indicate an unaccounted residual. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_processes` | Following data flow from an entry point — the process trace is the mass-balance ledger. Inputs at entry must equal outputs + drops + side effects at exit. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__query_graph` | Hunting for orphan symbols: `MATCH (f:Function) WHERE NOT (f)<-[:Calls]-() AND NOT (f)<-[:EntryPointOf]-() RETURN f`. Orphans are mass that entered the codebase but has no outflow — name the new entity or remove it. |
 
 **Graceful degradation:** without MCP, perform mass-balance by hand-tracing entry → exit; mark the balance as `coverage: spot-trace`.
 </codebase-intelligence>

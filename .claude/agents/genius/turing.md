@@ -40,9 +40,9 @@ When a problem is drowning in implementation detail and nobody has asked what th
 
 | Tool | Use when |
 |---|---|
-| `mcp__ai-architect__get_processes` | Identifying the *actual* computation primitives (entry-point traces) underneath the layers of code. The simplest mechanism that does the work is at the bottom of one of these traces. |
-| `mcp__ai-architect__cluster_graph` | Detecting whether the system's structure is universal (small core + dispatch) or special-purpose (many parallel implementations). |
-| `mcp__ai-architect__query_graph` | Hunting for the minimal set of operations that compose into the system's behaviour — this is the candidate "essential machine." |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_processes` | Identifying the *actual* computation primitives (entry-point traces) underneath the layers of code. The simplest mechanism that does the work is at the bottom of one of these traces. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__cluster_graph` | Detecting whether the system's structure is universal (small core + dispatch) or special-purpose (many parallel implementations). |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__query_graph` | Hunting for the minimal set of operations that compose into the system's behaviour — this is the candidate "essential machine." |
 
 **Graceful degradation:** without MCP, identify the computational essence by code reading + diagrams; mark the essence as `derived: by-inspection`, not graph-verified.
 </codebase-intelligence>

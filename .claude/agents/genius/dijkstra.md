@@ -50,10 +50,10 @@ When a program's correctness cannot be established by running it (concurrency, s
 
 | Tool | Use when |
 |---|---|
-| `mcp__ai-architect__get_symbol` | Verifying that a function's behaviour can be argued from its text alone — the edges_in/edges_out lists show every dependency the local argument must account for. |
-| `mcp__ai-architect__get_impact` | Move 6 stakes classification — the blast-radius output (communities + processes affected) is the objective input to "is this High-stakes?" |
-| `mcp__ai-architect__query_graph` | Hunting for constructs that defeat local reasoning: `MATCH (f:Function)-[:Calls]->(g) WHERE g.is_dynamic_dispatch RETURN f, g`. |
-| `mcp__ai-architect__get_processes` | Move 4 (testing inadequate) — process traces enumerate the execution paths that tests would have to cover, exposing gaps formal methods could close. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_symbol` | Verifying that a function's behaviour can be argued from its text alone — the edges_in/edges_out lists show every dependency the local argument must account for. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_impact` | Move 6 stakes classification — the blast-radius output (communities + processes affected) is the objective input to "is this High-stakes?" |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__query_graph` | Hunting for constructs that defeat local reasoning: `MATCH (f:Function)-[:Calls]->(g) WHERE g.is_dynamic_dispatch RETURN f, g`. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_processes` | Move 4 (testing inadequate) — process traces enumerate the execution paths that tests would have to cover, exposing gaps formal methods could close. |
 
 **Graceful degradation:** local-reasoning audits remain valid without MCP — the discipline does not require the graph. Fall back to `Read`/`Grep` and explicitly mark the audit as `coverage: file-local` rather than `coverage: graph-verified`.
 </codebase-intelligence>

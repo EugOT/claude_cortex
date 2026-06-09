@@ -46,9 +46,9 @@ When deciding whether to build or buy, merge or split, monolith or microservice,
 
 | Tool | Use when |
 |---|---|
-| `mcp__ai-architect__cluster_graph` | Detecting the *actual* coordination clusters in the codebase (Leiden communities). Drawing a service boundary inside a tight community = high internal-coordination cost; drawing it between sparse communities = low cost. |
-| `mcp__ai-architect__get_impact` | Before extracting a module into a separate service, enumerate cross-boundary calls — each becomes an RPC + transaction-cost. |
-| `mcp__ai-architect__query_graph` | Counting cross-community edges as a coordination-cost proxy. Many edges = boundary is wrong; few edges = boundary is right. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__cluster_graph` | Detecting the *actual* coordination clusters in the codebase (Leiden communities). Drawing a service boundary inside a tight community = high internal-coordination cost; drawing it between sparse communities = low cost. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_impact` | Before extracting a module into a separate service, enumerate cross-boundary calls — each becomes an RPC + transaction-cost. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__query_graph` | Counting cross-community edges as a coordination-cost proxy. Many edges = boundary is wrong; few edges = boundary is right. |
 
 **Graceful degradation:** without MCP, estimate transaction cost from architecture diagrams + sample call traces; mark the boundary-cost estimate as `evidence: rough-order` rather than measured.
 </codebase-intelligence>

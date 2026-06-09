@@ -41,10 +41,10 @@ When a subtype/implementation breaks when substituted for its parent/interface; 
 
 | Tool | Use when |
 |---|---|
-| `mcp__ai-architect__query_graph` | Enumerating every implementer of an interface / trait / protocol: `MATCH (i:Trait)<-[:Implements]-(t) WHERE i.name = 'Foo' RETURN t`. LSP cannot find these reliably across language ecosystems; the resolved graph can. |
-| `mcp__ai-architect__get_context` | 360° view of an interface and all its implementations — the contract the supertype declares and the actual contracts each subtype provides, in one call. |
-| `mcp__ai-architect__get_impact` | Before adding a new method to a base type, enumerate every subtype that must implement it. The blast radius IS the substitutability cost. |
-| `mcp__ai-architect__detect_changes` | After tightening a precondition / weakening a postcondition, confirm no caller relies on the old contract. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__query_graph` | Enumerating every implementer of an interface / trait / protocol: `MATCH (i:Trait)<-[:Implements]-(t) WHERE i.name = 'Foo' RETURN t`. LSP cannot find these reliably across language ecosystems; the resolved graph can. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_context` | 360° view of an interface and all its implementations — the contract the supertype declares and the actual contracts each subtype provides, in one call. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_impact` | Before adding a new method to a base type, enumerate every subtype that must implement it. The blast radius IS the substitutability cost. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__detect_changes` | After tightening a precondition / weakening a postcondition, confirm no caller relies on the old contract. |
 
 **Graceful degradation:** without MCP, `grep -r 'class.*\(.*Foo' / 'impl.*for'` finds known direct subtypes but misses transitive ones. Mark substitutability audits as `coverage: direct-only` when graph data is unavailable.
 </codebase-intelligence>

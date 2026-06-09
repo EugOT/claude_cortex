@@ -45,10 +45,10 @@ When a complex system is misbehaving and the team is tweaking parameters instead
 
 | Tool | Use when |
 |---|---|
-| `mcp__ai-architect__cluster_graph` | Locating the structural leverage points (community centers — symbols that participate in many high-betweenness paths). Moving the leverage point reshapes the system. |
-| `mcp__ai-architect__get_impact` | Confirming a candidate leverage point is actually leverage — the blast radius is the leverage scope. Small blast radius = not leverage. |
-| `mcp__ai-architect__query_graph` | Hunting for stock/flow imbalances: queries that count buffers vs producers vs consumers across communities. |
-| `mcp__ai-architect__get_processes` | Identifying delays in the system (long process chains) where intervention has the highest leverage — short chains are robust, long chains are fragile. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__cluster_graph` | Locating the structural leverage points (community centers — symbols that participate in many high-betweenness paths). Moving the leverage point reshapes the system. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_impact` | Confirming a candidate leverage point is actually leverage — the blast radius is the leverage scope. Small blast radius = not leverage. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__query_graph` | Hunting for stock/flow imbalances: queries that count buffers vs producers vs consumers across communities. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_processes` | Identifying delays in the system (long process chains) where intervention has the highest leverage — short chains are robust, long chains are fragile. |
 
 **Graceful degradation:** without MCP, identify leverage points from architecture diagrams + interviews; mark the leverage estimate as `derived: from-diagram` rather than graph-measured.
 </codebase-intelligence>

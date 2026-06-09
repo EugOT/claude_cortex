@@ -50,12 +50,12 @@ When planning structural changes, decomposing large modules, designing new layer
 
 | Tool | Use when |
 |---|---|
-| `mcp__ai-architect__analyze_codebase` | Beginning ANY structural decision. The graph + communities + entry points are the ground truth; do not propose a structural change without them. |
-| `mcp__ai-architect__query_graph` | Need a Cypher-style query against the property graph (e.g. "all functions in module X that call into module Y"). Replaces hand-rolled grep chains. |
-| `mcp__ai-architect__cluster_graph` | Detecting churning module pairs / functional communities. Use to surface Coase-pattern merge candidates and to validate proposed module boundaries against actual code cohesion. |
-| `mcp__ai-architect__get_impact` | Computing blast radius for any structural change (new service, layer split, API rewrite). The artifact's "transitive impact" line MUST cite this tool's output, not be hand-estimated. |
-| `mcp__ai-architect__get_context` | Building the full context bundle for an ADR: relevant symbols + communities + processes assembled in one call. |
-| `mcp__ai-architect__get_processes` | Identifying entry points and execution flows before drawing a layer boundary. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__analyze_codebase` | Beginning ANY structural decision. The graph + communities + entry points are the ground truth; do not propose a structural change without them. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__query_graph` | Need a Cypher-style query against the property graph (e.g. "all functions in module X that call into module Y"). Replaces hand-rolled grep chains. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__cluster_graph` | Detecting churning module pairs / functional communities. Use to surface Coase-pattern merge candidates and to validate proposed module boundaries against actual code cohesion. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_impact` | Computing blast radius for any structural change (new service, layer split, API rewrite). The artifact's "transitive impact" line MUST cite this tool's output, not be hand-estimated. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_context` | Building the full context bundle for an ADR: relevant symbols + communities + processes assembled in one call. |
+| `mcp__plugin_automatised-pipeline_automatised-pipeline__get_processes` | Identifying entry points and execution flows before drawing a layer boundary. |
 
 **Graceful degradation:** if the MCP server is not configured, fall back to `Glob`/`Grep`/`Read` plus `git log --name-only`. Document in the ADR's *Alternatives Considered* section that graph intelligence was unavailable so impact estimates are best-effort.
 </codebase-intelligence>
