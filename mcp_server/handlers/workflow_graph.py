@@ -636,7 +636,18 @@ def _build_interleaved(
     # Structural baseline — every node/edge ingested before the memory
     # phase (domains, hubs, files, discussions, entities ≈ 30k). The
     # memory phase is pruned back to this size after every batch.
-    _struct_n = len(builder._nodes)  # noqa: SLF001
+    #
+    # IMPORTANT: use len(_node_order), NOT len(_nodes). Some relational
+    # ingest helpers (ingest_skill_usage, ingest_mcp_usage, ingest_symbol)
+    # write nodes directly into b._nodes without appending to b._node_order.
+    # This makes len(_nodes) > len(_node_order) by N_missing. If _struct_n
+    # were set to len(_nodes), then _node_order[_struct_n:] would be empty
+    # (or under-sized), the per-batch discard would miss the first N_missing
+    # memory nodes, those nodes would accumulate in _nodes without their
+    # in_domain edges (which the discard DID remove), and validate_graph
+    # would raise GraphValidationError("memory:X … got 0").
+    # source: root-cause traced 2026-06-09.
+    _struct_n = len(builder._node_order)  # noqa: SLF001
     _struct_e = len(builder._edges)  # noqa: SLF001
     # memory_limit=0 → stream the FULL corpus. Bounding is by per-batch
     # DISCARD below, not a row cap: the embedding-free projection makes
