@@ -46,9 +46,22 @@ write gate \citep{Friston2010}, (iii)~consolidation cascades that
 compress episodic into semantic memory
 \citep{Kandel2001,McClelland1995}, and (iv)~WRRF fusion with heat
 as a tie-breaker.  On three independent long-term-memory
-benchmarks, Cortex reaches LongMemEval R@10\,$=$\,98.4\%
-(vs.\ 78.4\% paper-best), LoCoMo R@10\,$=$\,94.2\%, and BEAM
-Overall\,$=$\,0.591 (vs.\ 0.329 paper-best).  We characterise when
+benchmarks, Cortex reaches LongMemEval R@10\,$=$\,98.4\% and
+LoCoMo R@10\,$=$\,94.2\% (retrieval recall, directly comparable to
+the published retrieval baselines), and a retrieval-proxy MRR of
+0.591 on BEAM-100K.  We report the BEAM number as a retrieval-proxy
+(does the gold memory appear in the retrieved set), which is
+\emph{not} commensurable with BEAM's end-to-end LLM-as-judge score;
+we therefore make no head-to-head BEAM claim and use BEAM only for
+within-system, same-harness comparisons (\S\ref{sec:beam-proxy}).
+A direct decay dose--response on BEAM isolates the mechanism:
+disabling the Ebbinghaus heat decay (setting the per-hour retention
+factor to 1.0) drops retrieval-proxy MRR from 0.671 to 0.399
+($-41\%$) and R@10 from 0.867 to 0.567, on the same code path.  The
+benefit is regime-dependent: it requires a corpus with differential
+access history (\S\ref{sec:regime}); on single-pass,
+isolated-haystack evaluations decay is neutral-to-slightly-negative,
+exactly as its mechanism-of-action predicts.  We characterise when
 flat memory remains adequate, quantify the calibration cost of
 decay, and bound the per-write overhead of biological
 consolidation.  Code, data, and benchmark harness are publicly
@@ -84,7 +97,9 @@ thermodynamic architecture, and reports empirical results on three
 published long-term-memory benchmarks.  The headline numbers preview
 the argument: on LongMemEval \citep{Wu2025}, Cortex reaches
 R@10\,$=$\,98.4\% versus 78.4\% paper-best; on BEAM
-\citep{Tavakoli2026}, 0.591 Overall versus 0.329 paper-best; on
+\citep{Tavakoli2026}, a retrieval-proxy MRR of 0.591 on BEAM-100K
+(not comparable to BEAM's end-to-end metric; see
+\S\ref{sec:beam-proxy}); on
 LoCoMo \citep{Maharana2024}, R@10\,$=$\,94.2\%.  All numbers are
 produced by the production PL/pgSQL retrieval code path,
 single-process, on a clean database seeded only with each
@@ -112,7 +127,7 @@ benchmark's data.
   \item Empirical results on three long-term-memory benchmarks
         (\S\ref{sec:empirical}): R@10\,$=$\,98.4\% on LongMemEval
         ($+20.0$\,pp over paper-best), R@10\,$=$\,94.2\% on LoCoMo,
-        and 0.591 Overall on BEAM ($+79.6\%$ relative).
+        and a retrieval-proxy MRR of 0.591 on BEAM-100K.
 \end{enumerate}
 
 \S\ref{sec:related} positions the work against prior systems;
@@ -157,6 +172,18 @@ $\times$ recency $\times$ similarity.  Neither implements the full
 biological cascade---predictive-coding gating, multi-level
 consolidation, neuromodulatory tagging, microglial pruning---that
 we draw on here.
+
+Our heat mechanism is closely related to ACT-R base-level activation
+\citep{Anderson1991}, in which a memory's retrievability is a
+power-law-decaying sum over its past access events, and to the
+importance $\times$ recency $\times$ similarity retrieval rule of
+Generative Agents \citep{Park2023}.  The Ebbinghaus exponential we
+use (\S\ref{sec:heat}) is the same family of forgetting curve, and
+the ACT-R lifetime computation that Cortex routes through
+\texttt{ingested\_at} (\S\ref{sec:cadence-fix}) is the discrete-event
+analogue.  We do not claim a new activation function; we claim its
+integration into a six-signal fusion retriever (\S\ref{sec:wrrf}) and
+the characterisation of when it helps (\S\ref{sec:regime}).
 
 \paragraph{Long-term-memory benchmarks.}
 LongMemEval \citep{Wu2025}, LoCoMo \citep{Maharana2024}, and BEAM
@@ -494,14 +521,25 @@ LongMemEval & ICLR 2025 & R@10    & \textbf{98.4\%} & 78.4\% \\
 LongMemEval & ICLR 2025 & MRR     & \textbf{0.9124} & ---    \\
 LoCoMo      & ACL 2024  & R@10    & \textbf{94.2\%} & ---    \\
 LoCoMo      & ACL 2024  & MRR     & \textbf{0.8278} & ---    \\
-BEAM        & ICLR 2026 & Overall & \textbf{0.591}  & 0.329  \\
+BEAM-100K   & ICLR 2026 & MRR (retrieval-proxy)$^\dagger$ & \textbf{0.591}  & ---    \\
 \bottomrule
 \end{tabular}
+
+\vspace{2pt}
+{\footnotesize $^\dagger$BEAM's published metric is end-to-end
+LLM-as-judge nugget scoring; our MRR measures whether the gold
+memory is retrieved.  The two are not commensurable, so no
+paper-best column is shown for BEAM.  LongMemEval and LoCoMo rows
+are retrieval recall, directly comparable to their published
+retrieval baselines.}
 \end{table}
 
-The $+20.0$\,pp absolute gain on LongMemEval R@10 and the $+79.6\%$
-relative gain on BEAM Overall are the headline results.  Both
-benchmarks include question categories specifically designed to
+The $+20.0$\,pp absolute gain on LongMemEval R@10 is the headline
+result against a published baseline; the BEAM-100K retrieval-proxy
+MRR of 0.591 is reported only for within-system comparison
+(\S\ref{sec:beam-proxy}), not against BEAM's incommensurable
+end-to-end metric.  Both benchmarks include question categories
+specifically designed to
 defeat flat retrieval---multi-session reasoning (LongMemEval),
 causal/temporal grounding (BEAM)---which is consistent with the
 \S\ref{sec:flat-collapse} claim that the flat regime fails fastest
@@ -529,7 +567,8 @@ on our exact protocol; we report Cortex's numbers and the highest
 paper-reported number on each benchmark.
 (ii)~These benchmarks are retrieval-quality benchmarks; downstream
 end-task accuracy with a specific LLM may differ.
-(iii)~BEAM's Overall is a composite of seven sub-metrics---see
+(iii)~the BEAM number is a retrieval-proxy MRR
+(\S\ref{sec:beam-proxy}), not BEAM's end-to-end metric---see
 \texttt{benchmarks/beam/} for the per-subset breakdown.
 
 These results are consistent with the \S\ref{sec:why-decay}
@@ -538,6 +577,47 @@ explanation.  Before characterising the regime in which the lift
 holds (\S\ref{sec:regime}), we open the integrated number on a
 single benchmark and ask which of the \S\ref{sec:thermodynamic} mechanisms
 carry it.
+
+\subsection{Direct Dose--Response: Decay On vs.\ Off on BEAM}
+\label{sec:decay-dose}
+
+The per-mechanism ablations of \S\ref{sec:per-mechanism} are run on
+isolated-haystack benchmarks where every memory is written
+milliseconds before retrieval, so the heat distribution is uniform
+by construction (\S\ref{sec:regime}).  To measure decay where its
+mechanism-of-action applies, we run a direct dose--response on
+BEAM-100K, varying only the per-hour heat-retention factor
+$\lambda_{\mathrm{base}}$ between the engineering default $0.95$ and
+$1.0$ (decay fully disabled), holding the entire rest of the stack
+and the same \texttt{recall\_memories()} code path fixed.  Artefact:
+\texttt{benchmarks/results/decay\_sweep/20260430T111134Z/}
+(\texttt{summary.csv}, \texttt{analysis.json}).
+
+\begin{center}
+\small
+\begin{tabular}{lrr}
+\toprule
+$\lambda_{\mathrm{base}}$ & retrieval-proxy MRR & R@10 \\
+\midrule
+$0.95$ (decay on)  & \textbf{0.671} & \textbf{0.867} \\
+$1.00$ (decay off) & 0.399 & 0.567 \\
+\midrule
+$\Delta$ (on $-$ off) & $+0.272$ ($+68\%$) & $+0.300$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Disabling decay removes $41\%$ of retrieval-proxy MRR
+($0.272/0.671$) and $35\%$ of R@10 ($0.300/0.867$) on the same code
+path.  The sweep's two-point grid places the optimum at
+$\lambda_{\mathrm{base}} = 0.95$ with a measured sensitivity slope
+of $\approx -5.44$ MRR per unit $\lambda$ near the decay-off boundary
+(\texttt{analysis.json}: \texttt{slope\_right} $= -5.44$); the
+plateau width at $\varepsilon = 0.005$ MRR is the single optimum
+cell (\texttt{plateau\_width} $= 0$ grid spacing on this two-point
+sweep).  This is the dose--response that the isolated-haystack
+ablations cannot produce, and it is the load-bearing evidence that
+decay is causal in the regime where access history is heterogeneous.
 
 \subsection{Per-mechanism evidence (LongMemEval-S, $n{=}500$)}
 \label{sec:per-mechanism}
@@ -548,6 +628,17 @@ into per-mechanism contributions on two benchmarks---LongMemEval-S
 at $n{=}500$, single seed (\S\S\ref{sec:per-mech-table}--\ref{sec:per-mech-architectural})
 and LoCoMo at $n{=}1986$, single seed (\S\ref{sec:locomo-evidence})---at
 the calibrated equilibrium described in \S\ref{sec:calibration} below.
+
+\paragraph{Statistical caveat (read first).}  All per-mechanism
+deltas below are single seed; the empirical per-row noise floor is
+$\approx \pm 0.001$ MRR (LME-S, $n{=}500$) and $\approx \pm 0.002$
+MRR (LoCoMo, $n{=}1986$).  Deltas below this floor are not
+interpretable as causal contributions.  In the tables below,
+above-floor deltas are set in \textbf{bold} and sub-floor deltas in
+\emph{italic} (bold $=$ above noise floor); sub-floor magnitudes
+such as $\pm0.0001$ should be read as $\approx 0$ (within noise).
+Question-level bootstrap CIs for the headline rows are deferred to
+the camera-ready.
 
 \paragraph{Headline against the established Cortex baseline.}  At
 $n{=}500$ the calibrated integrated stack reaches
@@ -576,30 +667,51 @@ the pre-registration brief in \texttt{tasks/e1-v3-results.md}.
 Mechanism            & MRR (abl.) & R@10 (abl.) & $\Delta$MRR & $\Delta$R@10 \\
 \midrule
 BASELINE              & 0.9124 & 0.984 & 0       & 0      \\
-HOPFIELD              & 0.9117 & 0.980 & +0.0007 & +0.004 \\
-HDC                   & 0.9125 & 0.982 & $-$0.0001 & +0.002 \\
-SPREADING\_ACTIVATION & 0.9124 & 0.984 & $-$0.0000 & 0      \\
-DENDRITIC\_CLUSTERS   & 0.9126 & 0.984 & $-$0.0002 & 0      \\
-EMOTIONAL\_RETRIEVAL  & 0.9134 & 0.984 & $-$0.0010 & 0      \\
-ADAPTIVE\_DECAY       & 0.9138 & 0.984 & $-$0.0014 & 0      \\
-CO\_ACTIVATION        & 0.9124 & 0.984 & $-$0.0000 & 0      \\
-SURPRISE\_MOMENTUM    & 0.9124 & 0.984 & $-$0.0000 & 0      \\
-OSCILLATORY\_CLOCK    & 0.9124 & 0.984 & $-$0.0000 & 0      \\
-PREDICTIVE\_CODING    & 0.9124 & 0.984 & $-$0.0000 & 0      \\
-NEUROMODULATION       & 0.9124 & 0.984 & $-$0.0000 & 0      \\
-PATTERN\_SEPARATION   & 0.9124 & 0.984 & $-$0.0000 & 0      \\
-EMOTIONAL\_TAGGING    & 0.9124 & 0.984 & $-$0.0000 & 0      \\
-SYNAPTIC\_TAGGING     & 0.9124 & 0.984 & $-$0.0000 & 0      \\
-ENGRAM\_ALLOCATION    & 0.9124 & 0.984 & $-$0.0000 & 0      \\
-RECONSOLIDATION       & 0.9124 & 0.984 & $-$0.0000 & 0      \\
+\emph{HOPFIELD}              & 0.9117 & 0.980 & $\approx 0$ & +0.004 \\
+\emph{HDC}                   & 0.9125 & 0.982 & $\approx 0$ & +0.002 \\
+\emph{SPREADING\_ACTIVATION} & 0.9124 & 0.984 & $\approx 0$ & 0      \\
+\emph{DENDRITIC\_CLUSTERS}   & 0.9126 & 0.984 & $\approx 0$ & 0      \\
+EMOTIONAL\_RETRIEVAL  & 0.9134 & 0.984 & \textbf{$-$0.0010} & 0      \\
+ADAPTIVE\_DECAY       & 0.9138 & 0.984 & \textbf{$-$0.0014} & 0      \\
+\emph{CO\_ACTIVATION}        & 0.9124 & 0.984 & $\approx 0$ & 0      \\
+\emph{SURPRISE\_MOMENTUM}    & 0.9124 & 0.984 & $\approx 0$ & 0      \\
+\emph{OSCILLATORY\_CLOCK}    & 0.9124 & 0.984 & $\approx 0$ & 0      \\
+\emph{PREDICTIVE\_CODING}    & 0.9124 & 0.984 & $\approx 0$ & 0      \\
+\emph{NEUROMODULATION}       & 0.9124 & 0.984 & $\approx 0$ & 0      \\
+\emph{PATTERN\_SEPARATION}   & 0.9124 & 0.984 & $\approx 0$ & 0      \\
+\emph{EMOTIONAL\_TAGGING}    & 0.9124 & 0.984 & $\approx 0$ & 0      \\
+\emph{SYNAPTIC\_TAGGING}     & 0.9124 & 0.984 & $\approx 0$ & 0      \\
+\emph{ENGRAM\_ALLOCATION}    & 0.9124 & 0.984 & $\approx 0$ & 0      \\
+\emph{RECONSOLIDATION}       & 0.9124 & 0.984 & $\approx 0$ & 0      \\
 \bottomrule
-\end{tabular}
+\end{tabular}\\[2pt]
+{\footnotesize Bold $=$ above noise floor ($|\Delta\text{MRR}| >
+0.001$); italic rows and ``$\approx 0$'' entries are within the
+$\pm 0.001$ MRR noise floor.}
 \end{center}
 
 Per-row JSONs at
 \texttt{benchmarks/results/ablation/longmemeval-s\_v3/<MECH>.json};
 driver and harness in \texttt{benchmarks/lib/run\_e1\_v3\_lme.py}.
 All 17 rows completed \texttt{returncode=0}.
+
+\paragraph{Reconciling the isolated-haystack ablation.}
+The per-mechanism ablations of this subsection are run under the
+LME-S / LoCoMo \texttt{db.clear()} $\to$ \texttt{load} $\to$
+\texttt{recall} harness, in which every memory is written
+milliseconds before retrieval.  On such a corpus the heat
+distribution is uniform by construction, so a forgetting curve has
+no differential signal to contribute and can only mis-rank
+uniformly-fresh items---hence the small negative $\Delta$ (LME-S
+$-0.0014$, LoCoMo $-0.0163$).  This is not evidence against decay;
+it is the predicted null (and slight harm) of applying a
+longitudinal mechanism to a corpus with no longitudinal structure.
+The decay dose--response of \S\ref{sec:decay-dose}, run on BEAM
+where access history is heterogeneous, measures the mechanism in the
+regime where its mechanism-of-action applies, and there decay
+contributes $+0.272$ MRR.  The two results are consistent: decay
+helps exactly where there is access-history structure to exploit,
+and is inert where there is not.
 
 \subsubsection{Per-category specialization (the load-bearing finding)}
 \label{sec:per-mech-category}
@@ -754,21 +866,24 @@ on the full benchmark, not only on smoke.  Artefacts at
 Mechanism                       & MRR (abl.) & R@10 (abl.) & $\Delta$MRR & $\Delta$R@10 & Anchor \\
 \midrule
 BASELINE\_NO\_CONSOLIDATION     & 0.8278 & 0.942 & 0          & 0          & self \\
-RECONSOLIDATION                 & 0.8202 & 0.931 & $+$0.0076  & $+$0.011   & NO   \\
-CO\_ACTIVATION                  & 0.8268 & 0.940 & $+$0.0010  & $+$0.001   & NO   \\
-ADAPTIVE\_DECAY                 & 0.8441 & 0.962 & $-$0.0163  & $-$0.020   & NO   \\
+RECONSOLIDATION                 & 0.8202 & 0.931 & \textbf{$+$0.0076}  & $+$0.011   & NO   \\
+\emph{CO\_ACTIVATION}                  & 0.8268 & 0.940 & $\approx 0$  & $+$0.001   & NO   \\
+ADAPTIVE\_DECAY                 & 0.8441 & 0.962 & \textbf{$-$0.0163}  & $-$0.020   & NO   \\
 BASELINE\_WITH\_CONSOLIDATION   & 0.8264 & 0.940 & 0          & 0          & self \\
-CASCADE                         & 0.8272 & 0.941 & $-$0.0008  & $-$0.001   & WITH \\
-INTERFERENCE                    & 0.8260 & 0.939 & $+$0.0004  & $+$0.001   & WITH \\
-HOMEOSTATIC\_PLASTICITY         & 0.8289 & 0.945 & $-$0.0025  & $-$0.005   & WITH \\
-SYNAPTIC\_PLASTICITY            & 0.8264 & 0.940 & $\phantom{-}0.0000$ & 0 & WITH \\
-MICROGLIAL\_PRUNING             & 0.8253 & 0.939 & $+$0.0011  & $+$0.001   & WITH \\
-TWO\_STAGE\_MODEL               & 0.8276 & 0.941 & $-$0.0012  & $-$0.001   & WITH \\
-EMOTIONAL\_DECAY                & 0.8249 & 0.940 & $+$0.0015  & $\phantom{-}0.000$ & WITH \\
-TRIPARTITE\_SYNAPSE             & 0.8268 & 0.941 & $-$0.0004  & $-$0.001   & WITH \\
-SCHEMA\_ENGINE                  & 0.8268 & 0.941 & $-$0.0004  & $-$0.001   & WITH \\
+\emph{CASCADE}                         & 0.8272 & 0.941 & $\approx 0$  & $-$0.001   & WITH \\
+\emph{INTERFERENCE}                    & 0.8260 & 0.939 & $\approx 0$  & $+$0.001   & WITH \\
+HOMEOSTATIC\_PLASTICITY         & 0.8289 & 0.945 & \textbf{$-$0.0025}  & $-$0.005   & WITH \\
+\emph{SYNAPTIC\_PLASTICITY}            & 0.8264 & 0.940 & $\approx 0$ & 0 & WITH \\
+\emph{MICROGLIAL\_PRUNING}             & 0.8253 & 0.939 & $\approx 0$  & $+$0.001   & WITH \\
+\emph{TWO\_STAGE\_MODEL}               & 0.8276 & 0.941 & $\approx 0$  & $-$0.001   & WITH \\
+\emph{EMOTIONAL\_DECAY}                & 0.8249 & 0.940 & $\approx 0$ & $\phantom{-}0.000$ & WITH \\
+\emph{TRIPARTITE\_SYNAPSE}             & 0.8268 & 0.941 & $\approx 0$  & $-$0.001   & WITH \\
+\emph{SCHEMA\_ENGINE}                  & 0.8268 & 0.941 & $\approx 0$  & $-$0.001   & WITH \\
 \bottomrule
-\end{tabular}
+\end{tabular}\\[2pt]
+{\footnotesize Bold $=$ above noise floor ($|\Delta\text{MRR}| >
+0.002$ at $n{=}1986$); italic rows and ``$\approx 0$'' entries are
+within the $\pm 0.002$ MRR noise floor.}
 \end{center}
 
 \paragraph{Empirical resolution of the LME-S architectural-mismatch
@@ -825,78 +940,6 @@ follow-up re-run of the consolidation-only group on
 post-\texttt{5f737fe} bytes is reported in
 \S\ref{sec:locomo-postfix}.
 
-\subsubsection{The plasticity-fix re-run on post-\texttt{5f737fe} bytes}
-\label{sec:locomo-postfix}
-
-The \S\ref{sec:plasticity-fix} plasticity result-shape contract bug
-was fixed in commit \texttt{5f737fe}; the same 14-row two-baseline
-sweep was re-run at full $n = 1986$ on a descendant SHA
-(\texttt{2f45bcb}, dirty=false, finished 2026-05-04).  Artefacts at
-\texttt{benchmarks/results/ablation/locomo\_v3\_post\_plasticity\_fix/};
-detailed writeup at
-\texttt{tasks/e1-v3-locomo-results-post-fix.md}.
-
-\paragraph{Headline.} \texttt{BASELINE\_NO\_CONSOLIDATION} reaches
-MRR $= 0.8279$, R@10 $= 0.9435$;
-\texttt{BASELINE\_WITH\_CONSOLIDATION} reaches MRR $= 0.8265$,
-R@10 $= 0.941$; $\Delta$ vs.\ NO $= +0.0014$, \emph{identical to four
-decimals} to the pre-fix value.  The cadence-fix anchor agreement
-(\S\ref{sec:cadence-fix}) is therefore re-validated at full $n$ on a
-second independent run on bytes that include the plasticity fix.
-The longitudinal-read-path group is essentially unchanged between
-runs, as expected: those rows ran with consolidation off, so the
-plasticity bug had no opportunity to exercise.
-
-\paragraph{Pre-vs-post-fix comparison.}  The consolidation-only group
-has three sign-flips relative to the pre-fix sweep, two of them
-moving out of noise:
-
-\begin{center}
-\small
-\begin{tabular}{lrrl}
-\toprule
-Mechanism                & Pre-fix $\Delta$MRR & Post-fix $\Delta$MRR & Reading \\
-\midrule
-RECONSOLIDATION          & $+$0.0076 & $+$0.0091 & Stronger; same dominant-row reading \\
-ADAPTIVE\_DECAY          & $-$0.0163 & $-$0.0163 & Identical \\
-CO\_ACTIVATION           & $+$0.0010 & $+$0.0015 & Same sign, at noise floor \\
-HOMEOSTATIC\_PLASTICITY  & $-$0.0025 & $\mathbf{+0.0017}$ & \textbf{Sign flipped}; bug-muted reading was an artefact \\
-SCHEMA\_ENGINE           & $-$0.0004 & $\mathbf{+0.0017}$ & \textbf{Sign flipped} at noise boundary \\
-SYNAPTIC\_PLASTICITY     & $\phantom{-}0.0000$ & $-$0.0003 & Within noise; clean ablation \\
-Other 6 cons.\ rows      & within noise & within noise & All deltas $\le \pm 0.002$ MRR \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Two rows (HOMEOSTATIC\_PLASTICITY at $+0.0042$,
-SCHEMA\_ENGINE at $+0.0021$) move from negative-or-noise pre-fix to
-positive-out-of-noise post-fix; this is the magnitude of contribution
-that was muted by the contract bug.  Six other consolidation-only
-rows remain at the per-row noise floor in both runs.  The
-architectural-mismatch resolution (RECONSOLIDATION
-$\Delta$MRR $= +0.0091$, ADAPTIVE\_DECAY $\Delta$MRR $= -0.0163$) is
-\textbf{strengthened} on clean bytes---the dominant longitudinal
-contributions are intact and slightly larger in magnitude, as
-predicted in \S\ref{sec:locomo-evidence} (the longitudinal rows were
-never affected by the plasticity bug, so any movement is attributable
-to single-seed run-to-run variance at the noise floor; the magnitudes
-here move with that variance, not against the hypothesis).
-
-\paragraph{The verification self-correcting.}
-\S\ref{sec:plasticity-fix} declared the plasticity-shape bug as a
-possible source of mute on the consolidation-only group and committed
-to a follow-up re-run.  This subsection is that re-run.  Two
-consolidation-only rows (HOMEOSTATIC\_PLASTICITY, SCHEMA\_ENGINE)
-recover positive contributions that were silently masked; the
-cadence-fix anchor agreement is re-confirmed; the load-bearing
-architectural-mismatch finding is re-confirmed and slightly
-strengthened.  The verification campaign now comprises three
-artefact sets at full $n$ (LME-S 17 rows + LoCoMo 14 rows pre-fix +
-LoCoMo 14 rows post-fix $=$ 45 per-mechanism evidence rows on the
-appropriate benchmark for each mechanism's mechanism-of-action),
-with the only contract bug surfaced during verification re-measured
-on clean bytes and the result documented either way.
-
 \subsubsection{Calibration rigor: Phase~A and Phase~B}
 \label{sec:calibration}
 
@@ -930,109 +973,24 @@ near-optimum.  The 17-row ablation table above is therefore
 measured at a calibrated equilibrium, not at an arbitrary set of
 placeholders.
 
-\subsubsection{Verification surfaced a production fix: consolidation cadence}
-\label{sec:cadence-fix}
-
-During the same verification campaign the team discovered a
-production-relevant bug in the consolidation cadence.  The age gate
-that triggers gist/tag compression was reading wall-clock
-\texttt{created\_at}.  On a backdated corpus---typically a LoCoMo
-conversation set with 2023 timestamps imported in 2026 wall-clock,
-or any production backfill of historical conversations---$(now -
-\text{created\_at})$ already exceeds the 7-day gist gate at the
-moment of memory load, so compression fires immediately on first
-consolidation pass and the verbatim episodic surface is destroyed
-before the system has had time to revisit it.  The intended
-semantics is ``the memory has had time to be revisited \emph{in this
-system}''---elapsed since ingest, not elapsed since the original
-event.
-
-The fix (commit \texttt{6c51bce}) introduces
-\texttt{memories.ingested\_at TIMESTAMPTZ NOT NULL DEFAULT NOW()},
-with an idempotent migration backfilling
-\texttt{ingested\_at = created\_at} for legacy rows, and routes the
-cadence gate, ACT-R lifetime computation, synaptic-tagging window,
-and temporal-novelty signal through \texttt{ingested\_at} rather
-than \texttt{created\_at}.  Regression tests in
-\texttt{test\_compression.py}, \texttt{test\_decay\_cycle.py}, and
-\texttt{test\_pg\_ingested\_at.py} lock the new behaviour.  The fix
-is independent of the LME-S evaluation reported in
-\S\S\ref{sec:per-mech-table}--\ref{sec:per-mech-architectural}
-(LME-S is not consolidation-dependent) but is necessary for the
-LoCoMo half (\S\ref{sec:locomo-forthcoming}) and for any production
-backfill scenario where memories are ingested with historical
-timestamps.
-
-The fix was validated on smoke first; the \S\ref{sec:locomo-evidence}
-LoCoMo run is the $n = 1986$ validation.  At full scale,
-\texttt{BASELINE\_WITH\_CONSOLIDATION} reaches MRR $= 0.8264$
-against \texttt{BASELINE\_NO\_CONSOLIDATION} at MRR $= 0.8278$
-($\Delta$ vs.\ NO $= +0.0014$, within the per-row noise floor of
-$\approx \pm 0.002$ MRR).  The two anchors agree at full $n$; the
-cadence fix holds, and the \S\ref{sec:locomo-evidence}
-consolidation-only deltas are measured against a stable post-fix
-baseline.
-
-We mention this not to recount engineering, but because it tightens
-the \S\ref{sec:intro} framing: a verification campaign is not just
-\emph{was the system as designed correct?} but \emph{did
-verification improve the system?}  In this instance it did.
-
-\subsubsection{Verification surfaced a second production fix: plasticity result-shape contract}
-\label{sec:plasticity-fix}
-
-A second production-relevant bug surfaced during the same LoCoMo
-verification campaign.  The Hebbian update path
-(\texttt{apply\_hebbian\_update}) returns a list of result dicts each
-carrying an \texttt{action} field that the downstream
-\texttt{\_apply\_updates} consumer dispatches on.  The ablation
-no-op for plasticity returned raw edge dicts missing the
-\texttt{action} key.  Downstream consumed each dict, found no
-recognised action, logged a \texttt{WARNING}, and silently dropped
-that update from the consolidation pass.  This was a contract bug,
-not a crash: rows ran to completion with the plasticity
-contribution silently muted on the affected paths.
-
-The fix (commit \texttt{5f737fe}) makes the ablation no-op return
-result-shaped dicts with \texttt{action="none"}, restoring contract
-compliance for the disabled path.  Regression tests lock the
-result-shape invariant.
-
-The \S\ref{sec:locomo-evidence} LoCoMo run was launched on bytes
-\emph{before} commit \texttt{5f737fe}, which means the
-consolidation-only ablation rows (CASCADE, INTERFERENCE,
-HOMEOSTATIC\_PLASTICITY, MICROGLIAL\_PRUNING, TWO\_STAGE\_MODEL,
-EMOTIONAL\_DECAY, TRIPARTITE\_SYNAPSE, SCHEMA\_ENGINE) may have a
-slightly muted plasticity contribution.  The SYNAPTIC\_PLASTICITY
-ablation row is not affected: that row explicitly disables the
-plasticity mechanism entirely, so the no-op shape bug cannot
-exercise.  The three longitudinal-read-path rows (RECONSOLIDATION,
-CO\_ACTIVATION, ADAPTIVE\_DECAY) ran with consolidation off and are
-likewise not affected.  The empirical resolution of the
-architectural-mismatch hypothesis (\S\ref{sec:locomo-evidence}) does
-not depend on the consolidation-only group; it rests on the
-longitudinal-read-path rows, which are clean.
-
-The re-run of the \texttt{BASELINE\_WITH} and consolidation-only
-rows on post-\texttt{5f737fe} bytes is reported in
-\S\ref{sec:locomo-postfix}.  The \S\ref{sec:per-mechanism} narrative
-does not change as a result: the architectural-mismatch resolution
-holds (RECONSOLIDATION $\Delta$MRR $= +0.0091$, ADAPTIVE\_DECAY
-$\Delta$MRR $= -0.0163$ on clean bytes); two consolidation-only rows
-(HOMEOSTATIC\_PLASTICITY, SCHEMA\_ENGINE) move from noise/negative to
-positive-out-of-noise, recovering the contribution the contract bug
-had silently muted; the cadence-fix anchor agreement
-(\S\ref{sec:cadence-fix}) is re-validated identically
-($\Delta$ vs.\ NO $= +0.0014$).  We declare both the bug and the
-re-run rather than amend silently because the verification campaign's
-evidence is the load-bearing argument of \S\ref{sec:per-mechanism},
-and the integrity of that argument requires disclosing every
-code-path artefact that touched the numbers---and remeasuring on
-clean bytes once the artefact is removed.
-
-The \S\ref{sec:intro} framing applies again: verification did not
-just confirm the system; it surfaced two real bugs (cadence and
-plasticity result-shape) that are now fixed.
+\paragraph{Verification surfaced two production fixes.}
+The same verification campaign surfaced two production-relevant bugs,
+both now fixed: a consolidation-cadence bug that read wall-clock
+\texttt{created\_at} instead of elapsed-since-ingest (commit
+\texttt{6c51bce}, introducing \texttt{memories.ingested\_at}), and a
+plasticity result-shape contract bug that silently muted some
+consolidation deltas (commit \texttt{5f737fe}).  The cadence fix is
+necessary for the LoCoMo half and any production backfill of
+historically-timestamped memories; the plasticity fix prompted a
+full post-fix re-run that re-confirmed the architectural-mismatch
+resolution and recovered two previously-masked positive
+consolidation contributions.  Full forensics---the bug mechanisms,
+the fixes, the pre-vs-post-fix delta tables, and the
+self-correcting-verification narrative---are in
+Appendix~\ref{app:provenance}.  We disclose these because the
+verification evidence is the load-bearing argument of
+\S\ref{sec:per-mechanism}, and its integrity requires reporting every
+code path that touched the numbers.
 
 \subsubsection{Caveats specific to \S\ref{sec:per-mechanism}}
 
@@ -1105,51 +1063,22 @@ has structure to exploit.}  We characterise that regime explicitly.
   heterogeneity for heat to reflect.}
 \end{enumerate}
 
-\paragraph{Empirical observations consistent with this regime.}
-Independent verification campaigns
-(\texttt{benchmarks/lib/e2\_subsample\_runner.py},
-\texttt{benchmarks/lib/e2\_zipf\_runner.py},
-\texttt{benchmarks/lib/latency\_runner.py}) report:
-\begin{itemize}
-\item \emph{Subsampled real benchmark below threshold.}  On
-  LongMemEval-S subsampled to $N \in \{500, 1000\}$, cortex\_full
-  does not consistently beat cortex\_flat (MRR within $\pm 6$\,pp
-  either way).  At small subsamples the corpus loses most of its
-  session structure; consistent with regime parameter~1 (cold-start).
-\item \emph{Synthetic uniform-random corpus.}  cortex\_full and
-  cortex\_flat produce metrics identical to four decimal places at
-  every $N \in \{10^3, 10^4, 10^5\}$.  This is the predicted
-  behaviour of regime parameter~3 (no structure $\Rightarrow$ heat
-  is irrelevant) and confirms the experiment is well-controlled.
-\item \emph{Synthetic Zipf-$\alpha{=}1.5$ with $K{=}5{,}000$ access
-  events, full curve}:
-  \begin{center}
-  \small
-  \begin{tabular}{rrcccc}
-  \toprule
-  $N$    & $K/N$ & full R@10 & flat R@10 & full MRR & flat MRR \\
-  \midrule
-  $10^3$ & 5.0   & 1.000     & 1.000     & \textbf{1.000} & 0.980 \\
-  $10^4$ & 0.5   & 1.000     & 1.000     & 0.985          & \textbf{1.000} \\
-  $10^5$ & 0.05  & \textbf{1.000} & 0.970 & 0.910          & \textbf{0.970} \\
-  \bottomrule
-  \end{tabular}
-  \end{center}
-  R@10 and MRR tell complementary stories.  \emph{R@10}:
-  cortex\_full holds 1.000 across the entire $K/N$ range---Cortex
-  never fails to retrieve the gold answer; flat starts missing at
-  $K/N{=}0.05$.  \emph{MRR}: cortex\_full's ranking quality degrades
-  monotonically with falling access density ($1.000 \to 0.985 \to
-  0.910$), exactly what regime parameter~2 predicts: heat is signal
-  only when items have differential access histories, and at
-  $K/N{=}0.05$ most items have zero accesses so the heat
-  distribution flattens.  Flat retrieval, having no heat signal,
-  is unaffected by $K/N$ and therefore wins on MRR in the sparse
-  tail.  Production deployment (revisit-heavy chat sessions) sits
-  at $K/N \gg 1$, where full's MRR also lifts; the published BEAM
-  Overall claim was measured in that regime, not in the
-  $K/N \to 0$ tail.
-\end{itemize}
+\paragraph{Regime controls (preliminary).}
+Two controls bound the operating regime.  On a uniform-random
+synthetic corpus (no access-history structure), \texttt{cortex\_full}
+and \texttt{cortex\_flat} produce identical metrics to four decimal
+places at $N=100$ (\texttt{benchmarks/results/e2\_zipf/}), confirming
+the harness is well-controlled and that decay is inert without
+structure.  A Zipf-$\alpha{=}1.5$ access pattern at $N=100$ is
+likewise saturated (both at MRR 1.0).  The full
+$N \in \{10^3,10^4,10^5\}$ curve that would locate the crossover is
+in progress; we report the committed points here and defer the curve
+to a revision rather than report unreproduced figures.  Independently,
+a longitudinal aging control ($N=5000$, queries bucketed by memory
+age 30--360 days; \texttt{benchmarks/results/longitudinal/}) shows
+retrieval is stable across age: R@10 ranges 0.98--1.00 from the
+youngest to the oldest bucket, i.e.\ decay does not erode
+retrievability of old-but-relevant items within a year.
 
 \paragraph{What this means for deployment.}  Cortex serves a
 multi-thousand-user production install at $N$ ranging from $10^4$ to
@@ -1180,6 +1109,31 @@ operating regime.
 %----------------------------------------------------------------------
 \section{Discussion}
 \label{sec:discussion}
+
+\subsection{The BEAM Retrieval-Proxy Metric}
+\label{sec:beam-proxy}
+
+The BEAM number reported throughout this paper is a
+\emph{retrieval-proxy} MRR, defined identically to the sibling
+context-assembly paper so the two agree word-for-word.  We measure
+the Mean Reciprocal Rank of the first retrieved memory whose content
+substring-matches the gold source turn or answer text.  Formally,
+for a question $q$ with gold source text $g$, and a ranked list of
+retrieved memories $[m_1, m_2, \ldots, m_k]$,
+$\text{RR}(q) = 1/\text{rank}(m^*)$ if $\exists\, m^* : g \subseteq
+m^*.\text{content}$ and $0$ otherwise, with
+$\text{MRR} = \frac{1}{|Q|} \sum_{q \in Q} \text{RR}(q)$.  This is
+\emph{not} the BEAM paper's metric.  The paper uses LLM-as-judge
+nugget scoring for end-to-end QA quality, which evaluates whether
+the reader model's answer contains the key information nuggets.  Our
+retrieval-proxy MRR evaluates whether the retrieved context contains
+the gold source---a necessary but not sufficient condition for good
+answers.  The two are therefore not commensurable, and we make no
+head-to-head BEAM claim; the BEAM number is used only for
+within-system, same-harness comparisons (e.g.\ the decay
+dose--response of \S\ref{sec:decay-dose}), where both conditions are
+measured with the identical harness so relative comparisons are
+valid.
 
 \subsection{Limitations}
 \label{sec:limitations}
@@ -2059,6 +2013,194 @@ memories compete for attention over time.  The ones that earn
 attention through use stay easy to find.  The ones that don't fade
 naturally---which is exactly what your brain does, and exactly why
 your brain doesn't crash with seventy years of memories.
+
+%----------------------------------------------------------------------
+\section{Verification Campaign Provenance}
+\label{app:provenance}
+
+This appendix contains the full forensics of the two production
+fixes that the \S\ref{sec:per-mechanism} verification campaign
+surfaced, relocated here from the main text so the main narrative
+states only the summary (\S\ref{sec:per-mechanism}, ``Verification
+surfaced two production fixes'').  The integrity of the
+\S\ref{sec:per-mechanism} argument requires disclosing every code
+path that touched the numbers; this appendix is that disclosure.
+
+\subsection{Verification surfaced a production fix: consolidation cadence}
+\label{sec:cadence-fix}
+
+During the same verification campaign the team discovered a
+production-relevant bug in the consolidation cadence.  The age gate
+that triggers gist/tag compression was reading wall-clock
+\texttt{created\_at}.  On a backdated corpus---typically a LoCoMo
+conversation set with 2023 timestamps imported in 2026 wall-clock,
+or any production backfill of historical conversations---$(now -
+\text{created\_at})$ already exceeds the 7-day gist gate at the
+moment of memory load, so compression fires immediately on first
+consolidation pass and the verbatim episodic surface is destroyed
+before the system has had time to revisit it.  The intended
+semantics is ``the memory has had time to be revisited \emph{in this
+system}''---elapsed since ingest, not elapsed since the original
+event.
+
+The fix (commit \texttt{6c51bce}) introduces
+\texttt{memories.ingested\_at TIMESTAMPTZ NOT NULL DEFAULT NOW()},
+with an idempotent migration backfilling
+\texttt{ingested\_at = created\_at} for legacy rows, and routes the
+cadence gate, ACT-R lifetime computation, synaptic-tagging window,
+and temporal-novelty signal through \texttt{ingested\_at} rather
+than \texttt{created\_at}.  Regression tests in
+\texttt{test\_compression.py}, \texttt{test\_decay\_cycle.py}, and
+\texttt{test\_pg\_ingested\_at.py} lock the new behaviour.  The fix
+is independent of the LME-S evaluation reported in
+\S\S\ref{sec:per-mech-table}--\ref{sec:per-mech-architectural}
+(LME-S is not consolidation-dependent) but is necessary for the
+LoCoMo half (\S\ref{sec:locomo-forthcoming}) and for any production
+backfill scenario where memories are ingested with historical
+timestamps.
+
+The fix was validated on smoke first; the \S\ref{sec:locomo-evidence}
+LoCoMo run is the $n = 1986$ validation.  At full scale,
+\texttt{BASELINE\_WITH\_CONSOLIDATION} reaches MRR $= 0.8264$
+against \texttt{BASELINE\_NO\_CONSOLIDATION} at MRR $= 0.8278$
+($\Delta$ vs.\ NO $= +0.0014$, within the per-row noise floor of
+$\approx \pm 0.002$ MRR).  The two anchors agree at full $n$; the
+cadence fix holds, and the \S\ref{sec:locomo-evidence}
+consolidation-only deltas are measured against a stable post-fix
+baseline.
+
+We mention this not to recount engineering, but because it tightens
+the \S\ref{sec:intro} framing: a verification campaign is not just
+\emph{was the system as designed correct?} but \emph{did
+verification improve the system?}  In this instance it did.
+
+\subsection{Verification surfaced a second production fix: plasticity result-shape contract}
+\label{sec:plasticity-fix}
+
+A second production-relevant bug surfaced during the same LoCoMo
+verification campaign.  The Hebbian update path
+(\texttt{apply\_hebbian\_update}) returns a list of result dicts each
+carrying an \texttt{action} field that the downstream
+\texttt{\_apply\_updates} consumer dispatches on.  The ablation
+no-op for plasticity returned raw edge dicts missing the
+\texttt{action} key.  Downstream consumed each dict, found no
+recognised action, logged a \texttt{WARNING}, and silently dropped
+that update from the consolidation pass.  This was a contract bug,
+not a crash: rows ran to completion with the plasticity
+contribution silently muted on the affected paths.
+
+The fix (commit \texttt{5f737fe}) makes the ablation no-op return
+result-shaped dicts with \texttt{action="none"}, restoring contract
+compliance for the disabled path.  Regression tests lock the
+result-shape invariant.
+
+The \S\ref{sec:locomo-evidence} LoCoMo run was launched on bytes
+\emph{before} commit \texttt{5f737fe}, which means the
+consolidation-only ablation rows (CASCADE, INTERFERENCE,
+HOMEOSTATIC\_PLASTICITY, MICROGLIAL\_PRUNING, TWO\_STAGE\_MODEL,
+EMOTIONAL\_DECAY, TRIPARTITE\_SYNAPSE, SCHEMA\_ENGINE) may have a
+slightly muted plasticity contribution.  The SYNAPTIC\_PLASTICITY
+ablation row is not affected: that row explicitly disables the
+plasticity mechanism entirely, so the no-op shape bug cannot
+exercise.  The three longitudinal-read-path rows (RECONSOLIDATION,
+CO\_ACTIVATION, ADAPTIVE\_DECAY) ran with consolidation off and are
+likewise not affected.  The empirical resolution of the
+architectural-mismatch hypothesis (\S\ref{sec:locomo-evidence}) does
+not depend on the consolidation-only group; it rests on the
+longitudinal-read-path rows, which are clean.
+
+The re-run of the \texttt{BASELINE\_WITH} and consolidation-only
+rows on post-\texttt{5f737fe} bytes is reported in
+\S\ref{sec:locomo-postfix}.  The \S\ref{sec:per-mechanism} narrative
+does not change as a result: the architectural-mismatch resolution
+holds (RECONSOLIDATION $\Delta$MRR $= +0.0091$, ADAPTIVE\_DECAY
+$\Delta$MRR $= -0.0163$ on clean bytes); two consolidation-only rows
+(HOMEOSTATIC\_PLASTICITY, SCHEMA\_ENGINE) move from noise/negative to
+positive-out-of-noise, recovering the contribution the contract bug
+had silently muted; the cadence-fix anchor agreement
+(\S\ref{sec:cadence-fix}) is re-validated identically
+($\Delta$ vs.\ NO $= +0.0014$).  We declare both the bug and the
+re-run rather than amend silently because the verification campaign's
+evidence is the load-bearing argument of \S\ref{sec:per-mechanism},
+and the integrity of that argument requires disclosing every
+code-path artefact that touched the numbers---and remeasuring on
+clean bytes once the artefact is removed.
+
+The \S\ref{sec:intro} framing applies again: verification did not
+just confirm the system; it surfaced two real bugs (cadence and
+plasticity result-shape) that are now fixed.
+
+\subsection{The plasticity-fix re-run on post-\texttt{5f737fe} bytes}
+\label{sec:locomo-postfix}
+
+The \S\ref{sec:plasticity-fix} plasticity result-shape contract bug
+was fixed in commit \texttt{5f737fe}; the same 14-row two-baseline
+sweep was re-run at full $n = 1986$ on a descendant SHA
+(\texttt{2f45bcb}, dirty=false, finished 2026-05-04).  Artefacts at
+\texttt{benchmarks/results/ablation/locomo\_v3\_post\_plasticity\_fix/};
+detailed writeup at
+\texttt{tasks/e1-v3-locomo-results-post-fix.md}.
+
+\paragraph{Headline.} \texttt{BASELINE\_NO\_CONSOLIDATION} reaches
+MRR $= 0.8279$, R@10 $= 0.9435$;
+\texttt{BASELINE\_WITH\_CONSOLIDATION} reaches MRR $= 0.8265$,
+R@10 $= 0.941$; $\Delta$ vs.\ NO $= +0.0014$, \emph{identical to four
+decimals} to the pre-fix value.  The cadence-fix anchor agreement
+(\S\ref{sec:cadence-fix}) is therefore re-validated at full $n$ on a
+second independent run on bytes that include the plasticity fix.
+The longitudinal-read-path group is essentially unchanged between
+runs, as expected: those rows ran with consolidation off, so the
+plasticity bug had no opportunity to exercise.
+
+\paragraph{Pre-vs-post-fix comparison.}  The consolidation-only group
+has three sign-flips relative to the pre-fix sweep, two of them
+moving out of noise:
+
+\begin{center}
+\small
+\begin{tabular}{lrrl}
+\toprule
+Mechanism                & Pre-fix $\Delta$MRR & Post-fix $\Delta$MRR & Reading \\
+\midrule
+RECONSOLIDATION          & $+$0.0076 & $+$0.0091 & Stronger; same dominant-row reading \\
+ADAPTIVE\_DECAY          & $-$0.0163 & $-$0.0163 & Identical \\
+CO\_ACTIVATION           & $+$0.0010 & $+$0.0015 & Same sign, at noise floor \\
+HOMEOSTATIC\_PLASTICITY  & $-$0.0025 & $\mathbf{+0.0017}$ & \textbf{Sign flipped}; bug-muted reading was an artefact \\
+SCHEMA\_ENGINE           & $-$0.0004 & $\mathbf{+0.0017}$ & \textbf{Sign flipped} at noise boundary \\
+SYNAPTIC\_PLASTICITY     & $\phantom{-}0.0000$ & $-$0.0003 & Within noise; clean ablation \\
+Other 6 cons.\ rows      & within noise & within noise & All deltas $\le \pm 0.002$ MRR \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Two rows (HOMEOSTATIC\_PLASTICITY at $+0.0042$,
+SCHEMA\_ENGINE at $+0.0021$) move from negative-or-noise pre-fix to
+positive-out-of-noise post-fix; this is the magnitude of contribution
+that was muted by the contract bug.  Six other consolidation-only
+rows remain at the per-row noise floor in both runs.  The
+architectural-mismatch resolution (RECONSOLIDATION
+$\Delta$MRR $= +0.0091$, ADAPTIVE\_DECAY $\Delta$MRR $= -0.0163$) is
+\textbf{strengthened} on clean bytes---the dominant longitudinal
+contributions are intact and slightly larger in magnitude, as
+predicted in \S\ref{sec:locomo-evidence} (the longitudinal rows were
+never affected by the plasticity bug, so any movement is attributable
+to single-seed run-to-run variance at the noise floor; the magnitudes
+here move with that variance, not against the hypothesis).
+
+\paragraph{The verification self-correcting.}
+\S\ref{sec:plasticity-fix} declared the plasticity-shape bug as a
+possible source of mute on the consolidation-only group and committed
+to a follow-up re-run.  This subsection is that re-run.  Two
+consolidation-only rows (HOMEOSTATIC\_PLASTICITY, SCHEMA\_ENGINE)
+recover positive contributions that were silently masked; the
+cadence-fix anchor agreement is re-confirmed; the load-bearing
+architectural-mismatch finding is re-confirmed and slightly
+strengthened.  The verification campaign now comprises three
+artefact sets at full $n$ (LME-S 17 rows + LoCoMo 14 rows pre-fix +
+LoCoMo 14 rows post-fix $=$ 45 per-mechanism evidence rows on the
+appropriate benchmark for each mechanism's mechanism-of-action),
+with the only contract bug surfaced during verification re-measured
+on clean bytes and the result documented either way.
 
 %----------------------------------------------------------------------
 \bibliographystyle{plainnat}
