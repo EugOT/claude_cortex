@@ -19,14 +19,28 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Iterable
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from typing import Any, Iterable, Iterator
 
+from mcp_server.errors import McpConnectionError
 from mcp_server.infrastructure.ap_bridge import (
     APBridge,
     is_enabled,
     resolve_graph_path,
     resolve_graph_paths,
 )
+
+
+def _ap_sync_timeout_s() -> float:
+    """Cross-loop wait ceiling for AP reader-thread calls.
+
+    source: memory_config.AP_SYNC_RESULT_TIMEOUT_S (see that field's
+    derivation comment — floored at the in-loop 3600 s AP-call ceiling
+    plus a drain margin). Read lazily so env overrides apply per-process.
+    """
+    from mcp_server.infrastructure.memory_config import get_memory_settings
+
+    return float(get_memory_settings().AP_SYNC_RESULT_TIMEOUT_S)
 
 
 def _run(coro):
@@ -41,7 +55,17 @@ def _run(coro):
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            return asyncio.run_coroutine_threadsafe(coro, loop).result()
+            # Lamport H4: an untimed cross-loop .result() hangs this caller
+            # forever if the loop thread wedges. Bound every cross-loop wait.
+            try:
+                return asyncio.run_coroutine_threadsafe(coro, loop).result(
+                    timeout=_ap_sync_timeout_s()
+                )
+            except FutureTimeoutError as exc:
+                raise McpConnectionError(
+                    "AP cross-loop call exceeded "
+                    f"{_ap_sync_timeout_s():.0f}s — subprocess presumed wedged"
+                ) from exc
     except RuntimeError:
         pass
     return asyncio.run(coro)
@@ -85,9 +109,68 @@ class _SyncLoop:
         return self._loop
 
     def run(self, coro):
+        """Run ``coro`` on the pinned loop and block until it completes.
+
+        Single-reader-thread ownership (verified): ``_ensure_loop`` spawns
+        exactly one ``ap-sync-loop`` thread that owns the loop for this
+        ``_SyncLoop``'s lifetime; every AP call funnels through here onto
+        that one loop. No other thread drives the loop, so the JSON-RPC
+        pipe has a single reader (Lamport H4 satisfied by construction).
+
+        The wait is bounded: if the loop thread wedges (e.g. the AP
+        subprocess stalls below the in-loop await), ``.result(timeout=…)``
+        raises rather than hanging this worker forever. On timeout we never
+        return partial data — we raise ``McpConnectionError``.
+        """
         loop = self._ensure_loop()
         future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return future.result()
+        try:
+            return future.result(timeout=_ap_sync_timeout_s())
+        except FutureTimeoutError as exc:
+            future.cancel()
+            raise McpConnectionError(
+                "AP reader-thread call exceeded "
+                f"{_ap_sync_timeout_s():.0f}s — subprocess presumed wedged"
+            ) from exc
+
+    def run_iter(self, agen) -> Iterator[Any]:
+        """Drive an async generator one step per bounded cross-loop call,
+        yielding each item synchronously to the caller.
+
+        This is the streaming primitive: ``agen`` (an async generator that
+        yields one batch per AP query) is advanced one ``__anext__`` at a
+        time, each on the pinned loop with a bounded ``.result(timeout=…)``.
+        The caller therefore receives batch *N* (and may process/discard it)
+        BEFORE batch *N+1*'s query is ever issued — peak retained inside the
+        source is one batch, not the union across all queries.
+
+        On a wedged loop thread, each step raises ``McpConnectionError``
+        rather than hanging. Partial batches already yielded are real data;
+        the generator stops at the failed step (it does not silently return
+        a truncated full list).
+        """
+        loop = self._ensure_loop()
+        _SENTINEL = object()
+
+        async def _step():
+            try:
+                return await agen.__anext__()
+            except StopAsyncIteration:
+                return _SENTINEL
+
+        while True:
+            future = asyncio.run_coroutine_threadsafe(_step(), loop)
+            try:
+                item = future.result(timeout=_ap_sync_timeout_s())
+            except FutureTimeoutError as exc:
+                future.cancel()
+                raise McpConnectionError(
+                    "AP reader-thread step exceeded "
+                    f"{_ap_sync_timeout_s():.0f}s — subprocess presumed wedged"
+                ) from exc
+            if item is _SENTINEL:
+                return
+            yield item
 
     def close(self) -> None:
         if self._loop and not self._loop.is_closed():
@@ -261,78 +344,147 @@ class WorkflowGraphASTSource:
             pass
         self._loop_owner.close()
 
+    def iter_symbols(
+        self,
+        file_paths: Iterable[str],
+    ) -> Iterator[list[dict[str, Any]]]:
+        """Yield AST symbol rows one per-query batch (one AP ``query_graph``
+        per label per graph). Each yielded list is the result of a single
+        AP roundtrip; the caller sees batch *N* before batch *N+1*'s query
+        is issued, so the source-internal peak is one query's rows — never
+        the union across all ~21 label queries × graphs.
+
+        Row shape per item: ``{file_path, qualified_name, symbol_type,
+        signature, language, line}``. ``domain`` is inferred downstream.
+        A corrupt/missing graph is skipped without aborting the stream.
+        """
+        if not is_enabled():
+            return
+        graph_paths = resolve_graph_paths()
+        if not graph_paths:
+            return
+        paths = [p for p in file_paths if p]
+        yield from self._loop_owner.run_iter(
+            self._iter_symbols_async(graph_paths, paths)
+        )
+
     def load_symbols(
         self,
         file_paths: Iterable[str],
     ) -> list[dict[str, Any]]:
-        """Return one row per AST symbol defined in a file Cortex knows
-        about. Row shape: ``{file_path, qualified_name, symbol_type,
-        signature, language, line, domain}``. ``domain`` is always ``""``
-        — the builder infers it from the file node.
+        """Full-set convenience over ``iter_symbols``.
+
+        Materializes every batch into one list for consumers that genuinely
+        need the whole set (the workflow_graph builder iterates ``ast_symbols``
+        once and the handler takes ``len(...)``). The streaming win is still
+        real: ``iter_symbols`` bounds the *source*-internal peak to one query
+        while this list is filled. Consumers that can iterate should call
+        ``iter_symbols`` directly to avoid the final materialization.
         """
+        out: list[dict[str, Any]] = []
+        for batch in self.iter_symbols(file_paths):
+            out.extend(batch)
+        return out
+
+    def iter_ast_edges(
+        self,
+        file_paths: Iterable[str],
+    ) -> Iterator[list[dict[str, Any]]]:
+        """Yield CALLS / IMPORTS / MEMBER_OF / USES edge rows one per-query
+        batch (one AP ``query_graph`` per rel-table per graph, ~89 queries).
+        Same incremental contract as ``iter_symbols``: peak retained inside
+        the source is one rel-table's rows, not the union of all 89.
+        Empty ``file_paths`` means "no path filter"."""
         if not is_enabled():
-            return []
+            return
         graph_paths = resolve_graph_paths()
         if not graph_paths:
-            return []
+            return
         paths = [p for p in file_paths if p]
-
-        async def _gather():
-            out: list[dict[str, Any]] = []
-            for gp in graph_paths:
-                try:
-                    rows = await self._load_symbols_async(gp, paths)
-                    out.extend(rows)
-                except Exception:
-                    # One bad graph (corrupt / missing) never kills the
-                    # whole visualization.
-                    continue
-            return out
-
-        return self._loop_owner.run(_gather())
+        yield from self._loop_owner.run_iter(
+            self._iter_edges_async(graph_paths, paths)
+        )
 
     def load_ast_edges(
         self,
         file_paths: Iterable[str],
     ) -> list[dict[str, Any]]:
-        """Return CALLS / IMPORTS / MEMBER_OF edges across every
-        project graph. Empty ``file_paths`` means "no path filter"."""
-        if not is_enabled():
-            return []
-        graph_paths = resolve_graph_paths()
-        if not graph_paths:
-            return []
-        paths = [p for p in file_paths if p]
+        """Full-set convenience over ``iter_ast_edges`` (see ``load_symbols``
+        for why the final list is kept: the builder + handler ``len(...)``
+        genuinely need the whole edge set)."""
+        out: list[dict[str, Any]] = []
+        for batch in self.iter_ast_edges(file_paths):
+            out.extend(batch)
+        return out
 
-        async def _gather():
-            out: list[dict[str, Any]] = []
-            for gp in graph_paths:
-                try:
-                    rows = await self._load_edges_async(gp, paths)
-                    out.extend(rows)
-                except Exception:
-                    continue
-            return out
+    async def _iter_symbols_async(
+        self,
+        graph_paths: list[str],
+        paths: list[str],
+    ):
+        """Async generator: one batch per (graph, label) AP query.
 
-        return self._loop_owner.run(_gather())
+        A failed query for one (graph, label) is skipped — one bad graph or
+        label never kills the whole stream, matching the prior swallow-and-
+        continue contract.
+        """
+        for gp in graph_paths:
+            try:
+                async for batch in self._symbol_batches_async(gp, paths):
+                    if batch:
+                        yield batch
+            except Exception:
+                # One corrupt / missing graph never kills the whole stream.
+                continue
+
+    async def _iter_edges_async(
+        self,
+        graph_paths: list[str],
+        paths: list[str],
+    ):
+        """Async generator: one batch per (graph, rel-table) AP query."""
+        for gp in graph_paths:
+            try:
+                async for batch in self._edge_batches_async(gp, paths):
+                    if batch:
+                        yield batch
+            except Exception:
+                continue
 
     async def _load_symbols_async(
         self,
         graph_path: str,
         paths: list[str],
     ) -> list[dict[str, Any]]:
-        """Pull all symbols whose owning file ∈ ``paths``.
+        """Full-set per-graph drain of ``_symbol_batches_async``.
+
+        Kept list-returning because ``http_standalone_graph`` caches the
+        per-project symbol list and reports ``len(syms)`` — a genuine
+        full-set consumer (reported as needing-full-set in the C3 RCA).
+        """
+        out: list[dict[str, Any]] = []
+        async for batch in self._symbol_batches_async(graph_path, paths):
+            out.extend(batch)
+        return out
+
+    async def _symbol_batches_async(
+        self,
+        graph_path: str,
+        paths: list[str],
+    ):
+        """Yield one batch of symbol rows per AP label query (async gen).
 
         AP stores each symbol under its own label (Function, Method,
         Struct, Enum, Trait, Constant, TypeAlias). The qualified_name
         follows ``<relative_file>::<name>``. We query each label
-        separately (LadybugDB rejects multi-label ``MATCH``).
+        separately (LadybugDB rejects multi-label ``MATCH``). Each label's
+        rows are yielded as soon as its query returns, so the consumer can
+        process/discard a label's rows before the next label is queried.
 
         ``paths`` entries may be absolute (builder convention); AP's
         ``File.id`` and the symbol ``qualified_name`` prefix are
         repo-relative. We match by ``endswith`` so both forms work.
         """
-        out: list[dict[str, Any]] = []
         # Build a set of basenames and tail fragments for fast matching.
         # These are also used to construct server-side WHERE predicates so
         # Kuzu filters by file prefix rather than returning ALL symbols and
@@ -405,6 +557,10 @@ class WorkflowGraphASTSource:
                 "query_graph",
                 {"graph_path": graph_path, "query": query},
             )
+            # Per-label batch: built, yielded, then dropped before the next
+            # label's query runs — peak retained inside the source is one
+            # label's rows, not the union across all _SYMBOL_LABELS queries.
+            batch: list[dict[str, Any]] = []
             for r in _as_list(rows):
                 qn = r.get("qualified_name")
                 if not qn:
@@ -426,7 +582,7 @@ class WorkflowGraphASTSource:
                     (p for p in paths if p.endswith(file_part)),
                     file_part,
                 )
-                out.append(
+                batch.append(
                     {
                         "file_path": abs_match,
                         "qualified_name": qn_s,
@@ -436,7 +592,8 @@ class WorkflowGraphASTSource:
                         "line": None,
                     }
                 )
-        return out
+            if batch:
+                yield batch
 
     def search_codebase(
         self,
@@ -547,18 +704,36 @@ class WorkflowGraphASTSource:
         graph_path: str,
         paths: list[str],
     ) -> list[dict[str, Any]]:
-        """Pull CALLS / IMPORTS / MEMBER_OF edges from the AP graph.
+        """Full-set per-graph drain of ``_edge_batches_async``.
+
+        Kept list-returning for ``http_standalone_graph`` (caches the
+        per-project edge list, reports ``len(edgs)``) — a genuine full-set
+        consumer (reported as needing-full-set in the C3 RCA).
+        """
+        out: list[dict[str, Any]] = []
+        async for batch in self._edge_batches_async(graph_path, paths):
+            out.extend(batch)
+        return out
+
+    async def _edge_batches_async(
+        self,
+        graph_path: str,
+        paths: list[str],
+    ):
+        """Yield one batch of edge rows per AP rel-table query (async gen).
 
         AP uses per-label-pair typed rel tables (LadybugDB convention):
           * Calls_<Src>_<Dst>   for Function↔Method call edges
           * Imports_File_<Lbl>  for File → imported symbol
           * HasMethod_<Parent>_Method for struct/enum/trait → method
 
-        We enumerate the known rel tables and collapse them to the
-        three semantic kinds the builder understands.
+        We enumerate the known rel tables (~89 queries) and collapse them to
+        the semantic kinds the builder understands. Each rel-table's rows are
+        yielded as its own batch the moment its query returns, so peak rows
+        retained inside the source is one rel-table's result — not the union
+        across all 89 queries.
         """
-        out: list[dict[str, Any]] = []
-        # Same path-matching strategy as ``_load_symbols_async``.
+        # Same path-matching strategy as ``_symbol_batches_async``.
         path_tails: set[str] = set()
         for p in paths:
             if not p:
@@ -607,8 +782,10 @@ class WorkflowGraphASTSource:
             src_lbl: str,
             dst_lbl: str,
             has_provenance: bool,
-        ):
-            """Query AP for edges of ``kind`` in ``table``.
+        ) -> list[dict[str, Any]]:
+            """Query AP for edges of ``kind`` in ``table`` and RETURN this
+            rel-table's rows as one batch (the caller yields it, then drops
+            it before the next rel-table query — bounding peak to one batch).
 
             ``has_provenance`` gates whether to fetch ``r.confidence`` +
             ``r.resolution_method``: Kuzu raises a Binder exception on
@@ -648,6 +825,7 @@ class WorkflowGraphASTSource:
                 "query_graph",
                 {"graph_path": graph_path, "query": query},
             )
+            batch: list[dict[str, Any]] = []
             for r in _as_list(rows):
                 src = str(r.get("src_name") or "")
                 dst = str(r.get("dst_name") or "")
@@ -682,7 +860,7 @@ class WorkflowGraphASTSource:
                 reason_str = (
                     str(reason_raw).strip("'\"") or None if reason_raw else None
                 )
-                out.append(
+                batch.append(
                     {
                         "kind": kind,
                         "src_file": src_file,
@@ -693,13 +871,16 @@ class WorkflowGraphASTSource:
                         "reason": reason_str,
                     }
                 )
+            return batch
 
         for s, d in calls_rels:
-            await _run_edge("calls", f"Calls_{s}_{d}", s, d, has_provenance=True)
+            yield await _run_edge("calls", f"Calls_{s}_{d}", s, d, has_provenance=True)
         for s, d in imports_rels:
-            await _run_edge("imports", f"Imports_{s}_{d}", s, d, has_provenance=True)
+            yield await _run_edge(
+                "imports", f"Imports_{s}_{d}", s, d, has_provenance=True
+            )
         for s, d in member_rels:
-            await _run_edge(
+            yield await _run_edge(
                 "member_of", f"HasMethod_{s}_{d}", s, d, has_provenance=False
             )
         # File → Import node. AP wires every ``import`` statement to its
@@ -707,7 +888,7 @@ class WorkflowGraphASTSource:
         # project. Without this, the cortex viz captures only the small
         # subset that AP managed to RESOLVE to in-graph symbols (the
         # ``Imports_File_*`` tables, totalling ~5k vs ~36k actual).
-        await _run_edge(
+        yield await _run_edge(
             "imports",
             "Defines_File_Import",
             "File",
@@ -730,8 +911,7 @@ class WorkflowGraphASTSource:
         )
         for s in _USES_SRC:
             for d in _USES_DST:
-                await _run_edge("uses", f"Uses_{s}_{d}", s, d, has_provenance=True)
-        return out
+                yield await _run_edge("uses", f"Uses_{s}_{d}", s, d, has_provenance=True)
 
 
 __all__ = ["WorkflowGraphASTSource"]

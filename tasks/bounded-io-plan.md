@@ -39,9 +39,17 @@ M3 source/store_type/confidence output-only.
 - [x] prd-spec-generator: start_pipeline semaphore (PRD_MAX_CONCURRENT_RUNS=8, structured retryable rejection — no queue, it would hold the MCP connection); RunStore TTL 30min + max-runs 64 (≈12.8MB ceiling from measured 100k per-run bound), terminal-only LRU eviction, injected clock, observable evicted counter; EvidenceRepository is SQLite (plan said in-memory — mismatch reported): pruneRunEvidence wired to run eviction + MAX_EVIDENCE_ROWS=10k standalone retention. — commit e833686 (tests 617→629)
 
 ## Phase 4 — Execute sharded-popping-harbor plan (constant-memory pipeline)
-- [ ] Phase A core ports (StreamSource/BatchSink/AdaptiveBatchController/BackpressurePipeline)
-- [ ] Phase B calibration benchmark (no invented constants — measure B_min/B_max/W_target/row_bytes)
-- [ ] Phase C migrate 6 subsystems (ingest writers first: kills 5k commits/page)
+2026-06-10 audit (Phase-3 lesson applied — verify premises before implementing):
+most of this plan ALREADY LANDED in prior sessions; the checkboxes below were stale.
+- [x] Phase A core ports — EXISTS: core/streaming/{ports,adaptive_controller,backpressure_pipeline,adaptive_writer,calibrated}.py + infrastructure/{batch_sinks,staging_resolve_sink,stream_sources,pooled_sink}.py; A3 schema (uq_relationships_directed + ingest_progress) in pg_schema.py; tests test_adaptive_controller/test_backpressure_pipeline/test_staging_resolve_sink.
+- [x] Phase B calibration — EXISTS: benchmarks/streaming_calibration/run.py + results.json (7 batch sizes × 20 batches, per-kind row_bytes/p99/rows_per_s measured).
+- Phase C status per item:
+  - [x] C1 ingest writers — StagingResolveSink wired in ingest_codebase_writers.py
+  - [x] C2 cypher fetchers — generator yields; OFFSET retained with documented I-readstable precondition (Kuzu read-only during ingest)
+  - [x] C3 Kuzu async paging (workflow_graph_source_ast.py, moved to infrastructure/): timeout on every cross-loop future.result (untimed at :44 = the Lamport H4 hang; AP_SYNC_RESULT_TIMEOUT_S=3900 sourced from mcp_client 3600s in-loop ceiling + 300s drain margin); per-query accumulators (89 edge / 21 symbol queries) → generators. FINDING: AP has no cursor — one query's rows is the smallest streamable unit; iter_symbols/iter_ast_edges are the seam for C5 consumers. — DONE 2026-06-10
+  - [x] C4 sleep_compute — iter_memories_for_decay wired (Phase 0 commit 1810d29 + sleep.py:36)
+  - [x] C5 viz monolith — memory nodes emitted then DISCARDED from builder (structural-size retention), tiles + /api/memories pagination serve them; memory_entity_edges skipped from base build
+  - [x] C6 /api/quadtree — read_all_positions was already replaced by iter_positions_chunked (keyset 50k) + per-chunk Arrow record batches; remaining materialization was the RESPONSE (BufferOutputStream accumulated the whole IPC frame, gzip.compress made a 2nd full copy) → streamed per-batch through gzip to the socket, constant-memory in node count (user directive 2026-06-10: optimize like the others, no deferral). — DONE 2026-06-10
 
 ## Deferred decisions (user)
 - [ ] Push the 5 unpushed rename commits (Cortex×2, automatised-pipeline, prd-spec-generator, zetetic-team-subagents).
