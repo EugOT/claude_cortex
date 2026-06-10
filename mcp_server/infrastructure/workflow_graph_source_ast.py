@@ -401,9 +401,7 @@ class WorkflowGraphASTSource:
         if not graph_paths:
             return
         paths = [p for p in file_paths if p]
-        yield from self._loop_owner.run_iter(
-            self._iter_edges_async(graph_paths, paths)
-        )
+        yield from self._loop_owner.run_iter(self._iter_edges_async(graph_paths, paths))
 
     def load_ast_edges(
         self,
@@ -911,7 +909,9 @@ class WorkflowGraphASTSource:
         )
         for s in _USES_SRC:
             for d in _USES_DST:
-                yield await _run_edge("uses", f"Uses_{s}_{d}", s, d, has_provenance=True)
+                yield await _run_edge(
+                    "uses", f"Uses_{s}_{d}", s, d, has_provenance=True
+                )
 
 
 __all__ = ["WorkflowGraphASTSource"]

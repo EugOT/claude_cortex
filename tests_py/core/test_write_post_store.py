@@ -62,7 +62,9 @@ class TestExtractTriggers:
     def test_skips_auto_capture_source(self):
         store = MagicMock()
         out = extract_triggers(
-            "TODO: refactor the parser later", "/src", store,
+            "TODO: refactor the parser later",
+            "/src",
+            store,
             source="post_tool_capture",
         )
         assert out == []

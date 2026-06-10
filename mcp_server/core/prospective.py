@@ -117,9 +117,7 @@ def check_trigger(
         # Correctness fix, not tuning. See tasks/bounded-io-phase2-design.md M1.
         keywords = condition.lower().split()
         content_lower = content.lower()
-        return any(
-            re.search(rf"\b{re.escape(kw)}\b", content_lower) for kw in keywords
-        )
+        return any(re.search(rf"\b{re.escape(kw)}\b", content_lower) for kw in keywords)
 
     if trigger_type == "entity_match":
         entity_name = condition.lower()

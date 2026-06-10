@@ -43,9 +43,10 @@ def _emb(seed: int, similarity_to_query: float = 1.0) -> bytes:
     other = other_rng.standard_normal(_DIM).astype(np.float32)
     other -= other.dot(base) * base  # orthogonalize
     other /= np.linalg.norm(other)
-    mixed = similarity_to_query * base + np.sqrt(
-        max(0.0, 1.0 - similarity_to_query**2)
-    ) * other
+    mixed = (
+        similarity_to_query * base
+        + np.sqrt(max(0.0, 1.0 - similarity_to_query**2)) * other
+    )
     return mixed.astype(np.float32).tobytes()
 
 
@@ -86,9 +87,7 @@ class TestAutoCaptureDebias:
             "amplification across signal pools. Curated lessons must outrank "
             "raw dumps."
         )
-        month_ago = (
-            datetime.now(timezone.utc) - timedelta(days=30)
-        ).isoformat()
+        month_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
         curated_id = store.insert_memory(
             {
                 "content": lesson,
@@ -101,8 +100,7 @@ class TestAutoCaptureDebias:
         )
         blob = (
             "# Tool: Bash\n**Output:**\n"
-            + "scoring inversion WRRF rank fusion signal pools raw dumps\n"
-            * 200
+            + "scoring inversion WRRF rank fusion signal pools raw dumps\n" * 200
         )
         auto_id = store.insert_memory(
             {

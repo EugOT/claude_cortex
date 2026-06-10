@@ -348,9 +348,7 @@ class TestPerServerConcurrencyCap:
                 live["n"] -= 1
 
         async def run() -> None:
-            await asyncio.wait_for(
-                asyncio.gather(worker("A"), worker("B")), timeout=5
-            )
+            await asyncio.wait_for(asyncio.gather(worker("A"), worker("B")), timeout=5)
 
         asyncio.run(run())
         upstream_governor.reset()
@@ -387,9 +385,7 @@ class TestPerServerConcurrencyCap:
                     await both_inside.wait()
                     order.append(f"{tag}:exit")
 
-            await asyncio.wait_for(
-                asyncio.gather(worker("A"), worker("B")), timeout=5
-            )
+            await asyncio.wait_for(asyncio.gather(worker("A"), worker("B")), timeout=5)
 
         asyncio.run(run())
         upstream_governor.reset()

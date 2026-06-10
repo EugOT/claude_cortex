@@ -115,7 +115,8 @@ class TestEnsureConnection:
         assert config_path.exists()
         data = json.loads(config_path.read_text())
         assert (
-            data["servers"]["codebase"]["command"] == "/usr/local/bin/automatised-pipeline"
+            data["servers"]["codebase"]["command"]
+            == "/usr/local/bin/automatised-pipeline"
         )
 
     def test_no_pipeline_leaves_config_untouched(self, tmp_path, monkeypatch):
@@ -223,7 +224,8 @@ class TestEnsureConnection:
         # Both entries preserved
         assert "prd-gen" in data["servers"]
         assert (
-            data["servers"]["codebase"]["command"] == "/usr/local/bin/automatised-pipeline"
+            data["servers"]["codebase"]["command"]
+            == "/usr/local/bin/automatised-pipeline"
         )
 
     def test_new_entries_set_unbounded_call_timeout(self, tmp_path, monkeypatch):

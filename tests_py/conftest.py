@@ -58,9 +58,7 @@ def _guard_against_populated_db() -> None:
     try:
         import psycopg
 
-        with psycopg.connect(
-            _TEST_DB_URL, autocommit=True, connect_timeout=3
-        ) as conn:
+        with psycopg.connect(_TEST_DB_URL, autocommit=True, connect_timeout=3) as conn:
             row = conn.execute("SELECT COUNT(*) FROM memories").fetchone()
             count = row[0] if row else 0
     except Exception:

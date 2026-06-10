@@ -666,18 +666,28 @@ def _build_interleaved(
             builder._ingest_memory(ev)  # noqa: SLF001
         memories_total += len(chunk)
         _emit_delta("memories", prev_n, prev_e)
-        # ── Bounded build (progressive warm-up) ──
-        # Memory nodes are LEAVES: the batch above already emitted them
-        # (SSE delta + LayoutAuthority slot + persisted position) and no
-        # later phase references them. DISCARD them so the builder stays
-        # at structural size for the whole stream instead of retaining
-        # all 500k+ nodes/edges — measured 4 GB peak / OOM watchdog
-        # (2026-06-03). They render progressively via tiles (persisted
-        # positions) + /api/memories pagination, not the monolithic graph.
-        for _nd in builder._node_order[_struct_n:]:  # noqa: SLF001
-            builder._nodes.pop(_nd.id, None)  # noqa: SLF001
-        del builder._node_order[_struct_n:]  # noqa: SLF001
-        del builder._edges[_struct_e:]  # noqa: SLF001
+        # ── Bounded retention vs unbounded discard ──
+        # When ``_mem_cap > 0`` the memory stream is bounded to the top-N
+        # HOTTEST rows (iter_memories_chunked ORDER BY heat_base DESC,
+        # ``limit=_mem_cap``). The retained memory set is therefore
+        # ≤ ``_mem_cap`` BY CONSTRUCTION, so KEEPING the nodes in the
+        # builder/cumulative graph is bounded — the L5 galaxy layer needs
+        # them (per-domain memory balls, semantic-stage colors). They flow
+        # into _graph_cache via the post-build _merge, and the L5 phase
+        # payload (get_phase_payload → _PHASE_KINDS["L5"] = {"memory"})
+        # slices them out of that cache.
+        # source: cap = CORTEX_VIZ_MEMORY_LIMIT default 25000, measured
+        #   2026-05-31; retention bound = retained set ≤ memory_limit.
+        #
+        # When ``_mem_cap == 0`` the stream is the FULL corpus (400k+ rows,
+        # measured 4 GB peak / OOM watchdog 2026-06-03) — keep the legacy
+        # per-batch DISCARD so the builder stays at structural size. The
+        # cold long-tail renders via tiles + /api/memories pagination.
+        if _mem_cap <= 0:
+            for _nd in builder._node_order[_struct_n:]:  # noqa: SLF001
+                builder._nodes.pop(_nd.id, None)  # noqa: SLF001
+            del builder._node_order[_struct_n:]  # noqa: SLF001
+            del builder._edges[_struct_e:]  # noqa: SLF001
         # Surface progress every chunk so /api/graph/progress shows the
         # running total — the bottom-of-page poller picks this up.
         if on_source_loaded is not None:

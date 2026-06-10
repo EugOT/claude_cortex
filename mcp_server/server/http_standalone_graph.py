@@ -636,9 +636,12 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                 k = _n.get("kind") or _n.get("type") or ""
                 kind_counts[k] = kind_counts.get(k, 0) + 1
             cur["meta"]["domain_count"] = kind_counts.get("domain", 0)
-            # Memories are emitted-then-discarded from the node array
-            # (C5 bounded build) — the built total lives in
-            # _source_totals, kind_counts would report 0.
+            # memory_count: when CORTEX_VIZ_MEMORY_LIMIT > 0 the builder now
+            # RETAINS the capped memory nodes, so kind_counts["memory"] is
+            # the true in-galaxy count (== _source_totals["memories"] when
+            # bounded). On the unbounded path the nodes are still discarded
+            # and only _source_totals carries the built total. max() is
+            # correct in both cases. source: bounded retention (workflow_graph.py).
             cur["meta"]["memory_count"] = max(
                 kind_counts.get("memory", 0), _source_totals.get("memories", 0)
             )

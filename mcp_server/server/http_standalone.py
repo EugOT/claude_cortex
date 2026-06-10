@@ -423,9 +423,7 @@ def _auto_enable_ap() -> None:
 
             from mcp_server.infrastructure.ap_bridge import APBridge
 
-            projects_root = (
-                Path.home() / "Developments" / "anthropic-partnership"
-            )
+            projects_root = Path.home() / "Developments" / "anthropic-partnership"
             projects = [
                 p
                 for p in projects_root.iterdir()

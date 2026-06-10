@@ -33,7 +33,7 @@ def test_signal_line_beyond_head_window_survives():
     # Bury a unique error line deep in the dump, far past the head window.
     filler = "\n".join(f"ordinary filler line {i}" for i in range(2000))
     marker = "FATAL: traceback exception occurred in payment handler"
-    big = filler[: GIST_BUDGET] + "\n" + marker + "\n" + filler
+    big = filler[:GIST_BUDGET] + "\n" + marker + "\n" + filler
     gist = extract_gist(big)
     assert marker in gist
 
