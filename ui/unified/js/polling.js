@@ -7,10 +7,10 @@
 // only remaining job is to keep the stats card and clock current —
 // done with a tiny /api/graph/progress poll instead of the full graph.
 (function() {
-  // Last server-side stats meta (/api/stats). Cached so the live
-  // legend recount on state:lastData can keep showing store totals
-  // (e.g. Memories, which the galaxy never renders as nodes) between
-  // the 30 s stats polls instead of flickering to the rendered tally.
+  // Last server-side stats meta (/api/stats). Cached so the live legend
+  // recount on state:lastData can keep the store-total tooltip (Memories
+  // hover shows "N in store") current between the 30 s stats polls. The
+  // headline Memories number is the in-galaxy rendered count.
   var _lastServerMeta = null;
 
   function fetchGraph() {
@@ -85,16 +85,17 @@
       }
       var total = d.nodes.length;
       setText('s-dom', c.domain);
-      // The C5 bounded build emits-then-discards memory nodes (the L5
-      // phase ships zero `memory`-kind nodes — verified: /api/graph/phase
-      // ?name=L5 returns []), so a rendered tally of memories is always
-      // 0. Show the TRUE store memory count from the server meta instead;
-      // it never drops below the rendered count and reflects what the
-      // memory system actually holds. Falls back to the rendered tally
-      // only if the server didn't supply a count. source: /api/stats
-      // memory_count + http_standalone_graph.py _source_totals.
-      var memCount = (meta && meta.memory_count != null) ? meta.memory_count : c.memory;
-      setText('s-mem', memCount);
+      // Memories stat = the IN-GALAXY count (rendered `memory`-kind nodes).
+      // The bounded build now RETAINS the top-N hottest memories (cap =
+      // CORTEX_VIZ_MEMORY_LIMIT, default 25000), so the L5 layer renders
+      // them and `c.memory` is the true on-screen mass — what the user is
+      // looking at. The full store total (e.g. 537k) is informational, not
+      // what the galaxy shows; surface it as a hover tooltip so the headline
+      // number matches the canvas. source: bounded retention (workflow_graph.py).
+      setText('s-mem', c.memory);
+      if (meta && meta.memory_count != null && meta.memory_count > c.memory) {
+        setTitle('s-mem', meta.memory_count + ' in store (' + c.memory + ' shown)');
+      }
       // "Entities" = every knowledge node that isn't a domain/memory/
       // discussion (files, symbols, tools, commands, agents, skills, hooks,
       // MCPs) — the sum, matching the server's entity_count semantics.
@@ -147,6 +148,11 @@
   function setText(id, val) {
     var el = document.getElementById(id);
     if (el) el.textContent = val;
+  }
+
+  function setTitle(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.title = val;
   }
 
   function updateStatus(text) {
@@ -225,8 +231,8 @@
     // Recount the legend from the rendered graph on every data change
     // (phase loads + SSE deltas), so it tracks the canvas live instead of
     // only refreshing on the 30 s stats poll. Reuse the last server meta
-    // so the Memories stat (which is a store total, not a rendered tally —
-    // see updateStats) doesn't flicker to 0 between stats polls.
+    // so the Memories store-total tooltip (see updateStats) stays current
+    // between stats polls; the headline count is the rendered tally.
     JUG.on('state:lastData', function() { updateStats(_lastServerMeta || {}); });
   }
 
