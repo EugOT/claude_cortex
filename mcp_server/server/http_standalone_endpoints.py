@@ -211,6 +211,16 @@ def serve_graph_events(handler, store=None) -> None:
         except (ValueError, IndexError):
             pass
 
+    # A held SSE stream is a live client: without this, Chrome freezing a
+    # background tab stops the 30s stats polls, the idle watchdog sees no
+    # request arrivals, and the server shuts down UNDER the open page
+    # (2026-06-10 "AST and chain fail" — the port was simply dead).
+    from mcp_server.server.http_standalone_state import (
+        stream_closed,
+        stream_opened,
+    )
+
+    stream_opened()
     try:
         ensure_build_started(store)
 
@@ -281,6 +291,8 @@ def serve_graph_events(handler, store=None) -> None:
             handler.wfile.flush()
         except Exception:
             pass
+    finally:
+        stream_closed()
 
 
 def serve_graph_progress(handler, store=None) -> None:

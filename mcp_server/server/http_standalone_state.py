@@ -38,9 +38,38 @@ def touch() -> None:
         _last_request_time = time.monotonic()
 
 
-def seconds_since_last_request() -> float:
-    """Return elapsed monotonic seconds since the last touch()."""
+# Live streaming connections (SSE / chunked graph streams). The idle
+# watchdog counts REQUEST ARRIVALS, but a browser holding an SSE stream
+# makes no new requests — and background tabs get frozen by Chrome, so
+# their 30 s stats polls stop too. Result (2026-06-10): the server
+# idle-shut under an open tab and every later click hit a dead port.
+# A held stream IS activity; track it explicitly.
+_live_streams = 0
+
+
+def stream_opened() -> None:
+    """Mark a long-lived stream connection as open (call before serving)."""
+    global _live_streams
     with _request_lock:
+        _live_streams += 1
+
+
+def stream_closed() -> None:
+    """Mark a long-lived stream connection as closed (call in finally)."""
+    global _live_streams
+    with _request_lock:
+        _live_streams = max(0, _live_streams - 1)
+
+
+def seconds_since_last_request() -> float:
+    """Elapsed monotonic seconds since the last touch().
+
+    Returns 0.0 while any long-lived stream connection is open — a held
+    SSE/chunked stream is a live client, never idle.
+    """
+    with _request_lock:
+        if _live_streams > 0:
+            return 0.0
         return time.monotonic() - _last_request_time
 
 
