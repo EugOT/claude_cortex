@@ -176,6 +176,28 @@ class MemorySettings(BaseSettings):
     # behavior). Default false post-merge.
     POOL_DISABLED: bool = False
 
+    # ── MCP client pool (bounded-io Phase 3) ─────────────────────────────
+    # Max live upstream MCP child connections held in mcp_client_pool. Each
+    # pooled connection is a spawned child OS PROCESS (asyncio
+    # create_subprocess_exec in mcp_client._spawn_process), not a cheap DB
+    # handle, so the binding constraint is OS process / RSS pressure — the
+    # exact failure mode in the ingest_codebase ConnectionResetError RCA
+    # 2026-06-09 (child driven to OOM). Beyond this count, get_client evicts
+    # the least-recently-used IDLE connection before opening a new one, and
+    # fails fast with McpConnectionError when all live connections are busy.
+    #
+    # Default 0 = "derive from os.cpu_count()" (see _resolve_mcp_pool_max):
+    # one heavy child process per core is a defensible machine-relative
+    # ceiling, floored at 2 so a 1-core box can still hold a working set of
+    # two distinct upstream servers. This is an ENGINEERING DEFAULT pending
+    # measurement: the value that would truly calibrate it is the measured
+    # steady-state RSS of the spawned children (today only `codebase` /
+    # automatised-pipeline is heavy) against available host memory. Override
+    # via CORTEX_MEMORY_MCP_POOL_MAX_CONNECTIONS once that data exists.
+    # source: os.cpu_count() machine bound; floor mirrors a two-server
+    # working set; RSS calibration is the open measurement.
+    MCP_POOL_MAX_CONNECTIONS: int = 0
+
     # automatised-pipeline (ADR-0046) — on by default so the L6 symbol
     # ring has depth out of the box. Users who want to cut token /
     # subprocess cost override via CORTEX_MEMORY_AP_ENABLED=0 in their
@@ -193,6 +215,20 @@ class MemorySettings(BaseSettings):
     @property
     def db_path_resolved(self) -> Path:
         return Path(self.DB_PATH).expanduser()
+
+    @property
+    def mcp_pool_max_connections(self) -> int:
+        """Effective max live MCP child connections in the pool.
+
+        Resolves the ``0 = auto`` sentinel to ``max(2, os.cpu_count())``.
+        os.cpu_count() can return None (rare, e.g. unsupported platform);
+        treat that as a single core and fall back to the floor of 2.
+        source: MCP_POOL_MAX_CONNECTIONS field comment.
+        """
+        if self.MCP_POOL_MAX_CONNECTIONS > 0:
+            return self.MCP_POOL_MAX_CONNECTIONS
+        cores = os.cpu_count() or 1
+        return max(2, cores)
 
 
 @lru_cache(maxsize=1)

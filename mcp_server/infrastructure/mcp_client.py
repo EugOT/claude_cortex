@@ -243,6 +243,20 @@ class MCPClient:
             return 1
 
     @property
+    def busy(self) -> bool:
+        """True while at least one JSON-RPC request is in flight.
+
+        ``_pending`` holds a future per request from the moment ``_send``
+        writes the frame until ``_read_loop`` resolves it (or the reader
+        terminates and fails it). A non-empty ``_pending`` therefore means
+        the child is actively serving a call, so the pool must NOT evict
+        this connection — doing so would cancel an in-flight request. This
+        is the eviction-safety predicate consumed by the pool's LRU
+        admission path. source: mcp_client_pool.get_client LRU eviction.
+        """
+        return len(self._pending) > 0
+
+    @property
     def idle(self) -> bool:
         loop = asyncio.get_running_loop()
         return (loop.time() - self._last_activity) > (self._idle_timeout_ms / 1000)

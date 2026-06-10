@@ -184,6 +184,222 @@ class TestGetClient:
         mcp_client_pool._pool.clear()
 
 
+def _fake_client(busy: bool = False, connected: bool = True) -> MagicMock:
+    """A pooled-client stand-in. ``busy`` drives LRU eviction safety;
+    ``connected`` drives the stale-replacement path. ``close`` is a plain
+    Mock so eviction can be asserted."""
+    c = MagicMock()
+    c.busy = busy
+    c.connected = connected
+    c.close = MagicMock()
+    return c
+
+
+class TestPoolBounding:
+    """Phase-3 bounded-io: max-connections + LRU eviction + fail-fast.
+
+    NOTE: no asyncio.sleep is mocked anywhere here — a mocked sleep turns
+    MCPClient._idle_loop into an infinite busy-spin that hangs the suite
+    (memory: ci_311_idle_loop_busyspin). These tests use plain fake clients
+    and never spawn a real MCPClient/idle loop.
+    """
+
+    def _patch_max(self, n: int):
+        """Force the resolved pool cap to ``n`` regardless of host cpu_count."""
+        settings = MagicMock()
+        settings.mcp_pool_max_connections = n
+        return patch(
+            "mcp_server.infrastructure.mcp_client_pool.get_memory_settings",
+            return_value=settings,
+        )
+
+    def _patch_new_client(self, client):
+        return (
+            patch(
+                "mcp_server.infrastructure.mcp_client_pool._load_server_config",
+                return_value={"command": "echo"},
+            ),
+            patch(
+                "mcp_server.infrastructure.mcp_client_pool.MCPClient",
+                return_value=client,
+            ),
+        )
+
+    def test_pool_never_exceeds_max_and_evicts_lru_idle(self):
+        mcp_client_pool._pool.clear()
+        # Fill the pool to capacity (max=2) with two idle connections.
+        first = _fake_client(busy=False)
+        second = _fake_client(busy=False)
+        mcp_client_pool._pool["first"] = first
+        mcp_client_pool._pool["second"] = second
+
+        new_client = _fake_client(busy=False)
+        new_client.connect = AsyncMock()
+        new_client.list_tools.return_value = []
+        new_client.protocol_version = "v"
+
+        cfg_patch, mcpcls_patch = self._patch_new_client(new_client)
+        with self._patch_max(2), cfg_patch, mcpcls_patch:
+            result = asyncio.run(get_client("third"))
+
+        # Pool stayed at the cap; LRU ("first") was evicted, not "second".
+        assert result is new_client
+        assert len(mcp_client_pool._pool) == 2
+        assert "first" not in mcp_client_pool._pool
+        assert "second" in mcp_client_pool._pool
+        assert "third" in mcp_client_pool._pool
+        first.close.assert_called_once()
+        second.close.assert_not_called()
+        mcp_client_pool._pool.clear()
+
+    def test_lru_touch_protects_recently_used_from_eviction(self):
+        mcp_client_pool._pool.clear()
+        older = _fake_client(busy=False)
+        newer = _fake_client(busy=False)
+        mcp_client_pool._pool["older"] = older
+        mcp_client_pool._pool["newer"] = newer
+
+        # Touch "older" via a cache hit → it becomes most-recently-used,
+        # so the NEXT admission must evict "newer" instead.
+        with self._patch_max(2):
+            hit = asyncio.run(get_client("older"))
+        assert hit is older
+
+        new_client = _fake_client(busy=False)
+        new_client.connect = AsyncMock()
+        new_client.list_tools.return_value = []
+        new_client.protocol_version = "v"
+        cfg_patch, mcpcls_patch = self._patch_new_client(new_client)
+        with self._patch_max(2), cfg_patch, mcpcls_patch:
+            asyncio.run(get_client("third"))
+
+        assert "newer" not in mcp_client_pool._pool
+        assert "older" in mcp_client_pool._pool
+        newer.close.assert_called_once()
+        older.close.assert_not_called()
+        mcp_client_pool._pool.clear()
+
+    def test_fail_fast_when_all_connections_busy(self):
+        mcp_client_pool._pool.clear()
+        # Pool full and every connection is serving an in-flight call.
+        busy_a = _fake_client(busy=True)
+        busy_b = _fake_client(busy=True)
+        mcp_client_pool._pool["a"] = busy_a
+        mcp_client_pool._pool["b"] = busy_b
+
+        with self._patch_max(2):
+            with pytest.raises(McpConnectionError, match="pool exhausted"):
+                asyncio.run(get_client("c"))
+
+        # No eviction, no growth — the busy connections are untouched.
+        assert len(mcp_client_pool._pool) == 2
+        busy_a.close.assert_not_called()
+        busy_b.close.assert_not_called()
+        mcp_client_pool._pool.clear()
+
+    def test_busy_connection_is_skipped_idle_one_evicted(self):
+        mcp_client_pool._pool.clear()
+        # LRU is busy; the next-oldest is idle → idle one must be evicted.
+        busy_lru = _fake_client(busy=True)
+        idle_next = _fake_client(busy=False)
+        mcp_client_pool._pool["busy_lru"] = busy_lru
+        mcp_client_pool._pool["idle_next"] = idle_next
+
+        new_client = _fake_client(busy=False)
+        new_client.connect = AsyncMock()
+        new_client.list_tools.return_value = []
+        new_client.protocol_version = "v"
+        cfg_patch, mcpcls_patch = self._patch_new_client(new_client)
+        with self._patch_max(2), cfg_patch, mcpcls_patch:
+            asyncio.run(get_client("fresh"))
+
+        assert "busy_lru" in mcp_client_pool._pool
+        assert "idle_next" not in mcp_client_pool._pool
+        busy_lru.close.assert_not_called()
+        idle_next.close.assert_called_once()
+        mcp_client_pool._pool.clear()
+
+
+class TestPerServerConcurrencyCap:
+    """Per-server concurrency cap (deliverable 2). The cap is enforced by
+    upstream_governor.govern, keyed by server name. Verify a cap of 1
+    serialises concurrent callers using an order-recording fake transport.
+    """
+
+    def test_semaphore_serialises_when_cap_is_one(self):
+        from mcp_server.infrastructure import upstream_governor
+
+        upstream_governor.reset()
+        order: list[str] = []
+        live = {"n": 0}
+
+        async def worker(tag: str) -> None:
+            # Cap=1 → at most one worker may be inside the critical section.
+            async with upstream_governor.govern("srv", max_concurrent=1):
+                live["n"] += 1
+                # If serialisation holds, this assertion never sees 2.
+                assert live["n"] == 1, f"{tag} saw {live['n']} concurrent holders"
+                order.append(f"{tag}:enter")
+                # Yield control so a second worker WOULD interleave here if
+                # the cap were not enforced. No sleep mock — a real 0-delay
+                # yield via asyncio.sleep(0) (never mock sleep: idle-loop spin).
+                await asyncio.sleep(0)
+                order.append(f"{tag}:exit")
+                live["n"] -= 1
+
+        async def run() -> None:
+            await asyncio.wait_for(
+                asyncio.gather(worker("A"), worker("B")), timeout=5
+            )
+
+        asyncio.run(run())
+        upstream_governor.reset()
+
+        # With cap=1, each worker's enter/exit are adjacent (no interleave).
+        assert order in (
+            ["A:enter", "A:exit", "B:enter", "B:exit"],
+            ["B:enter", "B:exit", "A:enter", "A:exit"],
+        )
+
+    def test_cap_greater_than_one_allows_overlap(self):
+        from mcp_server.infrastructure import upstream_governor
+
+        upstream_governor.reset()
+        # Two permits → both workers must be able to hold the permit
+        # simultaneously. ``both_inside`` is an asyncio.Event that only
+        # the SECOND entrant sets after counting two concurrent holders;
+        # each worker waits on it inside its critical section. If the cap
+        # were 1, the first worker would block forever on this event
+        # (the second can't enter to set it) and gather would deadlock —
+        # so passing proves genuine overlap, not interleave luck.
+        order: list[str] = []
+
+        async def run() -> None:
+            both_inside = asyncio.Event()
+            inside = {"n": 0}
+
+            async def worker(tag: str) -> None:
+                async with upstream_governor.govern("srv2", max_concurrent=2):
+                    order.append(f"{tag}:enter")
+                    inside["n"] += 1
+                    if inside["n"] == 2:
+                        both_inside.set()
+                    await both_inside.wait()
+                    order.append(f"{tag}:exit")
+
+            await asyncio.wait_for(
+                asyncio.gather(worker("A"), worker("B")), timeout=5
+            )
+
+        asyncio.run(run())
+        upstream_governor.reset()
+
+        # cap=2 → both entered before either exited (true overlap).
+        assert order[0].endswith(":enter")
+        assert order[1].endswith(":enter")
+        assert sorted(order) == ["A:enter", "A:exit", "B:enter", "B:exit"]
+
+
 class TestCloseClient:
     def test_safe_for_nonexistent(self):
         close_client("never-connected")
