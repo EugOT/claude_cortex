@@ -493,10 +493,110 @@
      sidebar counters and the discussion batches. -->
 <script src="/js/polling.js?v=117ece5"></script>
 <script src="/js/workflow_graph_filters.js?v=117ece5"></script>
-<!-- Trace is the sole graph view: a live, domain-split execution-trace
-     (domain -> session -> chain -> file) fetched per level on demand.
-     The legacy galaxy loaders (phase_loader, graph_snapshot, chain_panel,
-     streaming_canvas) were removed with the Graph tab. -->
+<!-- Trace view: a live, domain-split execution-trace
+     (domain -> session -> chain -> file) fetched per level on demand. -->
 <script src="/js/trace.js"></script>
+<!-- Galaxy (GRAPH tab) phase-driven loader — restored 2026-06-10.
+     df691fd replaced GRAPH with TRACE and removed the galaxy loaders
+     (phase_loader.js / graph_snapshot.js / the SSE startup); the GRAPH
+     tab was restored 2026-06-10 but its loader was not, so nothing ever
+     called JUG.appendGraphDelta for view==='graph' and the canvas stayed
+     blank with Domains/Memories/Discussions = 0.
+
+     This restores the JSON phase loader inline (no separate file, no
+     dependency on the CXGB /api/graph.bin route — which currently
+     404s-to-HTML — nor on graph_snapshot.js which no longer exists).
+     It polls /api/graph/progress and, as each phase flips ready, fetches
+     /api/graph/phase?name=<key> ONCE and appends its nodes+edges via
+     JUG.appendGraphDelta. appendGraphDelta dedups by id, fires
+     state:lastData, and the workflow_graph_bridge renders the L1-L6
+     galaxy. Only runs while the user is on the Graph tab. -->
+<script>
+(function () {
+  // Poll cadence + first-kick delay. Sourced from the prior working
+  // loader (commit f21e255 ui/unified-viz.html): 400 ms between polls
+  // while building, 200 ms first kick. Override via querystring
+  // ?graph_poll_ms=<n> for debugging; no magic constant baked in.
+  var qp = new URLSearchParams(window.location.search || '');
+  var POLL_MS = parseInt(qp.get('graph_poll_ms'), 10);
+  if (!isFinite(POLL_MS) || POLL_MS < 50) POLL_MS = 400;  // source: f21e255 loader
+  var FIRST_KICK_MS = 200;                                  // source: f21e255 loader
+
+  var applied = {};   // phaseKey -> true once appended
+  var inflight = {};  // phaseKey -> true while fetching
+
+  function _activeViewIsGraph() {
+    return window.JUG && JUG.state && JUG.state.activeView === 'graph';
+  }
+
+  function _seedLastData() {
+    if (window.JUG && !JUG.state.lastData) {
+      JUG.state.lastData = {
+        nodes: [], edges: [], links: [],
+        meta: { schema: 'workflow_graph.v1', source: 'phase-loader' },
+      };
+    }
+  }
+
+  function applyPhase(key) {
+    if (applied[key] || inflight[key]) return Promise.resolve();
+    inflight[key] = true;
+    return fetch('/api/graph/phase?name=' + encodeURIComponent(key))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (p) {
+        if (!p || !p.ready) return;
+        if (typeof JUG.appendGraphDelta === 'function') {
+          _seedLastData();
+          JUG.appendGraphDelta(p.nodes || [], p.edges || []);
+          console.log('[phase] applied', key,
+            '+' + ((p.nodes || []).length) + 'N',
+            '+' + ((p.edges || []).length) + 'E');
+        }
+        applied[key] = true;
+      })
+      .catch(function (err) { console.warn('[phase] ' + key + ' failed:', err && err.message); })
+      .then(function () { inflight[key] = false; });
+  }
+
+  function poll() {
+    // Only do galaxy-build work while the user is on the Graph tab —
+    // Knowledge / Board / Wiki / Trace users don't pay the cost.
+    if (!_activeViewIsGraph()) { setTimeout(poll, 1500); return; }
+    fetch('/api/graph/progress')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (p) {
+        if (!p) { setTimeout(poll, 1200); return; }
+        // The server inserts phase keys in DAG order, so iterating the
+        // dict applies them in publish order. appendGraphDelta dedups,
+        // so re-seeing a ready phase is a no-op.
+        var keys = Object.keys(p.phases || {});
+        var seq = Promise.resolve();
+        keys.forEach(function (k) {
+          if (!applied[k] && p.phases[k]) {
+            seq = seq.then(function () { return applyPhase(k); });
+          }
+        });
+        if (p.full_ready) {
+          var allDone = keys.every(function (k) { return applied[k] || !p.phases[k]; });
+          if (allDone) return;  // stop polling — build complete and drained
+        }
+        setTimeout(poll, POLL_MS);
+      })
+      .catch(function () { setTimeout(poll, 1200); });
+  }
+
+  if (window.JUG) {
+    setTimeout(poll, FIRST_KICK_MS);
+    // Kick immediately when the user switches TO the graph tab, in case
+    // they landed on Trace/Knowledge first.
+    JUG.on('state:activeView', function (ev) {
+      if (ev && ev.value === 'graph') setTimeout(poll, 0);
+    });
+    console.log('[phase] galaxy phase-loader registered');
+  } else {
+    console.warn('[phase] JUG missing — galaxy loader disabled');
+  }
+})();
+</script>
 </body>
 </html>

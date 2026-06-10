@@ -244,34 +244,68 @@ def get_build_progress() -> dict:
         snap = dict(_build_progress)
         if snap.get("started_at"):
             snap["elapsed"] = time.monotonic() - snap["started_at"]
-    # If no build has run this process but a complete snapshot (>1 MB) is
-    # already on disk, report ready so the frontend's phase_loader fetches
+    # If no build has run this process but a complete snapshot is already
+    # on disk, report ready so the frontend's phase_loader fetches
     # /api/graph.bin immediately instead of polling "idle" forever. This
     # is what makes a cold process render the cached galaxy with no build.
     # source: measured 2026-05-31 — gate skipped the build but the UI sat
     # blank because progress stayed baseline_ready=False.
     if not snap.get("baseline_ready") and not snap.get("full_ready"):
-        try:
-            from mcp_server.server.graph_snapshot import default_path
-
-            p = default_path()
-            if p.is_file() and p.stat().st_size > 1_000_000:
-                snap["baseline_ready"] = True
-                snap["full_ready"] = True
-                snap["phase"] = "cached snapshot"
-                snap["pct"] = 1.0
-        except OSError:
-            pass
+        counts = _complete_snapshot_counts()
+        if counts:
+            snap["baseline_ready"] = True
+            snap["full_ready"] = True
+            snap["phase"] = "cached snapshot"
+            snap["pct"] = 1.0
+            snap["node_count"], snap["edge_count"] = counts
     return snap
 
 
-def ensure_build_started(store) -> None:
-    """No-op. The capped-galaxy snapshot build was replaced by the
-    live domain-split execution-trace graph (/api/trace/*). Kept as a
-    stable import surface for any legacy /api/graph/* route; it must
-    never kick the old build. source: 2026-05-31 trace refactor.
+def _complete_snapshot_counts() -> tuple[int, int] | None:
+    """(node_count, edge_count) of the on-disk snapshot when it can serve
+    a cold start; ``None`` otherwise.
+
+    Two conditions, both required:
+      * header peek says it is a valid CXGB snapshot holding >0 nodes —
+        gating on ``st_size`` alone let an EMPTY/foreign file flip
+        ``full_ready`` while the galaxy stayed blank (2026-06-10);
+      * size > 1 MB — the measured 2026-05-31 completeness heuristic. A
+        skeleton snapshot written early in an aborted build is small and
+        must NOT satisfy readiness; below this size a rebuild is cheap.
     """
+    try:
+        from mcp_server.server.graph_snapshot import default_path, peek_counts
+
+        p = default_path()
+        if not (p.is_file() and p.stat().st_size > 1_000_000):
+            return None
+        counts = peek_counts(p)
+    except OSError:
+        return None
+    if counts and counts[0] > 0:
+        return counts
     return None
+
+
+def ensure_build_started(store) -> None:
+    """Kick the background galaxy build unless one is running, the
+    in-process cache already holds nodes, or a complete on-disk snapshot
+    can serve the cold start (/api/graph.bin path).
+
+    Restored 2026-06-10: the 2026-05-31 trace refactor made this a no-op
+    ("must never kick the old build") — correct while the GRAPH tab was
+    removed, fatal once it returned: the tab's poller calls this, and
+    with the no-op the galaxy could never build again. Repeated polls
+    are harmless — _kick_background_build acquires the build lock
+    non-blocking and returns if a build is already running.
+    """
+    if _graph_build_lock.locked():
+        return
+    if _graph_cache and _graph_cache.get("data", {}).get("nodes"):
+        return
+    if _complete_snapshot_counts():
+        return
+    _kick_background_build(store, None)
 
 
 def _set_progress(**kw) -> None:

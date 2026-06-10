@@ -293,6 +293,30 @@ def default_path() -> Path:
     return Path.home() / ".cache" / "cortex" / "graph-snapshot.bin"
 
 
+def peek_counts(path: Path) -> tuple[int, int] | None:
+    """Read ONLY the 32-byte header; return ``(node_count, edge_count)``.
+
+    ``None`` when the file is missing, truncated, or not a CXGB v1
+    snapshot — callers treat that as "no usable snapshot". One 32-byte
+    read, cheap enough for every progress poll. This exists because
+    readiness gating on ``st_size`` alone let an EMPTY snapshot satisfy
+    ``full_ready`` (2026-06-10 "galaxy never loads" failure).
+    """
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(_HEADER_SIZE)
+    except OSError:
+        return None
+    if len(head) < _HEADER_SIZE:
+        return None
+    magic, ver, _flags, n_count, e_count, _po, _pl, _r = struct.unpack(
+        _HEADER_FMT, head
+    )
+    if magic != MAGIC or ver != VERSION:
+        return None
+    return n_count, e_count
+
+
 def write_atomic(path: Path, payload: bytes) -> None:
     """Atomically replace ``path`` with ``payload``.
 

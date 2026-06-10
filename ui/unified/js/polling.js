@@ -7,6 +7,12 @@
 // only remaining job is to keep the stats card and clock current —
 // done with a tiny /api/graph/progress poll instead of the full graph.
 (function() {
+  // Last server-side stats meta (/api/stats). Cached so the live
+  // legend recount on state:lastData can keep showing store totals
+  // (e.g. Memories, which the galaxy never renders as nodes) between
+  // the 30 s stats polls instead of flickering to the rendered tally.
+  var _lastServerMeta = null;
+
   function fetchGraph() {
     // Lazy-load: only poll while the user is actually on the Graph
     // tab. The poll is now a tiny /api/graph/progress hit (not the
@@ -79,7 +85,16 @@
       }
       var total = d.nodes.length;
       setText('s-dom', c.domain);
-      setText('s-mem', c.memory);
+      // The C5 bounded build emits-then-discards memory nodes (the L5
+      // phase ships zero `memory`-kind nodes — verified: /api/graph/phase
+      // ?name=L5 returns []), so a rendered tally of memories is always
+      // 0. Show the TRUE store memory count from the server meta instead;
+      // it never drops below the rendered count and reflects what the
+      // memory system actually holds. Falls back to the rendered tally
+      // only if the server didn't supply a count. source: /api/stats
+      // memory_count + http_standalone_graph.py _source_totals.
+      var memCount = (meta && meta.memory_count != null) ? meta.memory_count : c.memory;
+      setText('s-mem', memCount);
       // "Entities" = every knowledge node that isn't a domain/memory/
       // discussion (files, symbols, tools, commands, agents, skills, hooks,
       // MCPs) — the sum, matching the server's entity_count semantics.
@@ -182,7 +197,7 @@
   function fetchStats() {
     fetch('/api/stats')
       .then(function(res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
-      .then(function(s) { updateStats(s); })
+      .then(function(s) { _lastServerMeta = s; updateStats(s); })
       .catch(function(err) { console.warn('[cortex] stats poll error:', err.message); });
   }
 
@@ -209,9 +224,10 @@
     });
     // Recount the legend from the rendered graph on every data change
     // (phase loads + SSE deltas), so it tracks the canvas live instead of
-    // only refreshing on the 2 s build poll. updateStats ignores ``meta``
-    // when lastData is present, so an empty object is fine here.
-    JUG.on('state:lastData', function() { updateStats({}); });
+    // only refreshing on the 30 s stats poll. Reuse the last server meta
+    // so the Memories stat (which is a store total, not a rendered tally —
+    // see updateStats) doesn't flicker to 0 between stats polls.
+    JUG.on('state:lastData', function() { updateStats(_lastServerMeta || {}); });
   }
 
   function _loadDiscussionBatch(batch) {
