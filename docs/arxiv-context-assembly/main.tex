@@ -3,6 +3,10 @@
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{xcolor}
+% \graynoise: marks a per-ability table row whose delta is below the
+% single-question noise floor of its slice (see top of Section 5).
+\newcommand{\graynoise}[1]{\textcolor{gray}{\textit{#1}}}
 \usepackage{algorithm}
 \usepackage{algorithmic}
 \usepackage{natbib}
@@ -40,11 +44,16 @@ We present a structured context assembly architecture that recovers
 this degradation: a two-primitive system combining
 (1)~a priority-budgeted prompt decomposer with domain-aware
 condensers and truncation warning injection, and
-(2)~a two-phase stage-aware assembler (with a planned third phase) with submodular coverage
+(2)~a stage-aware assembler (two phases implemented and evaluated;
+a third summary-fallback phase is designed but not yet benchmarked) with submodular coverage
 selection, Personalized PageRank entity graph traversal, and
 schema-structured summary fallback.
 On BEAM-10M, the assembler achieves 0.471 MRR, a $+33.4\%$ improvement
 over the flat baseline, with 8 of 10 memory abilities improving.
+This result uses ground-truth stage boundaries (BEAM \texttt{plan\_id});
+we report it as an upper bound on the assembler's benefit and discuss
+label-free stage detection, which we have not yet benchmarked, as the
+primary open question for deployment (\S\ref{sec:stage-detection-deployment}).
 The architecture was originally designed in September 2025 for
 generating coherent product requirement documents on Apple
 Intelligence's 4,096-token context window---one month before the
@@ -137,6 +146,12 @@ Our 384-dimensional embeddings (all-MiniLM-L6-v2) operate below
 this lower bound, meaning pairwise distance preservation to 10\%
 accuracy is not guaranteed even in principle for 7,500 points.
 
+We note this is a lower bound on \emph{pairwise-distance} preservation,
+not on nearest-neighbor \emph{ordering}, which can be preserved below
+the JL bound; we cite it as indicative of the regime, not as a proof
+that retrieval must fail at 384 dimensions.  The empirical degradation
+in Table~\ref{tab:10m} is the actual evidence.
+
 The consequence is measurable.  On the BEAM benchmark
 \citep{Tavakoli2026}, our production Weighted Reciprocal Rank Fusion
 (WRRF) pipeline---which fuses five PostgreSQL-side signals (vector
@@ -208,13 +223,15 @@ We make four contributions:
   \item \textbf{ContextDecomposer}: a priority-budgeted prompt
     assembly primitive with typed placeholder slots, domain-aware
     condensers, progressive condensation, and truncation warning
-    injection---a mechanism that, to our knowledge, has no published
-    precedent in the 2024--2026 retrieval, prompt engineering, or
-    agent memory literature.
+    injection---a design contribution we found undescribed in the
+    2024--2026 retrieval, prompt engineering, or agent memory
+    literature we surveyed, and whose effect on answer quality we do
+    not evaluate here.
 
-  \item \textbf{StageAwareContextAssembler}: a three-phase
-    hierarchical retrieval architecture with a configurable budget
-    split (default 60/30/10), combining submodular coverage selection
+  \item \textbf{StageAwareContextAssembler}: a hierarchical
+    retrieval architecture (two phases evaluated; third designed) with a configurable budget
+    split (default 60/30/10, where the 10\% is reserved for the
+    designed-but-unwired summary-fallback phase), combining submodular coverage selection
     \citep{Krause2008}, Personalized PageRank entity graph traversal
     \citep{Gutierrez2024}, and schema-structured summary fallback
     \citep{Tse2007}.
@@ -725,8 +742,12 @@ content you CAN see.
 - {{STAGE_SUMMARIES}}: 22% retained (88/400 tokens)
 \end{verbatim}
 
-\paragraph{Novelty claim.}
-The truncation warning is, to our knowledge, novel.  We surveyed the
+\paragraph{Design contribution.}
+The truncation warning is, to our knowledge, undescribed in the
+2024--2026 literature we surveyed; we present it as a design
+contribution and do not evaluate its effect on answer quality here
+(an A/B on truncated-evidence questions is the natural test and is
+left to future work).  We surveyed the
 2024--2026 literature across RAG, prompt engineering, context
 management, and agent architectures and found no published work we are aware of that combines these specific primitives
 for injecting explicit truncation awareness into the prompt itself.
@@ -795,6 +816,9 @@ discussion.  Stage detection is pluggable (Section~\ref{sec:stage-detection}).
 The assembler operates in three phases with a configurable budget
 split $(\beta_1, \beta_2, \beta_3)$ where
 $\beta_1 + \beta_2 + \beta_3 = 1$ (default: 0.6, 0.3, 0.1).
+Of the three phases, Phases~1--2 are implemented and evaluated in this
+paper; Phase~3 (\S\ref{sec:phase3}) is designed and interface-complete
+but returns empty in the evaluated build.
 
 \subsubsection{Stage Detection}
 \label{sec:stage-detection}
@@ -1357,6 +1381,23 @@ submodular selection is deterministic (greedy, no randomization).
 \section{Results}
 \label{sec:results}
 
+\paragraph{Statistical rigor and per-row noise floor.}
+The per-ability slices are computed over very few questions: 10
+questions per ability at BEAM-100K and 20 per ability at BEAM-10M.
+At 100K, a single question therefore moves an ability's MRR by
+$\approx 0.1$ (one question $\approx 0.1$ of the slice); at 10M, by
+$\approx 0.05$.  Per-ability deltas smaller than this floor
+($|\Delta| < 0.1$ at 100K, $|\Delta| < 0.05$ at 10M) are below the
+single-question resolution of the slice and should be read as noise;
+we render such sub-noise per-ability rows in gray italics.  The
+reported $\pm 0.01$ ``variance'' (\S\ref{sec:measurement}) is
+run-to-run \emph{determinism} of the pipeline (same DB, restart
+between runs), \emph{not} sampling uncertainty over questions: it
+quantifies reproducibility, not confidence intervals.  We do not
+report question-level bootstrap confidence intervals here; no results
+artifact currently contains them, so question-level bootstrap CIs are
+deferred to camera-ready.
+
 \subsection{BEAM-100K (5 Conversations, Same-Conversation A/B)}
 \label{sec:results-100k}
 
@@ -1369,16 +1410,16 @@ submodular selection is deterministic (greedy, no randomization).
 \toprule
 Ability & WRRF & Assembler & $\Delta$ \\
 \midrule
-temporal\_reasoning & 0.950 & 0.920 & $-0.030$ \\
-knowledge\_update & 0.900 & 0.900 & $0.000$ \\
-contradiction\_resolution & 0.817 & 0.783 & $-0.034$ \\
+\graynoise{temporal\_reasoning} & \graynoise{0.950} & \graynoise{0.920} & \graynoise{$-0.030$} \\
+\graynoise{knowledge\_update} & \graynoise{0.850} & \graynoise{0.900} & \graynoise{$+0.050$} \\
+\graynoise{contradiction\_resolution} & \graynoise{0.817} & \graynoise{0.783} & \graynoise{$-0.034$} \\
 multi\_session\_reasoning & 0.812 & 0.500 & $\mathbf{-0.312}$ \\
 event\_ordering & 0.380 & 0.525 & $\mathbf{+0.145}$ \\
-info\_extraction & --- & 0.700 & $\mathbf{+0.157}$ \\
-instruction\_following & 0.448 & 0.478 & $+0.030$ \\
-preference\_following & 0.442 & 0.442 & $0.000$ \\
-abstention & 0.400 & 0.400 & $0.000$ \\
-summarization & 0.271 & 0.370 & $+0.099$ \\
+info\_extraction & 0.543 & 0.700 & $\mathbf{+0.157}$ \\
+\graynoise{instruction\_following} & \graynoise{0.448} & \graynoise{0.478} & \graynoise{$+0.030$} \\
+\graynoise{preference\_following} & \graynoise{0.442} & \graynoise{0.442} & \graynoise{$0.000$} \\
+\graynoise{abstention} & \graynoise{0.400} & \graynoise{0.400} & \graynoise{$0.000$} \\
+\graynoise{summarization} & \graynoise{0.271} & \graynoise{0.370} & \graynoise{$+0.099$} \\
 \midrule
 \textbf{Overall MRR} & \textbf{0.591} & \textbf{0.602} & $\mathbf{+0.011}$ \textbf{(+1.9\%)} \\
 \bottomrule
@@ -1435,13 +1476,13 @@ Ability & WRRF & Assembler & $\Delta$ & R@5 & R@10 & LIGHT$^*$ \\
 knowledge\_update & 0.835 & \textbf{0.892} & $+0.057$ & 100\% & 100\% & 0.375 \\
 contradiction\_res. & 0.633 & \textbf{0.725} & $+0.092$ & 90\% & 90\% & 0.050 \\
 multi\_session\_reas. & 0.415 & \textbf{0.543} & $+0.128$ & 80\% & 80\% & 0.000 \\
-info\_extraction & 0.448 & \textbf{0.487} & $+0.039$ & 70\% & 70\% & --- \\
+\graynoise{info\_extraction} & \graynoise{0.448} & \graynoise{0.487} & \graynoise{$+0.039$} & \graynoise{70\%} & \graynoise{70\%} & \graynoise{---} \\
 preference\_follow. & 0.412 & \textbf{0.481} & $+0.069$ & 65\% & 65\% & 0.483 \\
 temporal\_reasoning & 0.370 & \textbf{0.467} & $+0.097$ & 50\% & 50\% & 0.075 \\
 abstention & 0.100 & \textbf{0.350} & $+0.250$ & 35\% & 35\% & 0.750 \\
 instruction\_follow. & 0.068 & \textbf{0.125} & $+0.057$ & 15\% & 15\% & 0.500 \\
-event\_ordering & 0.067 & 0.067 & $0.000$ & 10\% & 10\% & 0.266 \\
-summarization & 0.186 & 0.150 & $-0.036$ & 22\% & 22\% & 0.277 \\
+\graynoise{event\_ordering} & \graynoise{0.067} & \graynoise{0.067} & \graynoise{$0.000$} & \graynoise{10\%} & \graynoise{10\%} & \graynoise{0.266} \\
+\graynoise{summarization} & \graynoise{0.186} & \graynoise{0.150} & \graynoise{$-0.036$} & \graynoise{22\%} & \graynoise{22\%} & \graynoise{0.277} \\
 \midrule
 \textbf{Overall MRR} & \textbf{0.353} & \textbf{0.471} & $\mathbf{+0.076}$ \textbf{(+33.4\%)} & & & 0.266$^*$ \\
 \bottomrule
@@ -1494,43 +1535,38 @@ reasoning (ordering by timestamp), which neither retrieval
 architecture provides.
 
 \paragraph{Summarization: $-0.036$.}
-The only regression.  Summarization questions require broad coverage
+The only regression, and the predicted cost of leaving Phase~3
+unwired.  Summarization questions require broad coverage
 across many stages.  Stage-scoped retrieval focuses depth within a
-stage at the cost of breadth.  Phase~3 is designed to address this
-but is currently a stub.
+stage at the cost of breadth---exactly the breadth that the designed
+Phase~3 summary fallback is intended to restore.  Phase~3 is a stub
+in the evaluated build, so this regression is the expected consequence
+of the missing phase rather than a property of the architecture as
+designed.
 
-\subsection{Scale-Dependent Behavior}
+\subsection{Scale-Dependent Behavior (Conjecture)}
 \label{sec:scale-dependent}
 
 The central finding is that structured assembly is \textbf{net-flat at
 small scale and dominates at large scale}.  We can characterize this
 more precisely.
 
-At 100K tokens, the embedding space density is:
-\begin{equation}
-\rho_{100K} = n/d = 94/384 \approx 0.24
-\label{eq:rho-100k}
-\end{equation}
-
-At 10M tokens:
-\begin{equation}
-\rho_{10M} = n/d = 7500/384 \approx 19.5
-\label{eq:rho-10m}
-\end{equation}
-
-The hubness phenomenon \citep{Radovanovic2010} becomes significant
-when $\rho \gg 1$.  At $\rho = 0.24$, the embedding space is
-underpopulated; nearest-neighbor search is reliable.  At
-$\rho = 19.5$, the space is overcrowded; hubness, distance
-concentration, and the JL lower bound all contribute to retrieval
-degradation.
+Empirically, the embedding space transitions from underpopulated
+(94 memories) to overcrowded (7,500 memories) between the two scales;
+the hubness, concentration, and JL effects of \S\ref{sec:scaling-failure}
+are all monotone in corpus size at fixed dimension, so we expect---and
+observe---degradation that worsens with $N$.
 
 The crossover point---where structured assembly's benefit exceeds its
-overhead---lies somewhere in the range $1 < \rho < 19.5$,
-corresponding to roughly 400--7,500 memories in 384 dimensions, or
-approximately 400K to 10M tokens of conversation.  We did not evaluate
-at intermediate scales, but we conjecture that the benefit increases
-monotonically with $\rho$.
+overhead---lies between these two measured scales, corresponding to
+roughly 400--7,500 memories in 384 dimensions, or approximately 400K
+to 10M tokens of conversation.  We did not evaluate at intermediate
+scales; we expect the crossover to lie in this range and the benefit
+to increase with corpus size, but this is a conjecture, not a measured
+result.
+% TODO (compute-dependent, separate run): the BEAM 500K and 1M splits
+% exist and can be benchmarked to locate the crossover empirically and
+% replace this conjecture with a measured value.
 
 \subsection{Phase Contribution Analysis (Ablation)}
 \label{sec:ablation}
@@ -1653,8 +1689,9 @@ the same entities.  These entity connections are structural
 concentration problems that defeat flat retrieval.
 
 The implication is clear: \textbf{stage-aware retrieval should be
-gated by corpus density}.  At $\rho < 1$, use flat retrieval.  At
-$\rho > 1$, enable the assembler.
+gated by corpus density}.  At small corpus sizes (underpopulated
+embedding space), use flat retrieval; at large corpus sizes
+(overcrowded embedding space), enable the assembler.
 
 \subsection{The Summarization Trade-Off}
 \label{sec:summarization-tradeoff}
@@ -1784,12 +1821,12 @@ repositories.
 \toprule
 Date & Event & Repo & SHA \\
 \midrule
+2025-07-10 & MIRIX published & arXiv & 2507.07957 \\
 2025-09-14 & Context-aware PRD generation & ai-prd-builder & \texttt{3ef6c3f} \\
 2025-09-25 & Modular arch.\ with cognitive modes & ai-prd-builder & \texttt{4f90564} \\
 \textbf{2025-09-30} & \textbf{ContextManager.swift} & ai-prd-builder & \texttt{462de01} \\
 2025-10-04 & Context-aware codebase interceptor & ai-prd-builder & \texttt{0743b0e} \\
 \textbf{2025-10-31} & \textbf{BEAM paper published} & arXiv & --- \\
-2025-07-10 & MIRIX published & arXiv & 2507.07957 \\
 2026-02-10 & Hierarchical chunking + compression & ai-prd-generator & \texttt{8bc58f1} \\
 2026-02-27 & ContextDecomposer & ai-architect* & \texttt{ba99681} \\
 2026-03-03 & StageAwareContextAssembler & ai-architect* & \texttt{d4e2eb2} \\
@@ -1884,12 +1921,13 @@ budgeting (ContextDecomposer).
 
 \subsection{Summarization Regression}
 
-Summarization regresses at 10M scale ($-0.036$).  Stage-scoped
-retrieval focuses depth at the cost of breadth.  Phase~3 (summary
-fallback) is designed to address this but is currently a stub.
-Wiring it to Cortex's CLS consolidation engine is the immediate next
-step.  We predict elimination of the regression but have not verified
-experimentally.
+Summarization regresses at 10M scale ($-0.036$).  This is the
+predicted cost of Phase~3 (summary fallback) being unwired: stage-scoped
+retrieval focuses depth at the cost of breadth, and the designed Phase~3
+is the component intended to restore that breadth.  It is currently a
+stub.  Wiring it to Cortex's CLS consolidation engine is the immediate
+next step.  We predict elimination of the regression but have not
+verified experimentally.
 
 \subsection{Event Ordering Stagnation}
 
@@ -1949,6 +1987,7 @@ Bayesian optimization over $(\beta_1, \beta_2, \beta_3)$ with
 BEAM-10M MRR as the objective) could improve results.
 
 \subsection{Stage Detection for Free-Form Conversations}
+\label{sec:stage-detection-deployment}
 
 Our experiments use ground-truth plan IDs from BEAM.  Production
 deployment requires robust stage detection without explicit labels.
@@ -1991,11 +2030,12 @@ priority slots, domain-aware condensers, and an explicit truncation
 warning mechanism that communicates assembly decisions to the reader
 model---a mechanism with no published work we are aware of that combines these specific primitives in the retrieval or
 prompt engineering literature.  The \textbf{StageAwareContextAssembler}
-manages retrieval-level composition through three phases: own-stage
+manages retrieval-level composition through two implemented phases
+(with a third designed): own-stage
 retrieval with submodular diversity \citep{Krause2008}, cross-stage
 bridging via Personalized PageRank over the entity graph
-\citep{Gutierrez2024}, and summary fallback for uncovered stages
-\citep{Tse2007}.
+\citep{Gutierrez2024}, and a designed summary-fallback phase for
+uncovered stages \citep{Tse2007}.
 
 The empirical results on BEAM validate the scale-dependent thesis:
 the architecture is net-flat at 100K tokens ($+1.9\%$, within noise)
