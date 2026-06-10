@@ -96,7 +96,7 @@
       <option value="L3">L3 — files touched by tools</option>
       <option value="L4">L4 — discussions</option>
       <option value="L5">L5 — memories</option>
-      <option value="L6">L6 — AST symbols (functions · methods · classes)</option>
+      <option value="L6">L6 — AST symbols (loads on select)</option>
     </optgroup>
     <optgroup label="By kind">
       <option value="kind:skill">Skills only</option>
@@ -104,7 +104,7 @@
       <option value="kind:hook">Hooks only</option>
       <option value="kind:agent">Agents only</option>
       <option value="kind:mcp">MCPs only</option>
-      <option value="kind:symbol">Symbols only</option>
+      <option value="kind:symbol">Symbols only (loads on select)</option>
       <option value="kind:entity">Entities only</option>
     </optgroup>
     <optgroup label="By file cluster">
@@ -273,7 +273,7 @@
   <div class="leg-item"><div class="leg-dot" style="background:#166534;box-shadow:0 0 6px #16653460"></div>Memory · consolidated</div>
   <div class="leg-item"><div class="leg-dot" style="background:#C070D0;box-shadow:0 0 6px #C070D060"></div>Memory · semantic</div>
 
-  <div class="leg-section">L6 AST symbols</div>
+  <div class="leg-section">L6 AST symbols <span style="opacity:0.55;font-weight:400;text-transform:none;letter-spacing:0">(load via filter)</span></div>
   <div class="leg-item"><div class="leg-dot" style="background:#22D3EE;box-shadow:0 0 6px #22D3EE60"></div>Function</div>
   <div class="leg-item"><div class="leg-dot" style="background:#38BDF8;box-shadow:0 0 6px #38BDF860"></div>Method</div>
   <div class="leg-item"><div class="leg-dot" style="background:#8B5CF6;box-shadow:0 0 6px #8B5CF660"></div>Class / Struct / Enum / Trait</div>
@@ -524,9 +524,30 @@
 
   var applied = {};   // phaseKey -> true once appended
   var inflight = {};  // phaseKey -> true while fetching
+  var deferred = {};  // L6 phaseKey -> true: ready on the server, NOT auto-loaded
+
+  // ── L5/L6 auto-load partition (2026-06-10) ──
+  // Auto-load through L5 (domains, setup, tools, files, discussions,
+  // memories — ~11.8k nodes at the snapshot scale); defer ALL L6 symbol
+  // phases to explicit demand. The full 107k-node sim (≈94k of it L6 AST
+  // symbols) is unusable in-browser; the old usable view was ~29k. This
+  // split is STRUCTURAL — it follows the server's phase taxonomy
+  // (http_standalone_graph.py: fixed L0–L5 + dynamic "L6:<project>" +
+  // "L6_CROSS"), not a tuned node-count threshold.
+  function _isL6(key) {
+    return key === 'L6' || key === 'L6_CROSS' || key.indexOf('L6:') === 0;
+  }
 
   function _activeViewIsGraph() {
     return window.JUG && JUG.state && JUG.state.activeView === 'graph';
+  }
+
+  // Honest UI hint while symbols stream in. Reuses the existing
+  // status-text element; no new chrome. Cleared by polling.js on its
+  // next /api/graph/progress tick, or explicitly when the load settles.
+  function _symbolHint(msg) {
+    var el = document.getElementById('status-text');
+    if (el && msg) el.textContent = msg;
   }
 
   function _seedLastData() {
@@ -569,23 +590,92 @@
         // The server inserts phase keys in DAG order, so iterating the
         // dict applies them in publish order. appendGraphDelta dedups,
         // so re-seeing a ready phase is a no-op.
+        //
+        // PARTITION: auto-apply ONLY non-L6 phases (L0–L5). A ready L6
+        // phase is recorded in ``deferred`` instead of loaded, so the
+        // galaxy settles at the ~11.8k-node L5 scale until the user
+        // explicitly pulls symbols in (filter select or domain select →
+        // JUG.loadSymbolPhases* below).
         var keys = Object.keys(p.phases || {});
         var seq = Promise.resolve();
         keys.forEach(function (k) {
-          if (!applied[k] && p.phases[k]) {
+          if (!p.phases[k]) return;          // not ready on the server yet
+          if (_isL6(k)) {
+            if (!applied[k]) deferred[k] = true;  // available, on demand only
+            return;
+          }
+          if (!applied[k]) {
             seq = seq.then(function () { return applyPhase(k); });
           }
         });
         if (p.full_ready) {
-          var allDone = keys.every(function (k) { return applied[k] || !p.phases[k]; });
-          if (allDone) return;  // stop polling — build complete and drained
+          // "Drained" once every NON-L6 phase is applied — L6 phases are
+          // intentionally left deferred, so they do not block teardown.
+          var nonL6Done = keys.every(function (k) {
+            return _isL6(k) || applied[k] || !p.phases[k];
+          });
+          if (nonL6Done) return;  // stop polling — L0–L5 loaded, L6 on demand
         }
         setTimeout(poll, POLL_MS);
       })
       .catch(function () { setTimeout(poll, 1200); });
   }
 
+  // ── On-demand L6 symbol loading ──
+  // The filter/domain handlers call these when the user explicitly asks
+  // for symbols. Both pull from ``deferred`` (phases the poller saw ready
+  // but did not auto-apply), apply them via the same applyPhase path, and
+  // resolve once every targeted phase is in. Re-entrant-safe: applyPhase
+  // guards on ``applied``/``inflight`` and appendGraphDelta dedups by id.
+
+  function _loadDeferred(predicate, hint) {
+    var targets = Object.keys(deferred).filter(function (k) {
+      return !applied[k] && predicate(k);
+    });
+    if (!targets.length) return Promise.resolve(0);
+    _symbolHint(hint || 'loading symbols…');
+    var seq = Promise.resolve();
+    targets.forEach(function (k) {
+      seq = seq.then(function () { return applyPhase(k); });
+    });
+    return seq.then(function () {
+      _symbolHint('symbols loaded · ' + targets.length + ' phase(s)');
+      return targets.length;
+    });
+  }
+
+  // Load ALL deferred L6 phases (filter select: L6 / kind:symbol / edge:*).
+  function _loadAllSymbolPhases() {
+    return _loadDeferred(function () { return true; },
+      'loading symbols… (this is the heavy AST layer)');
+  }
+
+  // Load only the deferred L6 phase(s) whose project key matches a domain
+  // label (domain select). Phase keys are "L6:<project-dir-name>"; domain
+  // labels are slugs ("cortex"). The two are produced by different slug
+  // paths server-side, so an EXACT match is not guaranteed — we do a
+  // tolerant case-insensitive slug-substring match in either direction.
+  // If nothing matches confidently, load nothing here (the filter trigger
+  // remains the full-symbol path) rather than guess wrong.
+  function _loadDomainSymbolPhases(domainLabel) {
+    var slug = String(domainLabel || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    if (!slug) return Promise.resolve(0);
+    return _loadDeferred(function (k) {
+      if (k.indexOf('L6:') !== 0) return false;  // skip L6_CROSS for per-domain
+      var pslug = k.slice(3).toLowerCase().replace(/[^a-z0-9]+/g, '');
+      return pslug.indexOf(slug) !== -1 || slug.indexOf(pslug) !== -1;
+    }, 'loading ' + domainLabel + ' symbols…');
+  }
+
+  // Report whether any L6 phase is deferred (used by the legend note).
+  function _hasDeferredSymbols() {
+    return Object.keys(deferred).some(function (k) { return !applied[k]; });
+  }
+
   if (window.JUG) {
+    JUG.loadSymbolPhases = _loadAllSymbolPhases;
+    JUG.loadSymbolPhasesForDomain = _loadDomainSymbolPhases;
+    JUG.hasDeferredSymbols = _hasDeferredSymbols;
     setTimeout(poll, FIRST_KICK_MS);
     // Kick immediately when the user switches TO the graph tab, in case
     // they landed on Trace/Knowledge first.
