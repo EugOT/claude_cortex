@@ -27,6 +27,58 @@ else:
 os.environ["DATABASE_URL"] = _TEST_DB_URL
 
 
+def _looks_like_test_db(url: str) -> bool:
+    """True when the database NAME declares itself a test/bench database."""
+    name = url.rsplit("/", 1)[-1].split("?", 1)[0]
+    return name.endswith("_test") or name.endswith("_bench") or "_test_" in name
+
+
+def _guard_against_populated_db() -> None:
+    """Refuse to run destructive test isolation against a populated DB.
+
+    INCIDENT 2026-06-10: an agent ran ``DATABASE_URL=<production> CI=true
+    pytest`` — the CI branch above trusted the URL verbatim and
+    ``_clean_all_tables`` deleted 537,396 production memories (plus all
+    entities, relationships, and prospective triggers) between tests.
+
+    Two-tier guard, fail-closed:
+      * a database whose NAME marks it as a test DB (``*_test`` /
+        ``*_bench``) is trusted — local cortex_test and bench DBs;
+      * any OTHER name (e.g. the fresh runner-local ``cortex`` that real
+        CI creates) must hold ZERO memories at session start. A genuine
+        test database is created empty; pre-existing rows mean this is
+        somebody's real store. No threshold constant — empty is empty.
+
+    Override (explicit, never default): CORTEX_TEST_ALLOW_POPULATED=1.
+    """
+    if os.environ.get("CORTEX_TEST_ALLOW_POPULATED") == "1":
+        return
+    if _looks_like_test_db(_TEST_DB_URL):
+        return
+    try:
+        import psycopg
+
+        with psycopg.connect(
+            _TEST_DB_URL, autocommit=True, connect_timeout=3
+        ) as conn:
+            row = conn.execute("SELECT COUNT(*) FROM memories").fetchone()
+            count = row[0] if row else 0
+    except Exception:
+        return  # unreachable/uninitialized DB — the SQLite fallback handles it
+    if count > 0:
+        import pytest
+
+        pytest.exit(
+            f"REFUSING to run: test DB '{_TEST_DB_URL}' is not named like a "
+            f"test database and already holds {count} memories. The test "
+            "suite DELETEs every table between tests — pointing it at a real "
+            "store destroys it (incident 2026-06-10: 537k rows lost). Use a "
+            "*_test database, or set CORTEX_TEST_ALLOW_POPULATED=1 if you "
+            "really mean it.",
+            returncode=2,
+        )
+
+
 def _pg_available() -> bool:
     """Check if PostgreSQL is reachable."""
     try:
@@ -39,6 +91,7 @@ def _pg_available() -> bool:
         return False
 
 
+_guard_against_populated_db()
 _USE_PG = _pg_available()
 
 # When PG isn't available, force SQLite backend with a temp dir
