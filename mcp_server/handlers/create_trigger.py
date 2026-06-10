@@ -126,6 +126,7 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
             "target_directory": target_directory,
             "is_active": True,
             "triggered_count": 0,
+            "created_by": "create_trigger",
         }
     )
 

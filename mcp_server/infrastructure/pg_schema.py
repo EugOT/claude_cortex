@@ -397,7 +397,8 @@ CREATE TABLE IF NOT EXISTS prospective_memories (
     is_active           BOOLEAN DEFAULT TRUE,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     triggered_at        TIMESTAMPTZ,
-    triggered_count     INTEGER DEFAULT 0
+    triggered_count     INTEGER DEFAULT 0,
+    created_by          TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS checkpoints (
@@ -842,11 +843,21 @@ BEGIN
     -- orders by effective_heat directly; the B-tree on heat_base is still
     -- used by the prefilter, so this is NOT a full candidates scan —
     -- candidates is already bounded.
+    -- Auto-captures are excluded from the heat and recency pools
+    -- (bounded-io Phase 2 F2, tasks/bounded-io-phase2-design.md M2):
+    -- their freshness is a mechanical artifact of one-write-per-tool-call
+    -- (baseline_heat 1.0 + always-recent created_at), carrying no
+    -- importance information. Including them let a fresh raw dump join
+    -- 4-5 WRRF pools while month-old curated lessons joined 1-2 — the
+    -- measured 60x inversion. Categorical de-bias, no tuned constant;
+    -- auto-captures still compete on content (vector/fts/ngram).
+    -- Benchmark-neutral: fixtures never write source='post_tool_capture'.
     hot AS (
         SELECT c.id,
                effective_heat(c, NOW(), v_factor) AS raw_score
         FROM candidates c
         WHERE effective_heat(c, NOW(), v_factor) >= p_min_heat
+          AND c.source <> 'post_tool_capture'
         ORDER BY effective_heat(c, NOW(), v_factor) DESC
         LIMIT v_pool
     ),
@@ -856,6 +867,7 @@ BEGIN
                EXP(-0.01 * EXTRACT(EPOCH FROM (NOW() - c.created_at)) / 86400.0)::REAL AS raw_score
         FROM candidates c
         WHERE effective_heat(c, NOW(), v_factor) >= p_min_heat
+          AND c.source <> 'post_tool_capture'
         ORDER BY c.created_at DESC
         LIMIT v_pool
     ),
@@ -922,10 +934,25 @@ BEGIN
                ) AS final_score
         FROM emotional_boosted eb
         JOIN candidates c ON c.id = eb.id
+    ),
+    -- Metamemory confidence as a multiplicative document prior
+    -- (Kraaij, Westerveld & Hiemstra 2002, "The Importance of Prior
+    -- Probabilities for Entry Page Search", SIGIR — static document
+    -- priors multiply the query likelihood). confidence defaults to 1.0
+    -- (multiplicative identity) and moves ONLY via rate_memory feedback,
+    -- so the prior is data-driven, no invented constant, and an identity
+    -- transform on benchmark fixtures. Closes the M3 structural gap
+    -- (tasks/bounded-io-phase2-design.md): user feedback previously had
+    -- no channel into rank.
+    confidence_weighted AS (
+        SELECT tb.id,
+               tb.final_score * COALESCE(c.confidence, 1.0) AS final_score
+        FROM tag_boosted tb
+        JOIN candidates c ON c.id = tb.id
     )
-    SELECT tb.id,
+    SELECT cw.id,
            c.content,
-           tb.final_score::REAL,
+           cw.final_score::REAL,
            effective_heat(c, NOW(), v_factor)::REAL AS heat,
            c.domain,
            c.created_at,
@@ -935,9 +962,9 @@ BEGIN
            c.surprise_score,
            c.emotional_valence,
            c.source
-    FROM tag_boosted tb
-    JOIN candidates c ON c.id = tb.id
-    ORDER BY tb.final_score DESC
+    FROM confidence_weighted cw
+    JOIN candidates c ON c.id = cw.id
+    ORDER BY cw.final_score DESC
     LIMIT p_max_results * 3;
 END;
 $$ LANGUAGE plpgsql STABLE;
@@ -1404,6 +1431,19 @@ CREATE TABLE IF NOT EXISTS ingest_progress (
     rows_committed bigint NOT NULL DEFAULT 0,
     updated_at timestamptz NOT NULL DEFAULT NOW()
 );
+
+-- Migration: trigger provenance (bounded-io Phase 2 F1). Distinguishes
+-- user-created triggers ('create_trigger') from harvested ones
+-- ('auto_extract') so future cleanups never have to guess. Pre-existing
+-- rows keep '' (unattributable). The 2026-06-10 audit found 317 active
+-- keyword_match triggers with 100%-garbage sampled conditions, all
+-- harvested from raw tool dumps by write_post_store.extract_triggers —
+-- see tasks/bounded-io-phase2-design.md M1.
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='prospective_memories' AND column_name='created_by')
+    THEN ALTER TABLE prospective_memories ADD COLUMN created_by TEXT NOT NULL DEFAULT '';
+    END IF;
+END $$;
 """
 
 # ── Schema initialization ────────────────────────────────────────────────

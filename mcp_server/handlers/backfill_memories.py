@@ -134,6 +134,7 @@ async def _import_single_item(
     from mcp_server.handlers.backfill_helpers import (
         age_decayed_heat,
         compute_age_days,
+        gist_oversized_content,
     )
     from mcp_server.handlers.remember import handler as remember_handler
 
@@ -141,6 +142,7 @@ async def _import_single_item(
     if not content or len(content) < 20:
         return None
 
+    content = gist_oversized_content(content)
     tags = item.get("tags", []) + ["_backfill", f"project:{project_slug[:30]}"]
     remember_args = {
         "content": content,

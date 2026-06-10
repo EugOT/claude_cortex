@@ -385,7 +385,7 @@ async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
     results = results[:max_results]
 
     # Production enrichments on top of base retrieval
-    results = inject_triggered_memories(results, query, store)
+    results = inject_triggered_memories(results, query, store, max_inject=max_results)
     _apply_co_activation(results, store, settings)
     results = _apply_rules_and_order(results, store, settings, max_results)
 

@@ -12,12 +12,27 @@ from mcp_server.core import engram, knowledge_graph, prospective
 from mcp_server.core.synaptic_tagging import apply_synaptic_tags as _apply_tags
 
 
+# Memory sources whose content is machine-generated tool output, not user
+# intent. Harvesting "TODO"/"later"/"make sure" phrases from raw tool dumps
+# minted 317 garbage keyword triggers (100% of sampled conditions were shell
+# fragments / regex shards, production DB audit 2026-06-10) which then flooded
+# recall via inject_triggered_memories. See tasks/bounded-io-phase2-design.md M1.
+_AUTO_CAPTURE_SOURCES = frozenset({"post_tool_capture"})
+
+
 def extract_triggers(
     content: str,
     directory: str,
     store: Any,
+    source: str = "",
 ) -> list[int]:
-    """Auto-extract prospective triggers and persist them."""
+    """Auto-extract prospective triggers and persist them.
+
+    Skipped entirely for auto-captured sources: prospective intent is a
+    statement by the user, and mechanical tool output contains none.
+    """
+    if source in _AUTO_CAPTURE_SOURCES:
+        return []
     intents = prospective.extract_prospective_intents(content)
     trigger_ids: list[int] = []
     for intent in intents:
@@ -25,6 +40,7 @@ def extract_triggers(
             {
                 **intent,
                 "target_directory": directory,
+                "created_by": "auto_extract",
             }
         )
         trigger_ids.append(tid)

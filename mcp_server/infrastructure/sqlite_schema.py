@@ -141,7 +141,8 @@ CREATE TABLE IF NOT EXISTS prospective_memories (
     is_active           INTEGER DEFAULT 1,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     triggered_at        TEXT,
-    triggered_count     INTEGER DEFAULT 0
+    triggered_count     INTEGER DEFAULT 0,
+    created_by          TEXT NOT NULL DEFAULT ''
 );
 """
 
@@ -296,4 +297,7 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("memories", "agent_context", "TEXT DEFAULT ''"),
     ("memories", "is_global", "INTEGER DEFAULT 0"),
     ("memories", "stage_entered_at", "TEXT"),
+    # Trigger provenance (bounded-io Phase 2 F1) — PG parity with the
+    # prospective_memories.created_by migration in pg_schema.py.
+    ("prospective_memories", "created_by", "TEXT NOT NULL DEFAULT ''"),
 ]

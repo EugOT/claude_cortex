@@ -23,10 +23,15 @@ query_methodology → 262KB, both exceeded MCP tool-result limits.
 - [x] automatised-pipeline (Rust): byte-budget at the 4 MCP boundaries (`bound_values` in new src/response_budget.rs, serialized-size accumulation) instead of the planned `take(MAX_QUERY_ROWS)` in `execute_query` — 70+ internal callers need complete result sets; truncating the shared primitive would corrupt graph resolution. LIMIT in find_related_out/in Cypher + LIMIT-injection for caller Cypher in query_graph (`limit_injected` flag); get_impact/get_processes arrays bounded with `truncated` + `*_total` fields (dependents_total pre-truncation = true blast radius). 219 tests green. — commit 6c99eb1; follow-up 967545d: docs + invariant test that UTF-8-byte counting ≥ UTF-16 units ⇒ inherently conservative, no safety factor needed (121+99 tests)
 - [x] prd-spec-generator: Zod size contracts on PrdInputBundle (per-field char + element caps, rejection not truncation), MAX_CLARIFICATION_TURNS=50, MAX_PIPELINE_ERRORS=50 with FIFO eviction + `errors_dropped` counter. 607 tests green. — commit cd356ad; follow-up e43f41a fixed the aggregate overshoot (per-field shares summed to ~165% of the 100k cap): `boundFullStateResponse` sheds least-relevant detail first (grounding/validation blobs → oldest clarifications → section bodies; never the error trail), every shed observable in `__bounded.applied` with re-fetch hints via new `format:"grounding"`/`format:"validation"` selectors; JS `.length` is UTF-16 units = exact host match, no safety factor needed. 617 tests green.
 
-## Phase 2 — Write-side hygiene (root cause of memory pollution)
-- [ ] post_tool_capture: re-introduce size gate (the 2026-05-17 "no truncation" directive caused 95.8% pollution + 60× scoring inversion). Design: store gist + pointer to raw artifact, not raw 93KB blobs. Decision needed: gist-extraction vs hard cap.
-- [ ] Fix scoring inversion: auto-captures score 0.9 vs curated 0.015 — investigate scoring path, curated memories must outrank raw dumps.
-- [ ] backfill/import: per-item size limit on extracted memories before remember_handler.
+## Phase 2 — Write-side hygiene (root cause of memory pollution) — design + code DONE 2026-06-10 (3207 tests; bench gate in flight)
+Design: tasks/bounded-io-phase2-design.md. Three measured inversion mechanisms, not one:
+M1 trigger-injection bypass (PRIMARY live — 317 garbage keyword triggers, single-substring
+matching, hardcoded 0.9 prepend, unbounded), M2 WRRF multi-pool amplification,
+M3 source/store_type/confidence output-only.
+- [x] post_tool_capture: gist + pointer (NO hard cap per 2026-06-10 user directive). core/gist_extraction.py (GIST_BUDGET=3000 = measured p90 curated length) + infrastructure/artifact_store.py (content-addressed ~/.claude/methodology/artifacts/); raw output one Read away; artifact failure falls back to full content.
+- [x] Fix scoring inversion: (a) hot/recency CTEs exclude source='post_tool_capture' (mechanical freshness ≠ importance, categorical); (b) final_score × confidence (Kraaij 2002 document prior, rate_memory feedback channel); (c) trigger hygiene — write_post_store skips prospective extraction for auto sources, check_trigger word-boundary matching, inject_triggered_memories respects LOW_SIGNAL_TAGS + source + max_inject cap + injected:true, created_by provenance column, 319 garbage keyword triggers deactivated (reversible). Repro tests fail pre-fix / pass post-fix (severity verified via stash).
+- [x] backfill/import: gist_oversized_content choke point in backfill_helpers before remember_handler (both import_sessions + backfill_memories).
+- Follow-ups recorded in design doc: CLS consolidation needs same gist discipline (live example: raw blob promoted to semantic "Convention"); bulk migration of existing 6,799 raw blobs deferred (scoring de-bias makes their rank honest); post_tool_capture.py at 411 lines (>300, pre-existing) needs split; recall response score semantics post-rerank.
 
 ## Phase 3 — Concurrency governors
 - [ ] Cortex mcp_client_pool: max-connections + per-server concurrency cap (the stated "follow-on" from pool-leak fix).
@@ -44,4 +49,22 @@ query_methodology → 262KB, both exceeded MCP tool-result limits.
 - [ ] Restart Cortex MCP server to live-verify ingest fix (no hot-reload).
 
 ## Review
-(to fill as phases complete)
+
+### Phase 2 (2026-06-10) — write-side hygiene + scoring inversion
+- Investigation upgraded the prior verdict: the live inversion was PRIMARILY
+  trigger injection (M1), a post-ranking enrichment invisible to scorer-only
+  analysis — 319 garbage keyword triggers (harvested from raw dumps, substring
+  matched) each prepending FTS hits at a hardcoded 0.9. WRRF multi-pool
+  amplification (M2) and the source/confidence structural gap (M3) sat beneath it.
+- Gate results: full suite 3207 passed (baseline 3173 + exactly 34 new tests);
+  repro tests fail pre-fix / pass post-fix (verified via git stash); ruff clean.
+- Benchmarks (clean DB): LongMemEval R@10 98.4% (=), MRR 0.916 (≥0.9124);
+  LoCoMo MRR 0.828 (=0.8278), R@10 94.1% (94.2 baseline, 1982 vs 1986 Qs);
+  BEAM 100K re-based to 395 Qs — A/B old 0.502 vs new 0.501, regression-free.
+- Production data ops: 319 keyword triggers deactivated (reversible);
+  created_by column arrives at server restart (DDL); 6,799 existing raw blobs
+  left in place (scoring de-bias makes their rank honest; migration deferred).
+- Lesson (Cortex memory 4195543): audit post-ranking enrichment paths when
+  diagnosing ranking inversions; gate write-side extractors by source; the
+  write gate itself was blinded by pollution (rejected the curated lesson at
+  novelty 0.16).

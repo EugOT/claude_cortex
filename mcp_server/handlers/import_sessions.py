@@ -171,11 +171,12 @@ async def _store_memory(
     from mcp_server.handlers.backfill_helpers import (
         age_decayed_heat,
         compute_age_days,
+        gist_oversized_content,
     )
     from mcp_server.handlers.remember import handler as remember_handler
 
     remember_args = {
-        "content": item["content"],
+        "content": gist_oversized_content(item["content"]),
         "tags": item["tags"],
         "domain": domain,
         "source": "import",

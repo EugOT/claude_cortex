@@ -325,10 +325,11 @@ def _run_post_store(
     ent_names: list[str],
     mod: dict,
     store: MemoryStore,
+    source: str = "",
 ) -> tuple[list[int], list[dict], dict | None]:
     """Run post-insert operations: triggers, entities, tagging, engram."""
     settings = get_memory_settings()
-    tids = write_post_store.extract_triggers(content, directory, store)
+    tids = write_post_store.extract_triggers(content, directory, store, source=source)
     write_post_store.persist_entities(
         extracted, domain, content, store, memory_id=mem_id
     )
@@ -398,6 +399,7 @@ def insert_and_post_process(
         ent_names,
         mod,
         store,
+        source=source,
     )
     return build_response(
         mem_id,

@@ -73,6 +73,26 @@ class TestCheckTrigger:
         assert check_trigger(trigger, content="Fix the memory leak") is True
         assert check_trigger(trigger, content="Hello world") is False
 
+    def test_keyword_match_requires_word_boundary(self):
+        """Substring containment fired "ask" on "task" — with 317 harvested
+        triggers active that matched nearly every query (bounded-io Phase 2
+        F1, tasks/bounded-io-phase2-design.md M1)."""
+        trigger = {
+            "trigger_type": "keyword_match",
+            "trigger_condition": "ask",
+        }
+        assert check_trigger(trigger, content="run the task list") is False
+        assert check_trigger(trigger, content="ask about deploys") is True
+
+    def test_keyword_match_escapes_regex_metachars(self):
+        """Harvested conditions contained regex shards — they must be
+        treated as literals, never compiled as patterns."""
+        trigger = {
+            "trigger_type": "keyword_match",
+            "trigger_condition": r"r\)\\b",
+        }
+        assert check_trigger(trigger, content="plain text") is False
+
     def test_entity_match(self):
         trigger = {
             "trigger_type": "entity_match",

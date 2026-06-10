@@ -10,6 +10,7 @@ import pytest
 
 from mcp_server.core.write_post_store import (
     allocate_engram_slot,
+    extract_triggers,
     invalidate_slot_cache,
     _get_slot_cache,
     _update_slot_cache,
@@ -48,6 +49,39 @@ def _clear_cache():
     invalidate_slot_cache()
     yield
     invalidate_slot_cache()
+
+
+# ── extract_triggers ─────────────────────────────────────────────────
+
+
+class TestExtractTriggers:
+    """Bounded-io Phase 2 F1 (tasks/bounded-io-phase2-design.md M1):
+    prospective intent is a statement by the user; harvesting it from raw
+    tool dumps minted 317 garbage keyword triggers."""
+
+    def test_skips_auto_capture_source(self):
+        store = MagicMock()
+        out = extract_triggers(
+            "TODO: refactor the parser later", "/src", store,
+            source="post_tool_capture",
+        )
+        assert out == []
+        store.insert_prospective_memory.assert_not_called()
+
+    def test_extracts_for_user_sources(self):
+        store = MagicMock()
+        store.insert_prospective_memory.return_value = 42
+        out = extract_triggers(
+            "TODO: refactor the parser module", "/src", store, source="lesson"
+        )
+        assert out == [42]
+
+    def test_stamps_auto_extract_provenance(self):
+        store = MagicMock()
+        store.insert_prospective_memory.return_value = 1
+        extract_triggers("TODO: refactor the parser module", "/src", store)
+        record = store.insert_prospective_memory.call_args[0][0]
+        assert record["created_by"] == "auto_extract"
 
 
 # ── allocate_engram_slot ─────────────────────────────────────────────

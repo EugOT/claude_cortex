@@ -62,8 +62,8 @@ class PgAuxiliaryMixin:
         row = self._execute(
             "INSERT INTO prospective_memories "
             "(content, trigger_condition, trigger_type, "
-            "target_directory, is_active, triggered_count) "
-            "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+            "target_directory, is_active, triggered_count, created_by) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
             (
                 data["content"],
                 data["trigger_condition"],
@@ -71,6 +71,7 @@ class PgAuxiliaryMixin:
                 data.get("target_directory"),
                 data.get("is_active", True),
                 data.get("triggered_count", 0),
+                data.get("created_by", ""),
             ),
         ).fetchone()
         self._conn.commit()

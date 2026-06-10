@@ -241,12 +241,24 @@ def inject_triggered_memories(
     results: list[dict],
     query: str,
     store: Any,
+    max_inject: int | None = None,
 ) -> list[dict]:
     """Inject prospective memories whose triggers match the query.
 
     Standing instructions like "Always X when I ask about Y" are stored
     as prospective memories. When a query matches their trigger, the
     associated memory is injected into results even if WRRF didn't find it.
+
+    Bounded-io Phase 2 F1 (tasks/bounded-io-phase2-design.md M1): the
+    2026-06-10 audit found this injection was the PRIMARY live scoring
+    inversion — 317 garbage triggers each prepending up to 3 FTS matches
+    at a fabricated 0.9, unbounded, re-introducing the exact auto-capture
+    blobs filter_low_signal had just dropped. Now: injected candidates
+    respect the same low-signal taxonomy (LOW_SIGNAL_TAGS + auto-capture
+    source), the total is capped at ``max_inject`` (the caller-requested
+    k — injection must not exceed the tool's response contract), and each
+    item carries ``injected: True`` so the fabricated 0.9 is observable
+    as trigger metadata, not a covert rank.
     """
     try:
         triggers = store.get_active_prospective_memories()
@@ -255,22 +267,28 @@ def inject_triggered_memories(
     if not triggers:
         return results
     existing_ids = {r["memory_id"] for r in results}
-    injected = []
+    injected: list[dict] = []
     for t in triggers:
+        if max_inject is not None and len(injected) >= max_inject:
+            break
         if not check_trigger(t, content=query):
             continue
         matches = store.search_fts(t.get("content", ""), limit=3)
         for mid, _score in matches:
+            if max_inject is not None and len(injected) >= max_inject:
+                break
             if mid in existing_ids:
                 continue
             mem = store.get_memory(mid)
-            if not mem:
+            if not mem or not _injectable(mem):
                 continue
             injected.append(
                 {
                     "memory_id": mid,
                     "content": mem["content"],
                     "score": 0.9,
+                    "injected": True,
+                    "source": mem.get("source", ""),
                     "heat": mem.get("heat", 1.0),
                     "domain": mem.get("domain", ""),
                     "tags": parse_tags(mem.get("tags", [])),
@@ -283,6 +301,19 @@ def inject_triggered_memories(
             )
             existing_ids.add(mid)
     return injected + results if injected else results
+
+
+def _injectable(mem: dict) -> bool:
+    """Trigger injection must not bypass the low-signal discipline.
+
+    Auto-captured tool dumps and tag-marked noise are exactly what
+    filter_low_signal removes from the ranked results upstream;
+    re-inserting them here at a fixed 0.9 inverted the ranking.
+    """
+    if mem.get("source") == "post_tool_capture":
+        return False
+    tags = {str(t).lower() for t in parse_tags(mem.get("tags", []))}
+    return not (tags & LOW_SIGNAL_TAGS)
 
 
 def build_enhancements(query: str, intent: str, tier: str, settings: Any) -> dict:

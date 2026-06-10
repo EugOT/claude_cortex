@@ -114,6 +114,7 @@ Handlers are the **composition roots**: they wire infrastructure (I/O) to core (
 - `compression.py` — Full-text → gist → tag compression
 - `staleness.py` — File-reference staleness scoring
 - `response_budget.py` — Bounded MCP responses: total payload budget (measured 100k-char Claude Code MAX_MCP_OUTPUT_TOKENS cap × 0.75 UTF-16-divergence safety factor) + priority-weighted water-filling (budget proportional to retrieval score/heat, least relevant condensed first); truncated items keep ids for dynamic fetch-by-id
+- `gist_extraction.py` — Deterministic gist (head + signal lines + tail) for oversized auto-captures; GIST_BUDGET = measured p90 curated memory length; full raw output lives in a filesystem artifact, one Read away (no truncation)
 
 *Oscillatory & Cascade:*
 - `oscillatory_clock.py` — Theta/gamma/SWR phase gating (Hasselmo 2005, Buzsaki 2015)
@@ -208,6 +209,7 @@ Handlers are the **composition roots**: they wire infrastructure (I/O) to core (
 - `memory_config.py` — Runtime configuration (DATABASE_URL, env vars with CORTEX_MEMORY_ prefix)
 - `memory_store.py` — Memory store abstraction
 - `embedding_engine.py` — Vector embeddings (384-dim, sentence-transformers)
+- `artifact_store.py` — Content-addressed raw-output artifacts (`~/.claude/methodology/artifacts/<yyyy-mm>/<sha256[:16]>.md`) backing gist+pointer memories
 - `agent_config.py` — Agent configuration and topic scoping
 
 **handlers/** — Composition roots (33 tools + helpers, one per tool)
@@ -339,14 +341,21 @@ python3 benchmarks/evermembench/run_benchmark.py                    # EverMemBen
 python3 benchmarks/episodic/run_benchmark.py --events 20           # Episodic Memories (ICLR 2025)
 ```
 
-**Current benchmark scores (clean DB, April 2026):**
+**Current benchmark scores (clean DB, 2026-06-10, post bounded-io Phase 2):**
 | Benchmark | Cortex | Best in paper |
 |---|---|---|
 | LongMemEval R@10 | **98.4%** | 78.4% |
-| LongMemEval MRR | **0.9124** | -- |
-| LoCoMo R@10 | **94.2%** | -- |
-| LoCoMo MRR | **0.8278** | 0.794 |
-| BEAM Overall | **0.591** | 0.329 |
+| LongMemEval MRR | **0.916** | -- |
+| LoCoMo R@10 | **94.1%** (1982 Qs) | -- |
+| LoCoMo MRR | **0.828** | 0.794 |
+| BEAM 100K MRR | **0.501** (395 Qs) | 0.329 |
+
+BEAM note: the April 2026 record (0.591) was a 200-question split; the 100K
+split now loads 395 questions, so the absolute number re-based. A/B on the
+395-Q dataset (2026-06-10): pre-Phase-2 scoring 0.502 vs post 0.501 — the
+Phase 2 scoring changes are regression-free (Δ within noise), as predicted
+by their structural benchmark-neutrality (fixtures never use
+source='post_tool_capture', no prospective triggers, confidence=1.0).
 
 ## Research-Driven Improvement Workflow
 

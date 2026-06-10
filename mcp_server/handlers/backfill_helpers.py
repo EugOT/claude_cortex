@@ -245,6 +245,37 @@ def slug_to_domain(slug: str) -> str:
     return resolve_domain(slug)
 
 
+# -- Oversized-content gist gate (shared by import + backfill) --
+
+
+def gist_oversized_content(content: str) -> str:
+    """Gist + artifact-pointer an extracted item's content if it is oversized.
+
+    Pre: content is the memory body string for an extracted import/backfill
+    item.
+    Post: when ``content`` fits GIST_BUDGET, returns it unchanged. When it
+    exceeds the budget, the FULL raw content is written to a content-addressed
+    artifact and the returned string is a deterministic gist plus a pointer
+    line — same write-side hygiene as the post_tool_capture hook
+    (tasks/bounded-io-phase2-design.md F3). Single choke point so the
+    extractor (core) stays I/O-free: the I/O happens here, in the handler
+    (composition-root) layer. Artifact write failure falls back to the full
+    content (capture must not be lost).
+    """
+    from mcp_server.core.gist_extraction import extract_gist, needs_gist
+
+    if not needs_gist(content):
+        return content
+    try:
+        from mcp_server.infrastructure.artifact_store import store_artifact
+
+        path = store_artifact(content)
+    except Exception:
+        return content
+    pointer = f"**Artifact:** `{path}` ({len(content)} chars full output)"
+    return f"{extract_gist(content)}\n\n{pointer}"
+
+
 # -- Concept linking --
 
 

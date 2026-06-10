@@ -19,6 +19,12 @@ import json
 import sys
 from typing import Any
 
+from mcp_server.core.gist_extraction import (
+    HIGH_VALUE_PATTERNS,
+    extract_gist,
+    needs_gist,
+)
+
 _LOG_PREFIX = "[cortex-post-tool-capture]"
 
 # Tools whose FULL output (truncated to _MAX_OUTPUT_LENGTH) is stored.
@@ -56,38 +62,19 @@ _MIN_OUTPUT_LENGTH = 50
 # 2026-05-17 (user directive: "Truncated info are prohibited"):
 # auto-capture stores the FULL tool output. Truncation destroys the
 # substrate halo retrieval needs — a 20k-char Edit diff cropped to 4k
-# loses the actual code change. If the corpus grows too large, address
-# it via compression or filesystem-backed references, not by silently
-# dropping content. The previous _MAX_OUTPUT_LENGTH = 4096 cap is
-# removed.
+# loses the actual code change. The directive itself anticipated
+# "filesystem-backed references" as the remedy if the corpus grows too
+# large. 2026-06-10 (user directive, tasks/bounded-io-phase2-design.md):
+# outputs above GIST_BUDGET are now stored full to a content-addressed
+# artifact file and the memory body keeps a deterministic gist + a pointer
+# line. This is NOT truncation — nothing is dropped; the raw output is one
+# `Read` away — and it removes the ts_rank_cd length-frequency bias (M2).
 
-# Keywords that signal high-value content
-_HIGH_VALUE_PATTERNS = [
-    "error",
-    "exception",
-    "traceback",
-    "failed",
-    "failure",
-    "fixed",
-    "resolved",
-    "success",
-    "deployed",
-    "migrated",
-    "decided",
-    "chose",
-    "switched",
-    "selected",
-    "created",
-    "deleted",
-    "moved",
-    "refactored",
-    "test",
-    "assert",
-    "pass",
-    "fail",
-    "warning",
-    "deprecated",
-]
+# Keywords that signal high-value content. Canonical home is
+# core/gist_extraction.HIGH_VALUE_PATTERNS (moved there so the hook imports
+# from core, the legal layer direction). Re-exported under the historical
+# name for any in-repo reference.
+_HIGH_VALUE_PATTERNS = HIGH_VALUE_PATTERNS
 
 
 def _log(msg: str) -> None:
@@ -183,6 +170,32 @@ def _build_memory_content(
     else:
         parts.append(f"\n**Output:**\n```\n{output}\n```")
     return "\n".join(parts)
+
+
+def _gist_or_full(output: str) -> tuple[str, str | None]:
+    """Return (body_output, pointer_line) for the memory body.
+
+    Pre: output is the normalized tool output string.
+    Post: when ``output`` fits GIST_BUDGET, returns (output, None) — stored as
+    today. When it exceeds the budget, the FULL raw output is written to a
+    content-addressed artifact and we return (gist, pointer_line) so the body
+    carries a bounded gist plus a loadable pointer to the full artifact.
+
+    Non-blocking contract: artifact write failure must NOT lose the capture —
+    on any exception we fall back to (output, None) and log via _log, i.e. the
+    legacy full-output behavior.
+    """
+    if not needs_gist(output):
+        return output, None
+    try:
+        from mcp_server.infrastructure.artifact_store import store_artifact
+
+        path = store_artifact(output)
+    except Exception as exc:
+        _log(f"artifact write failed (non-fatal, full output kept): {exc}")
+        return output, None
+    pointer = f"**Artifact:** `{path}` ({len(output)} chars full output)"
+    return extract_gist(output), pointer
 
 
 def _build_tags(tool_name: str, output: str) -> list[str]:
@@ -360,8 +373,13 @@ def process_event(event: dict[str, Any]) -> None:
         _log(f"skip {tool_name}: {reason}")
         return
 
-    content = _build_memory_content(tool_name, tool_input, output, cwd)
+    # Tags are derived from the FULL output so signal tags (error/test/
+    # success) survive even when the body is gisted.
     tags = _build_tags(tool_name, output)
+    body_output, pointer = _gist_or_full(output)
+    content = _build_memory_content(tool_name, tool_input, body_output, cwd)
+    if pointer:
+        content = f"{content}\n\n{pointer}"
 
     try:
         _store_memory(tool_name, content, tags, cwd)
