@@ -90,12 +90,19 @@ def _report_shadowing(link: Path, target: Path) -> None:
 
 
 def check_viz_snapshot() -> None:
-    """Delete a provably-empty (0-node) viz snapshot; else report only.
+    """Report a 0-node viz snapshot; delete ONLY behind explicit opt-in.
 
     Incident 2026-06-10c: a stale graph-snapshot.bin with 0 nodes faked
-    build readiness (full_ready gated on file size). A 0-node CXGB file
-    is provably useless → safe to delete. Unreadable/foreign files are
-    reported, not touched.
+    build readiness (full_ready gated on file size). That harm is now
+    neutralized at READ time (graph_snapshot.peek_counts header
+    validation in get_build_progress), so deletion adds no safety here
+    — and on a NEW user's machine a 0-node snapshot is the CORRECT
+    state of an empty store; deleting it would force a pointless
+    rebuild every cold start. The doctor ships to every plugin user:
+    it must never delete by default (user directive 2026-06-10 — "what
+    if it deletes files that are useful to them?"). Opt-in mutation:
+    CORTEX_DOCTOR_AUTOFIX=1. Unreadable/foreign files are reported,
+    never touched.
     """
     path = VIZ_SNAPSHOT_PATH
     if not path.exists():
@@ -112,8 +119,15 @@ def check_viz_snapshot() -> None:
         return
     nodes, _edges = counts
     if nodes == 0:
-        try:
-            path.unlink()
-            _emit(f"deleted empty (0-node) viz snapshot that faked readiness: {path}")
-        except OSError as exc:
-            _emit(f"empty viz snapshot present but delete failed: {exc}")
+        if os.environ.get("CORTEX_DOCTOR_AUTOFIX") == "1":
+            try:
+                path.unlink()
+                _emit(f"deleted empty (0-node) viz snapshot (AUTOFIX=1): {path}")
+            except OSError as exc:
+                _emit(f"empty viz snapshot present but delete failed: {exc}")
+        else:
+            _emit(
+                f"viz snapshot holds 0 nodes: {path} — harmless (readiness "
+                "validates the header) but rebuilt on next view; delete it "
+                "or set CORTEX_DOCTOR_AUTOFIX=1 to auto-clean"
+            )

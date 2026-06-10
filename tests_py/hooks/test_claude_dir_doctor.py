@@ -182,14 +182,31 @@ def test_stale_cache_versions_reported(fake_claude, capsys):
 # --- Check 4: viz snapshot -----------------------------------------------
 
 
-def test_empty_snapshot_deleted(fake_claude, capsys):
+def test_empty_snapshot_reported_not_deleted_by_default(
+    fake_claude, capsys, monkeypatch
+):
+    """The doctor ships to every plugin user — it must never delete by
+    default. A 0-node snapshot is the CORRECT state of a new user's
+    empty store (user directive 2026-06-10)."""
+    monkeypatch.delenv("CORTEX_DOCTOR_AUTOFIX", raising=False)
+    snap = fake_claude / "cache" / "graph-snapshot.bin"
+    _write_snapshot(snap, nodes=0, edges=0)
+
+    artifacts.check_viz_snapshot()
+
+    assert snap.exists()
+    assert "holds 0 nodes" in capsys.readouterr().err
+
+
+def test_empty_snapshot_deleted_only_with_autofix(fake_claude, capsys, monkeypatch):
+    monkeypatch.setenv("CORTEX_DOCTOR_AUTOFIX", "1")
     snap = fake_claude / "cache" / "graph-snapshot.bin"
     _write_snapshot(snap, nodes=0, edges=0)
 
     artifacts.check_viz_snapshot()
 
     assert not snap.exists()
-    assert "deleted empty (0-node) viz snapshot" in capsys.readouterr().err
+    assert "AUTOFIX=1" in capsys.readouterr().err
 
 
 def test_valid_snapshot_untouched(fake_claude, capsys):
