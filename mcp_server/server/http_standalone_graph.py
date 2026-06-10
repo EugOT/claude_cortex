@@ -68,6 +68,12 @@ def get_layout_authority():
 
 _graph_cache: dict | None = None
 _graph_cache_ts: float = 0.0
+# Per-source totals from the last build (label -> rows loaded). Memory
+# nodes are emitted-then-DISCARDED from the cumulative node array (the
+# C5 bounded build), so meta counts derived from kind_counts read 0 for
+# memories even though they were built and render via tiles. The header
+# stats must show the BUILT total, not the retained one.
+_source_totals: dict[str, int] = {}
 _graph_build_lock = threading.Lock()
 # Fingerprint of the ap_graphs roster at the time of the last build.
 # When it changes (a new project just finished indexing) the cache is
@@ -596,7 +602,12 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                 k = _n.get("kind") or _n.get("type") or ""
                 kind_counts[k] = kind_counts.get(k, 0) + 1
             cur["meta"]["domain_count"] = kind_counts.get("domain", 0)
-            cur["meta"]["memory_count"] = kind_counts.get("memory", 0)
+            # Memories are emitted-then-discarded from the node array
+            # (C5 bounded build) — the built total lives in
+            # _source_totals, kind_counts would report 0.
+            cur["meta"]["memory_count"] = max(
+                kind_counts.get("memory", 0), _source_totals.get("memories", 0)
+            )
             cur["meta"]["discussion_count"] = kind_counts.get("discussion", 0)
             # "Entity" in the legend covers every non-domain, non-memory
             # knowledge node (files, symbols, tools, commands, agents,
@@ -781,6 +792,7 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
             from mcp_server.server import graph_event_stream as _events
 
             _events.reset()
+            _source_totals.clear()
 
             from mcp_server.handlers.workflow_graph import (
                 _edge_to_dict,
@@ -788,6 +800,7 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
             )
 
             def _on_source_loaded(label: str, count: int) -> None:
+                _source_totals[label] = count
                 _stream_pct["v"] = min(0.28, _stream_pct["v"] + 0.02)
                 _set_progress(
                     phase=f"loading {label}",

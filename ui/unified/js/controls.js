@@ -23,13 +23,14 @@
       });
     });
 
-    // Trace is the default landing view — the live, domain-split
-    // execution-trace graph loads only ~7 domain hubs up-front (each
-    // level fetched live on expand), so the old high-N freeze that
-    // forced a Knowledge landing no longer applies. Honour the view
-    // declared in state.js (default 'trace') rather than hard-forcing.
+    // Graph (galaxy) is the default landing view — restored 2026-06-10
+    // (user: the TRACE-only landing dropped the L1-L6 legend, filters,
+    // memories/discussions and 21 of 27 domains; df691fd had replaced
+    // the GRAPH tab instead of coexisting). TRACE stays one click away.
+    // Honour the view declared in state.js (default 'graph') rather
+    // than hard-forcing.
     setTimeout(function() {
-      var landing = (JUG.state && JUG.state.activeView) || 'trace';
+      var landing = (JUG.state && JUG.state.activeView) || 'graph';
       JUG.state.activeView = '_init';
       JUG.state.activeView = landing;
       toggleFilterBarVisibility(landing);
