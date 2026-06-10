@@ -380,7 +380,7 @@ def _auto_enable_ap() -> None:
     if not os.environ.get("CORTEX_AP_COMMAND"):
         dev = (
             Path.home()
-            / "Documents/Developments/automatised-pipeline"
+            / "Developments/anthropic-partnership/automatised-pipeline"
             / "target/release/automatised-pipeline"
         )
         if dev.is_file() and os.access(dev, os.X_OK):
