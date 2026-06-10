@@ -89,7 +89,7 @@ def _find_dev_source() -> Path | None:
         used as a code-execution dev source." Without the flag,
         ``CORTEX_DEV_ROOT`` (which an attacker could in principle
         plant in a shell rc file) is ignored.
-      * The conventional ``~/Documents/Developments/Cortex`` fallback
+      * The conventional ``~/Developments/Cortex`` fallback
         remains — that path is controlled by the user's own filesystem
         and an attacker who can already write under ``$HOME`` has
         higher-privilege code execution by other means.
@@ -109,7 +109,7 @@ def _find_dev_source() -> Path | None:
         if v:
             candidates.append(Path(v))
     # Conventional home-directory checkout — user-controlled, safe.
-    candidates.append(Path.home() / "Documents" / "Developments" / "Cortex")
+    candidates.append(Path.home() / "Developments" / "Cortex")
     for c in candidates:
         if _is_cortex_root(c):
             return c

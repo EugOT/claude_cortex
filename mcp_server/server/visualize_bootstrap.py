@@ -51,14 +51,14 @@ def _find_dev_source() -> Path | None:
 
     ``CLAUDE_PROJECT_DIR`` is therefore NOT consulted. ``CORTEX_DEV_ROOT``
     requires the explicit ``CORTEX_DEV_SOURCE_SYNC=1`` opt-in flag
-    (exact value ``"1"``). The ``~/Documents/Developments/Cortex``
+    (exact value ``"1"``). The ``~/Developments/Cortex``
     fallback is preserved (user-controlled filesystem).
     """
     if os.environ.get("CORTEX_DEV_SOURCE_SYNC") == "1":
         v = os.environ.get("CORTEX_DEV_ROOT")
         if v and _is_cortex_root(Path(v)):
             return Path(v)
-    default = Path.home() / "Documents" / "Developments" / "Cortex"
+    default = Path.home() / "Developments" / "Cortex"
     if _is_cortex_root(default):
         return default
     return None

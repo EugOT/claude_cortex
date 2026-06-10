@@ -397,16 +397,17 @@ def _auto_enable_ap() -> None:
         )
 
     # 2026-05-17 (user direction): the AST roster indexer must NOT
-    # auto-fire at server startup. It walks every git repo under
-    # ~/Documents/Developments/ and runs analyze_codebase on each —
-    # ~30 minutes of pinned CPU that blocked HTTP requests via GIL
-    # contention. Gated behind CORTEX_AP_AUTO_INDEX=1 so existing
-    # automation that depends on this can still opt in.
+    # auto-fire at server startup. It walks every git repo under the
+    # ecosystem root and runs analyze_codebase on each — ~30 minutes
+    # of pinned CPU that blocked HTTP requests via GIL contention.
+    # Gated behind CORTEX_AP_AUTO_INDEX=1 so existing automation that
+    # depends on this can still opt in.
     if os.environ.get("CORTEX_AP_AUTO_INDEX") != "1":
         return
 
     # Multi-project roster. ``~/.cortex/ap_graphs/<project>/graph`` is
-    # one LadybugDB per git repo under ``~/Documents/Developments/``.
+    # one LadybugDB per git repo under the ecosystem root
+    # (``~/Developments/anthropic-partnership/``, 2026-06-10 layout).
     # The resolver (ap_bridge.resolve_graph_paths) sweeps them all so
     # the visualization shows every indexed project at once. We kick
     # off a background indexer that walks the roster sequentially
@@ -422,7 +423,9 @@ def _auto_enable_ap() -> None:
 
             from mcp_server.infrastructure.ap_bridge import APBridge
 
-            projects_root = Path.home() / "Documents" / "Developments"
+            projects_root = (
+                Path.home() / "Developments" / "anthropic-partnership"
+            )
             projects = [
                 p
                 for p in projects_root.iterdir()
