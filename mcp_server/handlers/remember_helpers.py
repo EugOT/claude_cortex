@@ -200,6 +200,95 @@ def apply_modulations(
     }
 
 
+def try_block_replica_upsert(
+    content: str,
+    embedding: Any,
+    tags: list[str],
+    source: str,
+    store: MemoryStore,
+) -> tuple[bool, int | None]:
+    """Upsert a memory-replica block by its vpath: identity tag.
+
+    Precondition:  tags contains 'memory-replica' AND at least one tag
+                   starting with 'vpath:'.
+    Postcondition: if an existing row with the same vpath: (and same
+                   scope: if present) exists, that row's content,
+                   embedding, tags, source, and updated_at/ingested_at
+                   are refreshed in place; is_protected and heat_base
+                   fields of the existing row are preserved (block keeps
+                   its thermal state). Returns (True, existing_id).
+                   If no existing row, returns (False, None) so the
+                   caller proceeds with a normal insert.
+    Invariant:     non-replica writes (tags without 'memory-replica')
+                   never reach this branch; one row per block file is
+                   maintained.
+    # contract: zetetic-team-subagents memory/contract.md §8b
+    """
+    import json as _json
+
+    tag_set = {str(t) for t in tags}
+    if "memory-replica" not in tag_set:
+        return False, None
+
+    vpath_tags = [t for t in tag_set if t.startswith("vpath:")]
+    if not vpath_tags:
+        return False, None
+
+    vpath_tag = vpath_tags[0]  # single vpath: per block
+
+    # Build JSONB containment predicate for vpath.
+    try:
+        vpath_json = _json.dumps([vpath_tag])
+        rows = store._execute(
+            "SELECT id FROM memories "
+            "WHERE tags @> %s::jsonb "
+            "AND tags @> '[\"memory-replica\"]'::jsonb "
+            "LIMIT 1",
+            (vpath_json,),
+        ).fetchall()
+    except Exception:
+        return False, None
+
+    if not rows:
+        return False, None
+
+    existing_id = rows[0]["id"] if isinstance(rows[0], dict) else rows[0][0]
+
+    # Refresh content, embedding, tags, source; preserve heat and is_protected.
+    import numpy as _np
+
+    emb_bytes = None
+    if embedding is not None:
+        try:
+            emb_bytes = _np.asarray(embedding, dtype=_np.float32).tobytes()
+        except Exception:
+            emb_bytes = None
+
+    try:
+        if emb_bytes is not None:
+            store._execute(
+                "UPDATE memories "
+                "SET content = %s, embedding = %s::vector, "
+                "    tags = %s::jsonb, source = %s, "
+                "    last_accessed = NOW() "
+                "WHERE id = %s",
+                (content, emb_bytes, _json.dumps(tags), source, existing_id),
+            )
+        else:
+            store._execute(
+                "UPDATE memories "
+                "SET content = %s, "
+                "    tags = %s::jsonb, source = %s, "
+                "    last_accessed = NOW() "
+                "WHERE id = %s",
+                (content, _json.dumps(tags), source, existing_id),
+            )
+    except Exception:
+        return False, None
+
+    return True, existing_id
+
+
 def try_curation(
     content: str,
     embedding: Any,

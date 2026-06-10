@@ -212,6 +212,45 @@ def filter_low_signal(results: list[dict]) -> tuple[list[dict], int]:
     return kept, dropped
 
 
+def filter_by_tags(
+    results: list[dict],
+    tags_any: list[str],
+    tags_all: list[str],
+) -> list[dict]:
+    """Positive tag filter applied after the WRRF pipeline.
+
+    Precondition:  results is the post-low-signal-filter list; tags_any and
+                   tags_all are lists of lowercase tag strings (may be empty).
+    Postcondition: returns the subset of results satisfying both constraints:
+                   - tags_any: memory carries at least one tag in tags_any
+                     (OR semantics); skipped when tags_any is empty.
+                   - tags_all: memory carries every tag in tags_all
+                     (AND semantics); skipped when tags_all is empty.
+    Invariant:     len(result) <= len(results); order is preserved.
+
+    Passing tags_any=[\"archival\"] returns only archival-tagged memories.
+    """
+    if not tags_any and not tags_all:
+        return results
+
+    any_set = {str(t).lower() for t in tags_any}
+    all_set = {str(t).lower() for t in tags_all}
+
+    kept: list[dict] = []
+    for r in results:
+        raw_tags = r.get("tags", [])
+        if isinstance(raw_tags, str):
+            raw_tags = parse_tags(raw_tags)
+        tag_set = {str(t).lower() for t in raw_tags}
+
+        if any_set and not (tag_set & any_set):
+            continue
+        if all_set and not all_set.issubset(tag_set):
+            continue
+        kept.append(r)
+    return kept
+
+
 def build_result(mem: dict, score: float, intent: str, settings: Any) -> dict:
     """Build a single result dict with recency boost."""
     created_at = mem.get("created_at", "")

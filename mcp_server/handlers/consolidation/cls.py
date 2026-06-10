@@ -35,6 +35,28 @@ _SEMANTICS_SAMPLE_CAP = 2000
 _MIN_PATTERN_SIZE = 3
 _CLUSTER_THRESHOLD = 0.6
 
+
+def _is_promotion_noise(mem: dict) -> bool:
+    """Return True when the memory must not be promoted to a semantic pattern.
+
+    Precondition:  mem has a 'tags' key (list, JSON string, or None).
+    Postcondition: True iff tags contain 'auto-captured' OR 'memory-replica'.
+    Tool-output captures and block-replica snapshots are not reasoning episodes
+    and produce incoherent semantic patterns when consolidated.
+    # contract: zetetic-team-subagents memory/contract.md §8b
+    """
+    import json as _json
+
+    tags = mem.get("tags") or []
+    if isinstance(tags, str):
+        try:
+            tags = _json.loads(tags)
+        except Exception:
+            tags = []
+    tag_set = {str(t) for t in tags}
+    return bool(tag_set & {"auto-captured", "memory-replica"})
+
+
 _EMPTY_CLS_STATS = {
     "patterns_found": 0,
     "new_semantics_created": 0,
@@ -79,7 +101,12 @@ def run_cls_cycle(
     if _os.environ.get("CORTEX_CONSOLIDATION_DISABLED") == "1":
         return dict(_EMPTY_CLS_STATS)
 
-    episodic = store.get_episodic_memories(limit=_EPISODIC_SAMPLE_CAP)
+    # Fetch candidates then exclude tier noise: auto-captured tool outputs and
+    # block-replica snapshots are not reasoning episodes and must not be
+    # promoted to semantic patterns.
+    # contract: zetetic-team-subagents memory/contract.md §8b
+    _raw_episodic = store.get_episodic_memories(limit=_EPISODIC_SAMPLE_CAP)
+    episodic = [m for m in _raw_episodic if not _is_promotion_noise(m)]
     existing_semantics = store.get_semantic_memories(limit=_SEMANTICS_SAMPLE_CAP)
 
     if not episodic:

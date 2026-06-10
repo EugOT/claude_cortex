@@ -16,6 +16,7 @@ from mcp_server.handlers.remember_helpers import (
     apply_modulations,
     evaluate_gate,
     insert_and_post_process,
+    try_block_replica_upsert,
     try_curation,
     update_user_mood_ema,
 )
@@ -326,6 +327,22 @@ async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
         is_global, _global_score, global_reason = detect_global(content, tags)
     else:
         global_reason = "explicit"
+
+    # Block-replica upsert: if the incoming memory is a system-memory block
+    # snapshot (tagged 'memory-replica' + 'vpath:…'), refresh the existing row
+    # in-place rather than inserting a new one (one row per block file).
+    # Normal writes are completely unaffected — this branch exits early on
+    # any write that isn't a replica. contract: zetetic-team-subagents memory/contract.md §8b
+    upserted, upsert_id = try_block_replica_upsert(
+        content, embedding, tags, source, store
+    )
+    if upserted and upsert_id is not None:
+        return {
+            "stored": True,
+            "memory_id": upsert_id,
+            "action": "stored",
+            "reason": "block-replica-refreshed",
+        }
 
     action, mid = try_curation(
         content, embedding, force, store, emb_engine, tags, mod["heat"]

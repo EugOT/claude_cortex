@@ -20,6 +20,7 @@ from mcp_server.core.response_budget import ListTarget, bound_payload
 from mcp_server.handlers._tool_meta import READ_ONLY
 from mcp_server.handlers.recall_helpers import (
     build_enhancements,
+    filter_by_tags,
     filter_low_signal,
     inject_triggered_memories,
 )
@@ -186,6 +187,30 @@ schema = {
                 ),
                 "default": False,
             },
+            "tags_any": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Positive tag filter (OR): keep only memories that carry "
+                    "at least one of the listed tags. Applied after the WRRF "
+                    "recall pipeline, at the same stage as the low-signal "
+                    'filter. Pass ``tags_any=["archival"]`` to retrieve only '
+                    "archival-tier memories."
+                ),
+                "default": [],
+                "examples": [["archival"], ["lesson", "decision"]],
+            },
+            "tags_all": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Positive tag filter (AND): keep only memories that carry "
+                    "ALL of the listed tags. Applied after the WRRF recall "
+                    "pipeline, at the same stage as the low-signal filter."
+                ),
+                "default": [],
+                "examples": [["archival", "scope:engineer"]],
+            },
             "memory_id": {
                 "type": "integer",
                 "description": (
@@ -351,6 +376,8 @@ async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
     max_results = args.get("max_results", 10)
     min_heat = args.get("min_heat", 0.05)
     include_low_signal = bool(args.get("include_low_signal", False))
+    tags_any: list[str] = list(args.get("tags_any") or [])
+    tags_all: list[str] = list(args.get("tags_all") or [])
     settings = get_memory_settings()
     store, emb = _get_store(), get_embedding_engine()
 
@@ -381,6 +408,13 @@ async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
     low_signal_dropped = 0
     if not include_low_signal:
         results, low_signal_dropped = filter_low_signal(results)
+
+    # Positive tag filter: tags_any (OR) and tags_all (AND).
+    # Applied at the same pipeline stage as the low-signal filter so the
+    # over-fetch headroom above still applies.
+    if tags_any or tags_all:
+        results = filter_by_tags(results, tags_any, tags_all)
+
     # Cap to the caller-requested max_results after filtering.
     results = results[:max_results]
 

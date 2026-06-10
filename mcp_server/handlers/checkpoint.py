@@ -195,15 +195,40 @@ def _save_checkpoint(args: dict) -> dict:
     }
 
 
+def _is_tier_noise(mem: dict) -> bool:
+    """Return True when the memory is auto-captured tool noise or a block replica.
+
+    Precondition: mem has a 'tags' key (list or None).
+    Postcondition: True iff tags contain 'auto-captured' OR 'memory-replica'.
+    # contract: zetetic-team-subagents memory/contract.md §8b
+    """
+    tags = mem.get("tags") or []
+    if isinstance(tags, str):
+        try:
+            import json as _json
+
+            tags = _json.loads(tags)
+        except Exception:
+            tags = []
+    tag_set = {str(t) for t in tags}
+    return bool(tag_set & {"auto-captured", "memory-replica"})
+
+
 def _partition_hot_memories(
     all_hot: list[dict],
     max_memories: int,
 ) -> tuple[list[dict], set[int], list[dict], set[int]]:
-    """Split hot memories into anchored and recent partitions."""
-    anchored = [m for m in all_hot if m.get("is_protected")][:max_memories]
+    """Split hot memories into anchored and recent partitions.
+
+    Excludes auto-captured and memory-replica entries so checkpoint
+    restore does not re-inject tool noise into the working context.
+    # contract: zetetic-team-subagents memory/contract.md §8b
+    """
+    filtered = [m for m in all_hot if not _is_tier_noise(m)]
+    anchored = [m for m in filtered if m.get("is_protected")][:max_memories]
     anchor_ids = {m["id"] for m in anchored}
     recent = [
-        m for m in all_hot if m["id"] not in anchor_ids and not m.get("is_protected")
+        m for m in filtered if m["id"] not in anchor_ids and not m.get("is_protected")
     ][:max_memories]
     recent_ids = {m["id"] for m in recent}
     return anchored, anchor_ids, recent, recent_ids
@@ -226,7 +251,13 @@ def _restore_context(args: dict) -> dict:
         hot_mems = store.get_memories_for_directory(directory, min_heat=0.3)
     else:
         hot_mems = store.get_hot_memories(min_heat=0.5, limit=max_memories * 2)
-    hot = [m for m in hot_mems if m["id"] not in anchor_ids | recent_ids][:max_memories]
+    # Exclude tier noise (auto-captured, memory-replica) from directory/hot slice.
+    # contract: zetetic-team-subagents memory/contract.md §8b
+    hot = [
+        m
+        for m in hot_mems
+        if m["id"] not in anchor_ids | recent_ids and not _is_tier_noise(m)
+    ][:max_memories]
 
     formatted = format_restoration(
         checkpoint=checkpoint,

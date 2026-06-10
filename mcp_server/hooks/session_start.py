@@ -99,7 +99,13 @@ def _connect_pg():
 
 
 def _fetch_anchors(conn) -> list[dict]:
-    """Fetch anchored memories (is_protected with _anchor tag)."""
+    """Fetch anchored memories (is_protected with _anchor tag).
+
+    Defense-in-depth: also exclude auto-captured memories even when
+    is_protected=TRUE (a protected auto-capture should not exist, but
+    we guard against it to prevent poisoned banner injection).
+    # contract: zetetic-team-subagents memory/contract.md §8b
+    """
     try:
         rows = conn.execute(
             # `memories.heat` is not a stored column; use effective_heat()
@@ -108,6 +114,10 @@ def _fetch_anchors(conn) -> list[dict]:
             "SELECT m.id, m.content, m.tags, m.domain, m.is_global "
             "FROM memories m "
             "WHERE m.is_protected = TRUE "
+            # Exclude auto-captured noise (defense-in-depth — they should never
+            # be protected, but guard against misconfiguration).
+            # contract: zetetic-team-subagents memory/contract.md §8b
+            "AND NOT (m.tags @> '[\"auto-captured\"]'::jsonb) "
             "ORDER BY effective_heat(m, NOW()) DESC LIMIT %s",
             (int(_ANCHOR_LIMIT),),
         ).fetchall()
@@ -176,12 +186,23 @@ def _fetch_team_decisions(conn, exclude_ids: set) -> list[dict]:
 
 
 def _fetch_hot_memories(conn, exclude_ids: set) -> list[dict]:
-    """Fetch high-heat memories, excluding anchors."""
+    """Fetch high-heat memories, excluding anchors.
+
+    Tier exclusion: auto-captured tool noise and block-replica snapshots
+    must not appear in the session-start banner — they poison the injected
+    context with raw "# Tool: Edit" captures.
+    # contract: zetetic-team-subagents memory/contract.md §8b
+    """
     try:
         rows = conn.execute(
             "SELECT id, content, domain, heat_base AS heat, tags, is_global "
             "FROM memories "
             "WHERE heat_base >= %s "
+            # Exclude tier-1 noise: auto-captured tool outputs and block replicas.
+            # JSONB containment: tags @> '[\"x\"]' is true when the array contains x.
+            # contract: zetetic-team-subagents memory/contract.md §8b
+            "AND NOT (tags @> '[\"auto-captured\"]'::jsonb "
+            "         OR tags @> '[\"memory-replica\"]'::jsonb) "
             "ORDER BY heat_base DESC LIMIT %s",
             (float(_MIN_HEAT), int(_HOT_LIMIT + len(exclude_ids))),
         ).fetchall()
