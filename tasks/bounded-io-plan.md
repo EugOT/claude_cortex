@@ -33,10 +33,10 @@ M3 source/store_type/confidence output-only.
 - [x] backfill/import: gist_oversized_content choke point in backfill_helpers before remember_handler (both import_sessions + backfill_memories).
 - Follow-ups recorded in design doc: CLS consolidation needs same gist discipline (live example: raw blob promoted to semantic "Convention"); bulk migration of existing 6,799 raw blobs deferred (scoring de-bias makes their rank honest); post_tool_capture.py at 411 lines (>300, pre-existing) needs split; recall response score semantics post-rerank.
 
-## Phase 3 — Concurrency governors
-- [ ] Cortex mcp_client_pool: max-connections + per-server concurrency cap (the stated "follow-on" from pool-leak fix).
-- [ ] automatised-pipeline: GraphStore singleton (OnceLock<Arc<RwLock>>) — stop re-deserializing whole graph per request; bounded concurrent opens.
-- [ ] prd-spec-generator: global run semaphore; InMemoryRunStore eviction (TTL/max-runs); EvidenceRepository retention.
+## Phase 3 — Concurrency governors — DONE 2026-06-10
+- [x] Cortex mcp_client_pool: max-connections (LRU-evict idle / fail-fast McpConnectionError; cap CORTEX_MEMORY_MCP_POOL_MAX_CONNECTIONS, auto = max(2, cpu_count), pending RSS calibration). Per-server cap was ALREADY implemented (upstream_governor threading.Semaphore — asyncio primitive would break across worker loops); verified with regression tests instead of duplicated. — commit 41fb0a3 (6 new tests, infra 310)
+- [x] automatised-pipeline: plan premises didn't hold (no JSON deserialization — embedded lbug DB handle; single-threaded stdin loop = single-flight free; GraphStore !Sync) → thread_local path-keyed Rc<GraphStore> cache, fingerprint (mtime+bytes) invalidation, 9 read tools cached, 6 write tools deliberately uncached. — commit 682185f (tests 327→331)
+- [x] prd-spec-generator: start_pipeline semaphore (PRD_MAX_CONCURRENT_RUNS=8, structured retryable rejection — no queue, it would hold the MCP connection); RunStore TTL 30min + max-runs 64 (≈12.8MB ceiling from measured 100k per-run bound), terminal-only LRU eviction, injected clock, observable evicted counter; EvidenceRepository is SQLite (plan said in-memory — mismatch reported): pruneRunEvidence wired to run eviction + MAX_EVIDENCE_ROWS=10k standalone retention. — commit e833686 (tests 617→629)
 
 ## Phase 4 — Execute sharded-popping-harbor plan (constant-memory pipeline)
 - [ ] Phase A core ports (StreamSource/BatchSink/AdaptiveBatchController/BackpressurePipeline)
@@ -68,3 +68,20 @@ M3 source/store_type/confidence output-only.
   diagnosing ranking inversions; gate write-side extractors by source; the
   write gate itself was blinded by pollution (rejected the curated lesson at
   novelty 0.16).
+
+### Phase 3 (2026-06-10) — concurrency governors
+- 3 repos in parallel (engineer agents), all committed, nothing pushed:
+  Cortex 41fb0a3, automatised-pipeline 682185f, prd-spec-generator e833686.
+- Two plan items did not match codebase reality and were correctly re-derived
+  instead of forced: (a) Cortex per-server cap already existed
+  (upstream_governor; an asyncio.Semaphore would break across worker loops) —
+  verified, not duplicated; (b) Rust GraphStore "re-deserialization" never
+  existed — the cost was per-request DB-handle opens on a single-threaded
+  !Sync store, so thread_local Rc cache + fingerprint invalidation, not
+  OnceLock<Arc<RwLock>>. Lesson: audit-derived plan items inherit the
+  audit's guesses; re-verify premises against the code before implementing.
+- All limits configurable + source-commented; unmeasured defaults honestly
+  marked with their calibrating measurement (child RSS for pool cap, p99
+  in-flight for run semaphore, complete→last-read gap for RunStore TTL).
+- Gates: Cortex infra 310 + full suite green; Rust 331; TS 629. No silent
+  caps anywhere — every rejection/eviction is structured + observable.
