@@ -18,12 +18,32 @@ def _slug(text: str) -> str:
     return s[:80]
 
 
+def _process_symbol_count(process: dict[str, Any]) -> int:
+    """Symbols-in-flow count for a process dict.
+
+    Upstream ``get_processes`` (automatised-pipeline src/main.rs,
+    ``do_get_processes``) emits exactly ``{name, entry_point, entry_kind,
+    depth, node_count}`` — the count key is ``node_count``. The previous
+    reader looked for ``symbol_count``/``symbols`` (keys that never
+    existed), so every process read as empty and zero wiki pages were
+    ever written (2026-06-11 RCA). ``symbols`` is honoured as a fallback
+    because the handler enriches processes with a fetched symbol list.
+    """
+    raw = process.get("node_count")
+    if raw is None:
+        return len(process.get("symbols") or [])
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
+
+
 def render_process_page(process: dict[str, Any]) -> tuple[str, str]:
     """Return (relative_wiki_path, markdown) for a process page."""
-    entry = process.get("entry_point") or process.get("name") or "unknown"
+    entry = process.get("name") or process.get("entry_point") or "unknown"
     kind = process.get("entry_kind") or "entry"
-    depth = process.get("bfs_depth") or process.get("depth") or 0
-    symbol_count = process.get("symbol_count") or len(process.get("symbols", []) or [])
+    depth = process.get("depth") or 0
+    symbol_count = _process_symbol_count(process)
     slug = _slug(entry) or "process"
     rel_path = f"reference/codebase/{slug}.md"
     lines = [
@@ -43,12 +63,16 @@ def render_process_page(process: dict[str, Any]) -> tuple[str, str]:
     symbols = process.get("symbols") or []
     if symbols:
         lines.append("## Symbols reached")
+        listed = 0
         for sym in symbols[:50]:
             qn = sym if isinstance(sym, str) else sym.get("qualified_name", "")
             if qn:
                 lines.append(f"- `{qn}`")
-        if len(symbols) > 50:
-            lines.append(f"- … and {len(symbols) - 50} more.")
+                listed += 1
+        # The handler fetches at most 50 participating symbols; node_count
+        # is the authoritative flow size, so the overflow note uses it.
+        if symbol_count > listed:
+            lines.append(f"- … and {symbol_count - listed} more.")
         lines.append("")
     return rel_path, "\n".join(lines)
 
@@ -67,9 +91,7 @@ def write_process_pages(processes: list[dict[str, Any]]) -> list[str]:
     written: list[str] = []
     skipped_empty = 0
     for proc in processes:
-        symbols = proc.get("symbols") or []
-        symbol_count = proc.get("symbol_count") or len(symbols)
-        if symbol_count == 0:
+        if _process_symbol_count(proc) == 0:
             skipped_empty += 1
             continue
         try:

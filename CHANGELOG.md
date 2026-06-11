@@ -6,6 +6,47 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`ingest_codebase` silently truncated every ingest — four wiring bugs
+  to the automatised-pipeline upstream, all verified live (RCA
+  2026-06-11).** A force-reindexed run on the Cortex repo now lands
+  8 106 symbols + 1 234 files (9 340 entities, exact conservation),
+  11 680 call + 6 414 containment edges, and 572 process wiki pages —
+  vs. ~2 110 symbols / 500 files / 0 wiki pages before.
+  1. *Byte-budget pagination ignored.* Upstream ≥0.4.0 pages
+     `query_graph` responses (`truncated` + `next_offset`);
+     `_run_query` read only the first page, so `iter_call_edges`'s
+     `len(rows) < page_size` end-check fired mid-stream (~887/4 669
+     call edges per run). `_run_query` now drains the cursor (with a
+     non-advancing-cursor guard).
+  2. *`LIMIT 500` injection capped LIMIT-less queries.* `fetch_files`
+     sent no LIMIT, so upstream injected `LIMIT 500` — 500/1 233 files
+     forever. `fetch_files` now pages with explicit SKIP/LIMIT. Dead
+     `fetch_top_symbols` (same flaw, zero callers) removed.
+  3. *Symbol page stride mismatch.* `_ingest_entities` advanced its
+     offset by `page_size` while each label query consumed only
+     `page_size // 3` rows — every window skipped the rows between
+     (≈2 000 of 3 645 Functions). New `symbol_page_stride()` keeps the
+     LIMIT and the stride in one function.
+  4. *Process wiki pages keyed on fields that never existed.*
+     `get_processes` emits `node_count`/`depth`, never
+     `symbols`/`symbol_count`/`bfs_depth`; the renderer read the latter,
+     so every process counted 0 symbols and ZERO codebase wiki pages
+     were ever written. The reader now uses the verified contract, the
+     process list follows upstream pagination, and pages are enriched
+     with real participating symbols via `ParticipatesIn_<Label>_Process`
+     edges (capped at the renderer's 50-symbol display limit).
+- **Entity dedup was domain-blind; insert counts were fabricated.** The
+  staging sink's `NOT EXISTS` matched on name alone, so once ANY domain
+  held a symbol name, re-ingest under a new domain inserted nothing —
+  all code entities stayed credited to a stale `code:3.18.4` domain.
+  Dedup now scopes to `(LOWER(name), domain)`; edge endpoint JOINs scope
+  to the same domain (preventing cross-domain fan-out) and compare
+  against `LOWER(domain)` to match the `normalize_domain()` trigger.
+  The response now reports true `entities_written` (sink insert counts)
+  alongside `entities_seen` — the old field reported seen-as-written.
+
 ## [3.16.0] - 2026-05-13
 
 ADR-2244 reaches its full Phase 2-6 cycle: pilot verification, stable-ID

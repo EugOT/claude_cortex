@@ -114,101 +114,66 @@ def file_path_from_qn(qn: str) -> list[str]:
 async def _run_query(
     graph_path: str, cypher: str
 ) -> tuple[dict[str, Any] | None, str | None]:
-    """Run a single cypher query. Returns (result_dict, error_message).
+    """Run a single cypher query, draining upstream byte-budget pages.
 
-    On upstream-reported errors (status=error), result is None and the
-    error_message is populated. On transport errors, raises — except
-    the caller catches narrow transport-class exceptions and returns
-    them as diagnostics.
+    Upstream ``query_graph`` (automatised-pipeline ≥0.4.0,
+    ``do_query_graph`` in src/main.rs) bounds every response two ways:
+      1. ``LIMIT 500`` is injected into any Cypher lacking a LIMIT clause
+         (``limit_injected: true``) — pagination CANNOT recover rows past
+         that, so every caller here MUST declare its own LIMIT.
+      2. Wide rows are byte-paged: the response carries
+         ``truncated: true`` + ``next_offset`` and the caller must re-call
+         with ``offset=next_offset`` to drain the remaining rows.
+    Ignoring (2) silently truncated ingests (~887/4669 call edges,
+    2026-06-11 RCA). This function follows ``next_offset`` until
+    ``truncated`` is false and returns the merged result; merged size is
+    bounded by the caller's explicit LIMIT.
+
+    Returns (result_dict, error_message). On upstream-reported errors
+    (status=error), result is None and the error_message is populated.
+    Transport errors raise; callers catch narrow transport classes and
+    surface them as diagnostics.
     """
-    payload = await call_upstream(
-        _UPSTREAM_SERVER,
-        "query_graph",
-        {"graph_path": graph_path, "query": cypher},
-    )
-    result = normalise_mcp_payload(payload)
-    if isinstance(result, dict) and result.get("status") == "error":
-        return None, str(result.get("message") or "<unknown upstream error>")
-    if not isinstance(result, dict):
-        return None, f"unexpected payload type: {type(result).__name__}"
+    merged_rows: list[Any] = []
+    offset = 0
+    result: dict[str, Any] | None = None
+    while True:
+        payload = await call_upstream(
+            _UPSTREAM_SERVER,
+            "query_graph",
+            {"graph_path": graph_path, "query": cypher, "offset": offset},
+        )
+        page = normalise_mcp_payload(payload)
+        if isinstance(page, dict) and page.get("status") == "error":
+            return None, str(page.get("message") or "<unknown upstream error>")
+        if not isinstance(page, dict):
+            return None, f"unexpected payload type: {type(page).__name__}"
+        result = page
+        merged_rows.extend(page.get("rows") or [])
+        next_offset = page.get("next_offset")
+        if not page.get("truncated") or next_offset is None:
+            break
+        if int(next_offset) <= offset:
+            # Non-advancing cursor would loop forever — upstream contract
+            # violation; surface it instead of spinning.
+            return None, f"non-advancing pagination cursor at offset {offset}"
+        offset = int(next_offset)
+    result = dict(result)
+    result["rows"] = merged_rows
     return result, None
 
 
-async def fetch_top_symbols(
-    graph_path: str,
-    limit: int | None,
-) -> tuple[list[dict[str, Any]], list[str]]:
-    """Enumerate symbols across Function/Method/Struct.
+def symbol_page_stride(page_size: int) -> int:
+    """Per-label row count fetched by one ``fetch_symbols_page`` call.
 
-    With ``limit=None`` (default) pulls every symbol with stable
-    ``ORDER BY qualified_name``. With ``limit>0``, ranks by line span
-    and caps each label proportionally.
-
-    Returns (symbols, diagnostics). Diagnostics is a list of one-line
-    error strings for queries that failed; an empty list means every
-    sub-query succeeded.
+    Callers MUST advance ``offset`` by exactly this stride between calls.
+    The previous caller advanced by ``page_size`` while each label's query
+    used ``LIMIT page_size // 3`` — every window silently skipped the
+    per-label rows between the two (≈2 000 of 3 645 Functions on the
+    Cortex graph, 2026-06-11 RCA). Keeping the stride and the LIMIT in
+    one function makes that mismatch impossible.
     """
-    rows: list[dict[str, Any]] = []
-    diagnostics: list[str] = []
-    per_label = (
-        max(1, limit // len(_SYMBOL_LABELS))
-        if limit is not None and limit > 0
-        else None
-    )
-    for label, kind in _SYMBOL_LABELS:
-        clauses = [
-            f"MATCH (n:{label})",
-            (
-                "RETURN n.qualified_name AS qualified_name, n.name AS name, "
-                "n.start_line AS start_line, n.end_line AS end_line, "
-                "n.visibility AS visibility"
-            ),
-        ]
-        if per_label is not None:
-            clauses.append("ORDER BY (n.end_line - n.start_line) DESC")
-            clauses.append(f"LIMIT {per_label}")
-        else:
-            clauses.append("ORDER BY n.qualified_name")
-        cypher = " ".join(clauses)
-        try:
-            result, err = await _run_query(graph_path, cypher)
-        except _TRANSPORT_ERRORS as exc:
-            diagnostics.append(f"{label}: {type(exc).__name__}: {exc}")
-            continue
-        if err is not None:
-            diagnostics.append(f"{label}: {err}")
-            continue
-        columns = result.get("columns") or [
-            "qualified_name",
-            "name",
-            "start_line",
-            "end_line",
-            "visibility",
-        ]
-        for row in result.get("rows") or []:
-            record = dict(zip(columns, row))
-            qn = record.get("qualified_name") or record.get("name")
-            if not qn:
-                continue
-            rows.append(
-                {
-                    "qualified_name": qn,
-                    "name": record.get("name") or qn,
-                    "kind": kind,
-                    # ``file`` is intentionally left unset here. The
-                    # composition root assigns it from the
-                    # (:File)-[]->(:symbol) containment edges, which
-                    # are language-agnostic. file_path_from_qn is a
-                    # last-resort fallback for orphans only.
-                    "file": None,
-                    "start_line": record.get("start_line"),
-                    "end_line": record.get("end_line"),
-                    "visibility": record.get("visibility"),
-                }
-            )
-    if limit is not None and limit > 0:
-        rows = rows[:limit]
-    return rows, diagnostics
+    return max(1, page_size // len(_SYMBOL_LABELS))
 
 
 async def fetch_symbols_page(
@@ -216,19 +181,24 @@ async def fetch_symbols_page(
     offset: int,
     page_size: int,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Fetch one page of symbols starting at ``offset``.
+    """Fetch one page of symbols starting at per-label row ``offset``.
 
-    Uses ``SKIP``/``LIMIT`` in each per-label Cypher query so the
-    JSON-RPC payload per call is bounded by ``page_size`` regardless of
-    total corpus size. ``ORDER BY qualified_name`` gives stable pagination
-    across calls (no duplicates / gaps as long as the graph is unchanged).
+    ``offset`` is a PER-LABEL row offset: each of the three label queries
+    runs ``SKIP offset LIMIT symbol_page_stride(page_size)``, so one call
+    returns at most ``page_size`` rows across labels and the JSON-RPC
+    payload per call stays bounded regardless of total corpus size.
+    ``ORDER BY qualified_name`` gives stable pagination across calls (no
+    duplicates / gaps as long as the graph is unchanged) — provided the
+    caller advances by ``symbol_page_stride(page_size)``.
 
     Returns ``(symbols, diagnostics)``. An empty ``symbols`` list with an
-    empty ``diagnostics`` list means the page is exhausted (end of data).
+    empty ``diagnostics`` list means every label is exhausted (end of
+    data); labels exhaust independently, so a non-empty page may already
+    contain fewer than ``page_size`` rows.
     """
     rows: list[dict[str, Any]] = []
     diagnostics: list[str] = []
-    per_label = max(1, page_size // len(_SYMBOL_LABELS))
+    per_label = symbol_page_stride(page_size)
     for label, kind in _SYMBOL_LABELS:
         cypher = (
             f"MATCH (n:{label}) "
@@ -362,42 +332,97 @@ async def iter_containment_edges(
         offset += page_size
 
 
+# File-fetch page size. A LIMIT-less Cypher gets `LIMIT 500` injected
+# upstream (QUERY_GRAPH_ROW_LIMIT, automatised-pipeline src/main.rs), which
+# silently capped fetch_files at 500/1233 files (2026-06-11 RCA). Paging with
+# an explicit SKIP/LIMIT below that injection threshold keeps each JSON-RPC
+# payload bounded AND visits every File node.
+_FILE_PAGE_SIZE: int = 500
+
+
 async def fetch_files(
     graph_path: str,
     limit: int | None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Pull every File node so file-level containment edges resolve.
 
-    ``limit=None`` ⇒ pull all (matches fetch_top_symbols semantics);
-    ``limit>0`` ⇒ cap server-side. Returns (files, diagnostics).
+    ``limit=None`` ⇒ pull all via an explicit SKIP/LIMIT paging loop
+    (``ORDER BY f.path`` gives a stable order; Kuzu is read-only during
+    ingest, so OFFSET paging is drift-safe); ``limit>0`` ⇒ cap.
+    Returns (files, diagnostics).
     """
-    clauses = [
-        "MATCH (f:File)",
-        (
-            "RETURN f.path AS path, f.name AS name, f.extension AS extension, "
-            "f.size_bytes AS size_bytes"
-        ),
-        "ORDER BY f.path",
-    ]
-    if limit is not None and limit > 0:
-        clauses.append(f"LIMIT {limit}")
-    cypher = " ".join(clauses)
-    try:
-        result, err = await _run_query(graph_path, cypher)
-    except _TRANSPORT_ERRORS as exc:
-        return [], [f"files: {type(exc).__name__}: {exc}"]
-    if err is not None:
-        return [], [f"files: {err}"]
     rows: list[dict[str, Any]] = []
-    for row in result.get("rows") or []:
-        if len(row) < 1 or not row[0]:
-            continue
-        rows.append(
-            {
-                "path": row[0],
-                "name": row[1] if len(row) > 1 else None,
-                "extension": row[2] if len(row) > 2 else None,
-                "size_bytes": row[3] if len(row) > 3 else None,
-            }
+    offset = 0
+    while True:
+        page_limit = _FILE_PAGE_SIZE
+        if limit is not None and limit > 0:
+            remaining = limit - len(rows)
+            if remaining <= 0:
+                break
+            page_limit = min(page_limit, remaining)
+        cypher = (
+            "MATCH (f:File) "
+            "RETURN f.path AS path, f.name AS name, f.extension AS extension, "
+            "f.size_bytes AS size_bytes "
+            "ORDER BY f.path "
+            f"SKIP {offset} LIMIT {page_limit}"
         )
+        try:
+            result, err = await _run_query(graph_path, cypher)
+        except _TRANSPORT_ERRORS as exc:
+            return rows, [f"files@{offset}: {type(exc).__name__}: {exc}"]
+        if err is not None:
+            return rows, [f"files@{offset}: {err}"]
+        page_rows = result.get("rows") or []
+        for row in page_rows:
+            if len(row) < 1 or not row[0]:
+                continue
+            rows.append(
+                {
+                    "path": row[0],
+                    "name": row[1] if len(row) > 1 else None,
+                    "extension": row[2] if len(row) > 2 else None,
+                    "size_bytes": row[3] if len(row) > 3 else None,
+                }
+            )
+        if len(page_rows) < page_limit:
+            break
+        offset += page_limit
     return rows, []
+
+
+async def fetch_process_symbols(
+    graph_path: str,
+    entry_point_id: str,
+    limit: int,
+) -> tuple[list[str], list[str]]:
+    """Fetch qualified names of symbols participating in one process.
+
+    Membership edges are ``(:Function|Method)-[:ParticipatesIn_<Label>_Process]->
+    (:Process)`` (automatised-pipeline src/clustering/process.rs,
+    ``persist_participates_in``); the process is keyed by its unique
+    ``entry_point_id`` (one traced process per entry point). Returns
+    (qualified_names, diagnostics).
+    """
+    qns: list[str] = []
+    diagnostics: list[str] = []
+    esc = entry_point_id.replace("'", "\\'")
+    for label in ("Function", "Method"):
+        cypher = (
+            f"MATCH (n:{label})-[:ParticipatesIn_{label}_Process]->(p:Process) "
+            f"WHERE p.entry_point_id = '{esc}' "
+            "RETURN n.qualified_name AS qn "
+            f"ORDER BY n.qualified_name LIMIT {limit}"
+        )
+        try:
+            result, err = await _run_query(graph_path, cypher)
+        except _TRANSPORT_ERRORS as exc:
+            diagnostics.append(f"process-symbols/{label}: {type(exc).__name__}: {exc}")
+            continue
+        if err is not None:
+            diagnostics.append(f"process-symbols/{label}: {err}")
+            continue
+        for row in result.get("rows") or []:
+            if row and row[0]:
+                qns.append(row[0])
+    return qns[:limit], diagnostics

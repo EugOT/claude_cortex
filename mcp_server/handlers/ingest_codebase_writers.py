@@ -22,9 +22,12 @@ from mcp_server.shared.entity_canonical import canonicalize_entity_name
 
 # Row tuple shapes (column order matches the staging COPY in
 # staging_resolve_sink): entity = (name, type, domain, heat);
-# edge = (src_name, dst_name, rel_type, weight).
+# edge = (src_name, dst_name, rel_type, weight, domain). Edges carry the
+# domain so endpoint resolution joins within ONE domain — entities dedup
+# per (name, domain), and an unscoped name JOIN would fan out across
+# domains.
 EntityRow = tuple[str, str, str, float]
-EdgeRow = tuple[str, str, str, float]
+EdgeRow = tuple[str, str, str, float, str]
 
 _SYMBOL_HEAT = 0.8
 _FILE_HEAT = 0.6
@@ -56,7 +59,7 @@ def file_entity_row(f: dict[str, Any], domain: str) -> EntityRow | None:
     return (path, "file", domain, _FILE_HEAT)
 
 
-def call_edge_row(edge: tuple[str, str]) -> EdgeRow | None:
+def call_edge_row(edge: tuple[str, str], domain: str) -> EdgeRow | None:
     """Project a (caller_qn, callee_qn) call edge into an edge row.
 
     Self-edges are dropped (a symbol calling itself is graph noise here).
@@ -67,12 +70,12 @@ def call_edge_row(edge: tuple[str, str]) -> EdgeRow | None:
     csrc, cdst = canonicalize_entity_name(src), canonicalize_entity_name(dst)
     if csrc == cdst:
         return None
-    return (csrc, cdst, "calls", 1.0)
+    return (csrc, cdst, "calls", 1.0, domain)
 
 
-def containment_edge_row(edge: tuple[str, str]) -> EdgeRow | None:
+def containment_edge_row(edge: tuple[str, str], domain: str) -> EdgeRow | None:
     """Project a (file_path, symbol_qn) containment edge into an edge row."""
     file_path, symbol_qn = edge
     if not file_path or not symbol_qn:
         return None
-    return (file_path, canonicalize_entity_name(symbol_qn), "contains", 1.0)
+    return (file_path, canonicalize_entity_name(symbol_qn), "contains", 1.0, domain)

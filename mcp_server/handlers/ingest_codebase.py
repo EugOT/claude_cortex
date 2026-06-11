@@ -164,17 +164,18 @@ async def _ingest_entities(
     diagnostics: list[str],
     page_size: int,
     top_symbols: int | None,
-) -> int:
+) -> tuple[int, int]:
     """Stream files + paged symbols into KG entities via the staging sink.
 
-    Entities resolve their ids server-side (NOT EXISTS dedup on LOWER(name));
-    NO qualified_name -> id map is held in Python -- that map was the
-    O(total_symbols) buffer that broke constant memory. The sink is
-    SINGLE-WRITER on this (the event loop's) thread: its borrowed connection
-    is created and used on one thread only, and Kuzu fetch / PG write are
-    sequential per page, so peak RAM is O(page_size). Kuzu is read-only during
-    ingest (graph built by ensure_graph first), so SKIP/LIMIT paging is
-    drift-safe. Returns the number of symbol rows seen.
+    Entities resolve their ids server-side (NOT EXISTS dedup on
+    (LOWER(name), domain)); NO qualified_name -> id map is held in Python --
+    that map was the O(total_symbols) buffer that broke constant memory. The
+    sink is SINGLE-WRITER on this (the event loop's) thread: its borrowed
+    connection is created and used on one thread only, and Kuzu fetch / PG
+    write are sequential per page, so peak RAM is O(page_size). Kuzu is
+    read-only during ingest (graph built by ensure_graph first), so
+    SKIP/LIMIT paging is drift-safe. Returns
+    (symbol_rows_seen, entity_rows_inserted).
     """
     run_id = f"ingest-symbols:{domain}"
     sink = build_entity_sink(lambda: store.batch_pool.connection())
@@ -204,7 +205,10 @@ async def _ingest_entities(
             if rows:
                 writer.add_many(rows)
             total_symbols += len(page)
-            offset += page_size
+            # Advance by the PER-LABEL stride fetch_symbols_page actually
+            # consumed — advancing by page_size skipped the per-label rows
+            # between stride and page_size in every window (2026-06-11 RCA).
+            offset += cypher.symbol_page_stride(page_size)
             # Advisory checkpoint after the page committed. A crash before this
             # write re-does at most one page on resume (idempotent → safe).
             _checkpoint_write(store, run_id, offset, total_symbols)
@@ -214,7 +218,7 @@ async def _ingest_entities(
     finally:
         sink.close()
     _checkpoint_clear(store, run_id)  # clean completion — drop the checkpoint
-    return total_symbols
+    return total_symbols, writer.rows_written
 
 
 def _checkpoint_read(store: Any, run_id: str) -> tuple[int, int]:
@@ -277,7 +281,7 @@ async def _ingest_edges(
     async def _edge_pages():
         async for batch, diag in cypher.iter_call_edges(graph_path, page_size):
             diagnostics.extend(diag)
-            rows = _edge_rows(batch, writers.call_edge_row)
+            rows = _edge_rows(batch, lambda e: writers.call_edge_row(e, domain))
             seen[0] += len(rows)
             yield rows
         known_files = {f["path"] for f in files if f.get("path")}
@@ -285,7 +289,7 @@ async def _ingest_edges(
             graph_path, known_files, page_size
         ):
             diagnostics.extend(diag)
-            rows = _edge_rows(batch, writers.containment_edge_row)
+            rows = _edge_rows(batch, lambda e: writers.containment_edge_row(e, domain))
             seen[0] += len(rows)
             yield rows
 
@@ -305,19 +309,74 @@ async def _pull_processes(
     graph_path: str,
     top_processes: int | None,
 ) -> list[dict[str, Any]]:
-    """Pull processes via upstream get_processes; respect optional cap."""
+    """Pull ALL processes via upstream get_processes; respect optional cap.
+
+    Upstream pages its process list by serialized size (``truncated`` +
+    ``next_offset``, automatised-pipeline ``do_get_processes``); a single
+    call returns only the first page. Follow the cursor until exhausted —
+    the previous single-shot read silently dropped every process past the
+    first byte-budget page (2026-06-11 RCA).
+    """
+    procs: list[dict[str, Any]] = []
+    offset = 0
     try:
-        proc_payload = await call_upstream(
-            _UPSTREAM_SERVER,
-            "get_processes",
-            {"graph_path": graph_path},
-        )
-        proc_result = normalise_mcp_payload(proc_payload)
-        all_procs = proc_result.get("processes") or []
-        return all_procs if top_processes is None else all_procs[:top_processes]
+        while True:
+            proc_payload = await call_upstream(
+                _UPSTREAM_SERVER,
+                "get_processes",
+                {"graph_path": graph_path, "offset": offset},
+            )
+            proc_result = normalise_mcp_payload(proc_payload)
+            procs.extend(proc_result.get("processes") or [])
+            if top_processes is not None and len(procs) >= top_processes:
+                return procs[:top_processes]
+            next_offset = proc_result.get("next_offset")
+            if not proc_result.get("truncated") or next_offset is None:
+                break
+            if int(next_offset) <= offset:
+                logger.warning("get_processes: non-advancing cursor at %d", offset)
+                break
+            offset = int(next_offset)
     except Exception as exc:
         logger.debug("get_processes failed: %s", exc)
-        return []
+    return procs
+
+
+# Per-page cap on the "Symbols reached" list a process wiki page renders.
+# render_process_page lists at most 50 symbols (its own display cap); the
+# fetch honours the same bound so neither side does unbounded work.
+_PROCESS_SYMBOLS_LIMIT: int = 50
+
+
+async def _enrich_process_symbols(
+    graph_path: str,
+    processes: list[dict[str, Any]],
+    diagnostics: list[str],
+) -> None:
+    """Attach participating symbol qns to each process (in place).
+
+    ``get_processes`` returns only counts (``node_count``); the actual
+    membership lives in the graph as ParticipatesIn edges. Pages without
+    symbols carry no documentation value (2026-05-17 user feedback), so
+    this fetch is what makes the wiki pages worth writing.
+    """
+    for proc in processes:
+        entry = proc.get("entry_point")
+        if not entry or not _process_node_count(proc):
+            continue
+        qns, diag = await cypher.fetch_process_symbols(
+            graph_path, str(entry), _PROCESS_SYMBOLS_LIMIT
+        )
+        diagnostics.extend(diag)
+        if qns:
+            proc["symbols"] = qns
+
+
+def _process_node_count(proc: dict[str, Any]) -> int:
+    try:
+        return int(proc.get("node_count") or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -373,8 +432,9 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
     # ── Phase 2: entities — files + paged symbols streamed to the staging
     # sink. No qualified_name->id map is held; ids resolve server-side. ─────
     total_symbols_seen = 0
+    entities_written = 0
     if do_symbols:
-        total_symbols_seen = await _ingest_entities(
+        total_symbols_seen, entities_written = await _ingest_entities(
             store=store,
             graph_path=graph_path,
             domain=domain,
@@ -407,13 +467,20 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
         if (top_processes is None or top_processes > 0)
         else []
     )
+    if processes:
+        await _enrich_process_symbols(graph_path, processes, diagnostics)
     wiki_paths = pages.write_process_pages(processes)
 
     response: dict[str, Any] = {
         "ingested": True,
         "graph_path": graph_path,
         "analyze": analyze_stats,
-        "entities_written": total_symbols_seen + len(files),
+        # entities_written = rows actually INSERTed by the staging sink
+        # (post NOT EXISTS dedup); entities_seen = rows streamed at it.
+        # The previous response reported seen counts AS written — a
+        # misnomer that masked the domain-blind dedup bug (2026-06-11 RCA).
+        "entities_written": entities_written,
+        "entities_seen": total_symbols_seen + len(files),
         "edges_written": edges_written,
         "edges_seen": edges_seen,
         "wiki_pages_written": wiki_paths,

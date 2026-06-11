@@ -229,17 +229,31 @@ class TestIngestCodebaseHappyPath:
                 _re(r"MATCH \(a:Struct\)-\[\]->\(b:Function\|Method\|Struct\)"),
                 {"columns": [], "rows": []},
             ),
+            (
+                _re(r"ParticipatesIn_Function_Process"),
+                {
+                    "columns": ["qn"],
+                    "rows": [["src/a.py::foo"], ["src/a.py::bar"]],
+                },
+            ),
+            (
+                _re(r"ParticipatesIn_Method_Process"),
+                {"columns": [], "rows": []},
+            ),
         ]
+        # Real upstream shape (automatised-pipeline do_get_processes):
+        # processes carry node_count/depth, never symbols/symbol_count.
         replies["get_processes"] = {
             "processes": [
                 {
+                    "name": "main",
                     "entry_point": "src/main.py::main",
                     "entry_kind": "main",
-                    "bfs_depth": 2,
-                    "symbol_count": 7,
-                    "symbols": ["src/a.py::foo", "src/a.py::bar"],
+                    "depth": 2,
+                    "node_count": 7,
                 }
-            ]
+            ],
+            "truncated": False,
         }
 
         result = await icb.handler(
@@ -461,3 +475,192 @@ class TestIngestCodebaseFailures:
         assert result["ingested"] is True
         assert "diagnostics" in result
         assert any("Function" in d for d in result["diagnostics"])
+
+
+class TestUpstreamPagination:
+    """Regressions for the 2026-06-11 silent-truncation RCA.
+
+    Upstream bounds every response two ways: LIMIT 500 injected into
+    LIMIT-less Cypher, and byte-budget paging (truncated/next_offset).
+    Ignoring either silently truncated ingests (~887/4669 call edges,
+    500/1233 files).
+    """
+
+    @pytest.mark.asyncio
+    async def test_run_query_drains_byte_budget_pages(self, monkeypatch):
+        from mcp_server.handlers import ingest_codebase_cypher as cyp
+
+        pages = {
+            0: {
+                "rows": [["a"], ["b"]],
+                "columns": ["qn"],
+                "truncated": True,
+                "next_offset": 2,
+            },
+            2: {"rows": [["c"]], "columns": ["qn"], "truncated": False},
+        }
+        seen_offsets: list[int] = []
+
+        async def _call(server, tool, args):
+            seen_offsets.append(args["offset"])
+            return pages[args["offset"]]
+
+        monkeypatch.setattr(cyp, "call_upstream", _call)
+        result, err = await cyp._run_query("/g", "MATCH (n) RETURN n LIMIT 10")
+        assert err is None
+        assert result["rows"] == [["a"], ["b"], ["c"]]
+        assert seen_offsets == [0, 2]
+
+    @pytest.mark.asyncio
+    async def test_run_query_rejects_non_advancing_cursor(self, monkeypatch):
+        from mcp_server.handlers import ingest_codebase_cypher as cyp
+
+        async def _call(server, tool, args):
+            return {
+                "rows": [["a"]],
+                "truncated": True,
+                "next_offset": 0,  # never advances — must not spin forever
+            }
+
+        monkeypatch.setattr(cyp, "call_upstream", _call)
+        result, err = await cyp._run_query("/g", "MATCH (n) RETURN n LIMIT 10")
+        assert result is None
+        assert "non-advancing" in err
+
+    @pytest.mark.asyncio
+    async def test_fetch_files_pages_past_injected_limit(self, monkeypatch):
+        """A LIMIT-less query is capped at 500 rows upstream; fetch_files
+        must page with explicit SKIP/LIMIT to recover all files."""
+        from mcp_server.handlers import ingest_codebase_cypher as cyp
+
+        total = 733
+
+        async def _call(server, tool, args):
+            q = args["query"]
+            skip = int(re.search(r"SKIP (\d+)", q).group(1))
+            limit = int(re.search(r"LIMIT (\d+)", q).group(1))
+            n = max(0, min(limit, total - skip))
+            rows = [[f"f{skip + i}.py", "n", "py", 1] for i in range(n)]
+            return {
+                "rows": rows,
+                "columns": ["path", "name", "extension", "size_bytes"],
+                "truncated": False,
+            }
+
+        monkeypatch.setattr(cyp, "call_upstream", _call)
+        files, diag = await cyp.fetch_files("/g", limit=None)
+        assert diag == []
+        assert len(files) == total
+        assert files[0]["path"] == "f0.py" and files[-1]["path"] == "f732.py"
+
+    @pytest.mark.asyncio
+    async def test_pull_processes_follows_cursor(self, monkeypatch):
+        async def _call(server, tool, args):
+            if args.get("offset", 0) == 0:
+                return {
+                    "processes": [{"name": "p1", "node_count": 1}],
+                    "truncated": True,
+                    "next_offset": 1,
+                }
+            return {
+                "processes": [{"name": "p2", "node_count": 2}],
+                "truncated": False,
+            }
+
+        monkeypatch.setattr(icb, "call_upstream", _call)
+        procs = await icb._pull_processes("/g", None)
+        assert [p["name"] for p in procs] == ["p1", "p2"]
+
+
+class TestProcessPageRendering:
+    def test_node_count_drives_skip_filter(self, no_wiki):
+        """get_processes emits node_count (never symbols/symbol_count);
+        a reader keyed on the wrong field skipped every process as empty
+        and zero wiki pages were ever written."""
+        written = icb_pages.write_process_pages(
+            [
+                {
+                    "name": "empty",
+                    "entry_point": "e0",
+                    "entry_kind": "main",
+                    "depth": 0,
+                    "node_count": 0,
+                },
+                {
+                    "name": "real_flow",
+                    "entry_point": "e1",
+                    "entry_kind": "main",
+                    "depth": 3,
+                    "node_count": 12,
+                },
+            ]
+        )
+        assert written == ["reference/codebase/real-flow.md"]
+        rel, content = no_wiki[0]
+        assert "**Symbols in flow:** 12" in content
+        assert "**BFS depth:** 3" in content
+
+    def test_symbols_overflow_note_uses_node_count(self, no_wiki):
+        proc = {
+            "name": "big",
+            "entry_point": "e2",
+            "entry_kind": "main",
+            "depth": 1,
+            "node_count": 80,
+            "symbols": [f"m::f{i}" for i in range(50)],
+        }
+        icb_pages.write_process_pages([proc])
+        _, content = no_wiki[0]
+        assert "- … and 30 more." in content
+
+
+class TestSymbolPageStride:
+    @pytest.mark.asyncio
+    async def test_paging_loop_visits_every_symbol_without_gaps(self, monkeypatch):
+        """The caller must advance by symbol_page_stride(page_size), not
+        page_size — the old stride skipped per-label rows between
+        page_size//3 and page_size in every window (≈2000 of 3645
+        Functions on the Cortex graph)."""
+        from mcp_server.handlers import ingest_codebase_cypher as cyp
+
+        label_rows = {
+            "Function": [f"fn_{i}" for i in range(7)],
+            "Method": [f"m_{i}" for i in range(2)],
+            "Struct": [],
+        }
+
+        async def _call(server, tool, args):
+            q = args["query"]
+            label = re.search(r"MATCH \(n:(\w+)\)", q).group(1)
+            skip = int(re.search(r"SKIP (\d+)", q).group(1))
+            limit = int(re.search(r"LIMIT (\d+)", q).group(1))
+            window = label_rows[label][skip : skip + limit]
+            return {
+                "columns": [
+                    "qualified_name",
+                    "name",
+                    "start_line",
+                    "end_line",
+                    "visibility",
+                ],
+                "rows": [[qn, qn, 1, 2, ""] for qn in window],
+                "truncated": False,
+            }
+
+        monkeypatch.setattr(cyp, "call_upstream", _call)
+
+        page_size = 9  # stride = 3
+        seen: list[str] = []
+        offset = 0
+        while True:
+            page, diag = await cyp.fetch_symbols_page(
+                "/g", offset=offset, page_size=page_size
+            )
+            assert diag == []
+            if not page:
+                break
+            seen.extend(s["qualified_name"] for s in page)
+            offset += cyp.symbol_page_stride(page_size)
+
+        assert sorted(seen) == sorted(label_rows["Function"] + label_rows["Method"])
+        assert len(seen) == len(set(seen))  # no duplicates either

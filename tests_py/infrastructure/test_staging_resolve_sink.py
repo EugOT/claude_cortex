@@ -88,8 +88,8 @@ def _counts(pool):
 
 def _run(pool):
     entities = [(f"sym_{i}", "function", "verify", 1.0) for i in range(200)]
-    edges = [(f"sym_{i}", f"sym_{i + 1}", "calls", 1.0) for i in range(199)]
-    edges += [(f"sym_{i}", f"ghost_{i}", "calls", 1.0) for i in range(50)]
+    edges = [(f"sym_{i}", f"sym_{i + 1}", "calls", 1.0, "verify") for i in range(199)]
+    edges += [(f"sym_{i}", f"ghost_{i}", "calls", 1.0, "verify") for i in range(50)]
     ent = BackpressurePipeline(
         source=_ListSource(entities),
         sink_factory=lambda: build_entity_sink(pool.connection),
@@ -119,6 +119,61 @@ def test_resolves_and_conserves(pg_pool):
     dangling = rr.rows_in - rr.rows_written
     assert dangling == 50
     assert rr.rows_written + dangling == rr.rows_in
+
+
+def test_entity_dedup_is_domain_scoped(pg_pool):
+    """Same name in TWO domains inserts twice; edges resolve within domain.
+
+    Regression for the 2026-06-11 RCA: a name-global NOT EXISTS made every
+    re-ingest a no-op once ANY domain held the name (all code entities
+    stayed credited to a stale domain), and an unscoped edge JOIN would
+    fan one staged edge into a cross-domain cartesian product.
+    """
+    ents_a = [(f"dup_{i}", "function", "code:projA", 1.0) for i in range(10)]
+    ents_b = [(f"dup_{i}", "function", "code:projB", 1.0) for i in range(10)]
+    edges_b = [
+        (f"dup_{i}", f"dup_{i + 1}", "calls", 1.0, "code:projB") for i in range(9)
+    ]
+    for rows, conc in ((ents_a, 1), (ents_b, 1)):
+        BackpressurePipeline(
+            source=_ListSource(rows),
+            sink_factory=lambda: build_entity_sink(pg_pool.connection),
+            max_batch=64,
+            queue_cap=4,
+            concurrency=conc,
+        ).run()
+    rr = BackpressurePipeline(
+        source=_ListSource(edges_b),
+        sink_factory=lambda: build_edge_sink(pg_pool.connection),
+        max_batch=64,
+        queue_cap=4,
+        concurrency=2,
+    ).run()
+    assert rr.errors == []
+    with pg_pool.connection() as c:
+        per_domain = c.execute(
+            "SELECT domain, COUNT(*) AS n FROM entities "
+            "WHERE name LIKE 'dup_%' GROUP BY domain ORDER BY domain"
+        ).fetchall()
+        # One edge per staged row — endpoints resolved ONLY in code:projB.
+        n_rel = c.execute(
+            "SELECT COUNT(*) AS n FROM relationships r "
+            "JOIN entities s ON s.id = r.source_entity_id "
+            "WHERE s.name LIKE 'dup_%'"
+        ).fetchone()["n"]
+        cross = c.execute(
+            "SELECT COUNT(*) AS n FROM relationships r "
+            "JOIN entities s ON s.id = r.source_entity_id "
+            "JOIN entities t ON t.id = r.target_entity_id "
+            "WHERE s.name LIKE 'dup_%' AND s.domain <> t.domain"
+        ).fetchone()["n"]
+    # trg_entities_domain_normalize lowercases domain on INSERT.
+    assert [(row["domain"], row["n"]) for row in per_domain] == [
+        ("code:proja", 10),
+        ("code:projb", 10),
+    ]
+    assert n_rel == 9
+    assert cross == 0
 
 
 def test_replay_is_idempotent(pg_pool):

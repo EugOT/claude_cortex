@@ -103,34 +103,51 @@ _ENTITY_COPY_SQL = "COPY _stage_entities (name, type, domain, heat) FROM STDIN"
 # cross-table entity-merge migration on the live store. The A3 migration adds
 # only a NON-unique idx_entities_lower_name to keep the NOT EXISTS lookup
 # index-backed. DISTINCT ON collapses intra-batch case variants.
+# Dedup is scoped to (LOWER(name), domain): a name-global NOT EXISTS made
+# every re-ingest a no-op once ANY domain held the name — all code entities
+# stayed credited to the first domain ever ingested (stale code:3.18.4,
+# 2026-06-11 RCA). The same symbol name in two projects is two entities.
+# The stored side is compared against LOWER(s.domain) because the
+# trg_entities_domain_normalize trigger (pg_schema.normalize_domain)
+# lowercases entities.domain on INSERT — comparing against the raw staged
+# value would never match. (The trigger's legacy alias mapping
+# jarvis/cortex-cowork→cortex never applies to code:* ingest domains.)
 # INVARIANT: callers MUST set concurrency=1 for an entity sink pipeline.
 _ENTITY_RESOLVE_SQL = (
     "INSERT INTO entities (name, type, domain, created_at, last_accessed, heat) "
-    "SELECT DISTINCT ON (LOWER(s.name)) s.name, s.type, s.domain, "
-    "       NOW(), NOW(), s.heat "
+    "SELECT DISTINCT ON (LOWER(s.name), LOWER(s.domain)) s.name, s.type, "
+    "       s.domain, NOW(), NOW(), s.heat "
     "FROM _stage_entities s "
     "WHERE NOT EXISTS ("
-    "    SELECT 1 FROM entities e WHERE LOWER(e.name) = LOWER(s.name)"
+    "    SELECT 1 FROM entities e "
+    "    WHERE LOWER(e.name) = LOWER(s.name) AND e.domain = LOWER(s.domain)"
     ")"
 )
 
 _EDGE_STAGE_DDL = (
     "CREATE TEMP TABLE IF NOT EXISTS _stage_edges "
-    "(src_name text, dst_name text, rel_type text, weight real) "
+    "(src_name text, dst_name text, rel_type text, weight real, domain text) "
     "ON COMMIT DELETE ROWS"
 )
-_EDGE_COPY_SQL = "COPY _stage_edges (src_name, dst_name, rel_type, weight) FROM STDIN"
+_EDGE_COPY_SQL = (
+    "COPY _stage_edges (src_name, dst_name, rel_type, weight, domain) FROM STDIN"
+)
 # Requires uq_relationships_directed (A3). The JOIN drops edges whose endpoints
 # were never ingested (dangling) — counted via rows_in - rows_written, NOT
-# silently swallowed.
+# silently swallowed. Endpoint resolution is scoped to the edge's domain:
+# once entities dedup per (name, domain), an unscoped LOWER(name) JOIN would
+# multi-match the same name across domains and fan one staged edge out into
+# a cross-domain cartesian product.
 _EDGE_RESOLVE_SQL = (
     "INSERT INTO relationships "
     "(source_entity_id, target_entity_id, relationship_type, weight, "
     " confidence, created_at, last_reinforced) "
     "SELECT s.id, t.id, es.rel_type, es.weight, 1.0, NOW(), NOW() "
     "FROM _stage_edges es "
-    "JOIN entities s ON LOWER(s.name) = LOWER(es.src_name) "
-    "JOIN entities t ON LOWER(t.name) = LOWER(es.dst_name) "
+    "JOIN entities s "
+    "  ON LOWER(s.name) = LOWER(es.src_name) AND s.domain = LOWER(es.domain) "
+    "JOIN entities t "
+    "  ON LOWER(t.name) = LOWER(es.dst_name) AND t.domain = LOWER(es.domain) "
     "ON CONFLICT (source_entity_id, target_entity_id, relationship_type) "
     "DO NOTHING"
 )
@@ -147,7 +164,8 @@ def build_entity_sink(acquire: ConnectAcquire) -> StagingResolveSink:
 
 
 def build_edge_sink(acquire: ConnectAcquire) -> StagingResolveSink:
-    """Sink for edge rows ``(src_name, dst_name, rel_type, weight)`` — canonical."""
+    """Sink for edge rows ``(src_name, dst_name, rel_type, weight, domain)``
+    — names canonical, endpoints resolved within ``domain``."""
     return StagingResolveSink(
         acquire,
         stage_ddl=_EDGE_STAGE_DDL,
