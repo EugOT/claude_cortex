@@ -4,7 +4,7 @@
 
 **Looking for an arxiv endorser (cs.IR / cs.CL / cs.AI)**
 
-I built a persistent memory system for Claude Code that just scored +33.4% on BEAM-10M — the hardest long-context memory benchmark in the field (Tavakoli et al., ICLR 2026). 10 million tokens per conversation, 200 probing questions, 10 memory abilities.
+I built a persistent memory system for Claude Code that just scored +33.4% on BEAM-10M — the hardest long-context memory benchmark in the field (Tavakoli et al., ICLR 2026). 10 million tokens per conversation, 196 probing questions, 10 memory abilities.
 
 The result that matters: the architecture works **without oracle labels**. Using only timestamps — no ground-truth topic partitioning — it outperforms the oracle-label version (0.471 vs 0.429 MRR). Temporal proximity turns out to be a stronger retrieval signal than topic boundaries for conversational memory.
 

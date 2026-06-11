@@ -248,7 +248,7 @@ Cortex doesn't store memories the way a database stores rows. It treats them mor
 
 **Similar memories stay distinct.** Pattern separation — modeled on the dentate gyrus, which keeps "Tuesday's standup" separate from "Wednesday's standup" even though they're almost identical. Without this, retrieval returns the same generic match for every similar query. *(Leutgeb et al. 2007; Yassa & Stark 2011)*
 
-**45 papers total.** Every algorithm, constant, and threshold traces to a published source. Full citations, equations, ablation data, and per-module implementation audit: **[docs/papers/science.md](docs/papers/science.md)** | **[Thermodynamic memory paper (PDF, 30 pages)](docs/arxiv-thermodynamic/main.pdf)** | **[Structured context assembly paper (PDF, 37 pages)](docs/arxiv-context-assembly/main.pdf)** | **[Research post on structured context assembly](docs/research-post-context-assembly.md)**
+**45 papers total.** Every algorithm, constant, and threshold traces to a published source. Full citations, equations, ablation data, and per-module implementation audit: **[docs/papers/science.md](docs/papers/science.md)** | **[Thermodynamic memory paper (PDF, 34 pages)](docs/arxiv-thermodynamic/main.pdf)** | **[Structured context assembly paper (PDF, 39 pages)](docs/arxiv-context-assembly/main.pdf)** | **[Research post on structured context assembly](docs/research-post-context-assembly.md)**
 
 ---
 
@@ -454,7 +454,7 @@ Every benchmark headline number above is backed by a per-mechanism ablation camp
 - **LoCoMo, 14 rows, n=1986 (pre-plasticity-fix bytes)** — `tasks/e1-v3-locomo-results.md`. Two-baseline (NO_CONSOLIDATION / WITH_CONSOLIDATION) design; empirical resolution of the architectural-mismatch hypothesis (RECONSOLIDATION ΔMRR = +0.0076, ADAPTIVE_DECAY ΔMRR = -0.0163).
 - **LoCoMo, 14 rows, n=1986 (post-plasticity-fix bytes)** — `tasks/e1-v3-locomo-results-post-fix.md`. Re-run on commit `2f45bcb` (descendant of plasticity result-shape fix `5f737fe`); cadence-fix anchor agreement re-validated identically (ΔvsNO = +0.0014); two consolidation-only rows (HOMEOSTATIC_PLASTICITY, SCHEMA_ENGINE) recover positive contributions previously masked by the contract bug.
 
-Total: 45 per-mechanism evidence rows across 26 enum mechanisms (17 read-path + 9 consolidation-only routed to LoCoMo). The full thermodynamic memory paper, including §6.3 per-mechanism evidence and §6.3.4.1 plasticity-fix re-run subsection, is at `docs/arxiv-thermodynamic/main.pdf` (30 pages, all 45 citations resolved). The companion structured context assembly paper is at `docs/arxiv-context-assembly/main.pdf` (37 pages).
+Total: 45 per-mechanism evidence rows across 26 enum mechanisms (17 read-path + 9 consolidation-only routed to LoCoMo). The full thermodynamic memory paper, including §6.3 per-mechanism evidence and §6.3.4.1 plasticity-fix re-run subsection, is at `docs/arxiv-thermodynamic/main.pdf` (34 pages, all 45 citations resolved). The companion structured context assembly paper is at `docs/arxiv-context-assembly/main.pdf` (39 pages).
 
 ## License
 

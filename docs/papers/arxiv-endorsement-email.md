@@ -23,17 +23,17 @@ preprints ready for arXiv that need an endorser before submission.
 Both papers are about long-term memory for LLM agents — a new and active topic
 where current systems collapse at multi-million-token scale. The work is fully
 reproducible, MIT-licensed, and the production code is on GitHub at
-github.com/cdeust/Cortex (★26, growing — Perplexity surfaces it on
+github.com/cdeust/Cortex (★52, growing — Perplexity surfaces it on
 "persistent memory for Claude Code" queries).
 
 **Paper 1 — Stage-Aware Context Assembly for Long-Context Memory Retrieval** (cs.IR)
-- 22 pages, ready to submit
+- 39 pages, ready to submit
 - Headline: +33.4% MRR over flat retrieval on BEAM-10M (ICLR 2026 benchmark, the hardest long-context memory test in the field)
 - The architecture beats the oracle-label version using only timestamps — temporal proximity turns out to be a stronger retrieval signal than ground-truth topic boundaries
 - Designed September 2025 (verifiable commit history) — predates the BEAM paper
 
 **Paper 2 — Thermodynamic Memory vs. Flat-Importance Stores** (cs.IR or cs.CL)
-- 30 pages, ready to submit
+- 34 pages, ready to submit
 - 45 row per-mechanism ablation campaign on LongMemEval (n=500) and LoCoMo (n=1986)
 - LongMemEval R@10 98.4% (vs 78.4% paper best), LoCoMo R@10 94.2%
 - Verification surfaced two real production bugs that were fixed and disclosed in the paper itself — the verification campaign improved the system, not just measured it
@@ -69,7 +69,7 @@ github.com/cdeust/Cortex
 | Email verified | TBD | arXiv sends a confirmation link |
 | Affiliation set in profile | TBD | "Independent Researcher" is acceptable |
 | Endorsement code generated | TBD | Visible after `submit-paper` flow starts |
-| Both PDFs compile clean with bibtex | DONE | 30pp / 22pp, all citations resolve |
+| Both PDFs compile clean with bibtex | DONE | 34pp / 39pp, all citations resolve |
 | Author block has name + affiliation | DONE | "Clement Deust / Independent Researcher" |
 | Code-availability footnote present | DONE | links to github.com/cdeust/Cortex |
 | MIT license on repo | DONE | LICENSE file at root |
