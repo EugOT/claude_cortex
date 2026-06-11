@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.19.4] - 2026-06-12
+
 ### Fixed
 
 - **`/mcp` showed a failing `cortex` server (-32000) whenever the plugin
