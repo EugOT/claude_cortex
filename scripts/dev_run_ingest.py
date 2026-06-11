@@ -24,9 +24,7 @@ async def main() -> int:
 
     from mcp_server.handlers.ingest_codebase import handler
 
-    result = await handler(
-        {"project_path": project_path, "force_reindex": force}
-    )
+    result = await handler({"project_path": project_path, "force_reindex": force})
     print(json.dumps(result, indent=2, default=str))
     return 0 if result.get("ingested") else 1
 
