@@ -1,6 +1,14 @@
 # README Revision Plan (2026-06-11)
 
-Editorial plan — **not executed**. The README needs a storytelling-but-verifiable
+**EXECUTED 2026-06-11 (PM)** — all must-fix and editorial items applied after the
+Paper 2 decay adjudication and Paper 1 provenance resolution settled the data:
+10M cells config-labelled (oracle 0.429 / temporal 0.471 / current-code pair
+0.496/0.523), crossover table added (500K/1M, artefact
+benchmarks/results/beam_crossover/), 100K row labelled as the April 200-Q split,
+decay-improves-retrieval claims removed, Trace view described (no screenshot),
+LongMemEval/LoCoMo tables provenance-labelled. Plan retained below for the record.
+
+Editorial plan — original framing (**not executed** at time of writing). The README needs a storytelling-but-verifiable
 pass, and the data picture shifted overnight (see
 `overnight-assembly-findings-2026-06-11.md`). Piecemeal number swaps are unsafe
 until the Paper 2 decay question is resolved, so this is staged for your call.

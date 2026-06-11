@@ -147,6 +147,8 @@ LongMemEval (Wu et al., ICLR 2025): 500 human-curated questions embedded in ~40 
 | Recall@10 | **98.4%** | The right memory shows up in the top 10 results for nearly every question |
 | MRR | **0.9124** | The correct answer is usually the first or second result |
 
+<sub>n=500, E1 v3 verification campaign (2026-05) — per-row JSONs with code SHAs in `benchmarks/results/ablation/longmemeval-s_v3/`. Re-verified on a clean DB 2026-06-10 post bounded-I/O: R@10 98.4%, MRR 0.916.</sub>
+
 | Category | MRR | R@10 | Why this score |
 |---|---|---|---|
 | Single-session (assistant) | 1.000 | 100.0% | Verbatim assistant responses are easy to match |
@@ -179,16 +181,28 @@ No LLM at query time. No API calls. Just a 22MB embedding model, PostgreSQL with
 
 ### BEAM — 10 million tokens of conversation, one memory system
 
-BEAM (Tavakoli et al., ICLR 2026) is the hardest long-term memory benchmark published. 10 conversations, each spanning 10 million tokens. 200 probing questions across 10 memory abilities, including three that no prior benchmark tests: contradiction resolution, event ordering, and instruction following.
+BEAM (Tavakoli et al., ICLR 2026) is the hardest long-term memory benchmark published. 10 conversations, each spanning 10 million tokens, probed across 10 memory abilities — including three that no prior benchmark tests: contradiction resolution, event ordering, and instruction following. (Question counts vary by split: 196 on 10M, 395 on the current 100K.)
 
-Every system in the paper collapses at this scale. The best result reported (LIGHT on Llama-4-Maverick) scores 0.266. Context-window approaches can't fit it. Standard RAG drowns in noise.
+Every system in the paper collapses at this scale. The best result reported (LIGHT on Llama-4-Maverick) scores 0.266 end-to-end. Context-window approaches can't fit it. Standard RAG drowns in noise.
 
-| Split | WRRF baseline | With Context Assembler | What happened |
+**The collapse is measurable — and structured assembly resists it.** Same code, same day, clean database, 35 conversations per split:
+
+| Split | Flat WRRF | With Context Assembler | Δ |
 |---|---|---|---|
-| BEAM-100K | 0.591 | **0.602** | Flat search still works at small scale |
-| **BEAM-10M** | 0.353 | **0.471 (+33.4%, temporal label-free; 0.429 with oracle labels)** | Structured assembly dominates when flat search drowns |
+| 500K (699 Qs) | 0.500 | **0.570** | +0.070 |
+| 1M (695 Qs) | 0.466 | **0.535** | +0.069 |
 
-<sub>Measurement family: 2026-04, same code revision throughout. BEAM-100K = the 200-question split available at the time (the split later re-based to 395 questions). BEAM-10M = 196 questions / 10 conversations — artefacts `benchmarks/beam/variance/assembler_10m_stagefixed.txt` (oracle 0.429) and `assembler_10m_temporal.txt` (temporal 0.471). Reproduced 2026-06-11 on the current code (fresh DBs, same 196 Qs): oracle 0.496, temporal **0.523** — the temporal advantage persists (`benchmarks/results/beam10m_paired/RESULTS.md`).</sub>
+<sub>Measured 2026-06-11 — `benchmarks/results/beam_crossover/RESULTS.md`. Flat retrieval degrades as the corpus doubles (0.500 → 0.466); the assembler holds a durable +0.07. At small scale the assembler is net-flat (April 100K data: 0.591 flat vs 0.602 assembled, 200-Q split since re-based to 395 Qs) — its value is scale-dependent, not universal.</sub>
+
+**At 10M tokens, the gap widens — and the assembler needs no labels:**
+
+| Configuration | MRR | vs. flat WRRF (0.353) |
+|---|---|---|
+| Flat WRRF baseline | 0.353 | — |
+| Assembler, oracle stage labels (BEAM `plan_id`) | 0.429 | +21.5% |
+| Assembler, **temporal stage detection (timestamps only)** | **0.471** | **+33.4%** |
+
+<sub>2026-04 family, same code revision, 196 questions / 10 conversations — artefacts `benchmarks/beam/variance/assembler_10m_stagefixed.txt` and `assembler_10m_temporal.txt`. Reproduced 2026-06-11 on the current code (fresh DBs, same 196 Qs): oracle 0.496, temporal **0.523** — the temporal advantage persists across code revisions (`benchmarks/results/beam10m_paired/RESULTS.md`).</sub>
 
 **BEAM-10M per-ability breakdown (Temporal Context Assembler — no oracle labels, timestamps only):**
 
@@ -365,6 +379,8 @@ Each page renders with:
 - **`wiki/_dashboards/<project>.md`** — per-project coverage scoreboard, regenerated each consolidate cycle
 
 **Pipeline View** — horizontal Sankey flow from domains through the write gate into consolidation stages. Width of each ribbon = memory volume. Makes retention and drop-off across stages visible at a glance.
+
+**Trace View** — the execution-trace drill. Start at collapsed domain hubs, open one to see its sessions, open a session to walk the ordered prompt → action → file chain of what actually happened, and drill into any file for its AST symbols, impact neighbourhood, and git history. Everything is served live from the session JSONL, the code property graph, and git on each request — no snapshots, so the trace is always current. It answers "what did Claude actually do, in what order, and what did it touch?" the way the Graph view answers "what connects to what."
 
 ---
 

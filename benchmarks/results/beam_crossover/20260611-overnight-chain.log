@@ -1,0 +1,149 @@
++/tmp/paper-compute-runs.sh:3> cd /Users/cdeust/Developments/Cortex
++/tmp/paper-compute-runs.sh:4> export DATABASE_URL=postgresql://localhost:5432/cortex_bench_papers
++/tmp/paper-compute-runs.sh:5> dropdb --if-exists cortex_bench_papers
+NOTICE:  database "cortex_bench_papers" does not exist, skipping
++/tmp/paper-compute-runs.sh:5> createdb cortex_bench_papers
++/tmp/paper-compute-runs.sh:7> echo '=== FIX 1.1B: BEAM-10M TemporalStageDetector vs oracle ==='
+=== FIX 1.1B: BEAM-10M TemporalStageDetector vs oracle ===
++/tmp/paper-compute-runs.sh:8> CORTEX_USE_ASSEMBLER=1 CORTEX_STAGE_DETECTOR=temporal .venv/bin/python benchmarks/beam/run_benchmark.py --split 10M
++/tmp/paper-compute-runs.sh:8> tail -25
+========================================================================
+BEAM Benchmark Results — Cortex (PostgreSQL)
+========================================================================
+
+Ability                         MRR    R@5   R@10   Qs   LIGHT
+----------------------------------------------------------------------
+abstention                    0.850 85.0% 85.0%   20   0.750
+contradiction_resolution      0.850 90.0% 90.0%   20   0.050
+event_ordering                0.100 10.0% 10.0%   20   0.266
+information_extraction        0.567 75.0% 75.0%   20   0.375
+instruction_following         0.192 25.0% 25.0%   20   0.500
+knowledge_update              0.975 100.0% 100.0%   20   0.375
+multi_session_reasoning       0.492 65.0% 65.0%   20   0.000
+preference_following          0.600 65.0% 65.0%   20   0.483
+summarization                 0.167 27.8% 27.8%   16   0.277
+temporal_reasoning            0.442 50.0% 50.0%   20   0.075
+----------------------------------------------------------------------
+OVERALL                       0.523 59.3% 59.3%  196   0.329
+
+Total time: 6170.8s (617.1s/conversation)
+Conversations: 10, Split: 10M
+
+Note: LIGHT scores are full QA (LLM-as-judge), not retrieval-only.
+      Cortex scores here are retrieval MRR/Recall — not directly comparable
+      but show retrieval quality that feeds downstream QA.
++/tmp/paper-compute-runs.sh:10> echo '=== FIX 1.2: crossover — WRRF vs assembler at 500K and 1M ==='
+=== FIX 1.2: crossover — WRRF vs assembler at 500K and 1M ===
++/tmp/paper-compute-runs.sh:11> split=500K
++/tmp/paper-compute-runs.sh:12> echo '--- 500K plain WRRF ---'
+--- 500K plain WRRF ---
++/tmp/paper-compute-runs.sh:13> .venv/bin/python benchmarks/beam/run_benchmark.py --split 500K
++/tmp/paper-compute-runs.sh:13> tail -12
+preference_following          0.346 45.7% 50.0%   70   0.483
+summarization                 0.280 42.9% 52.9%   70   0.277
+temporal_reasoning            0.730 85.7% 88.6%   70   0.075
+----------------------------------------------------------------------
+OVERALL                       0.500 59.6% 63.7%  699   0.329
+
+Total time: 1711.3s (48.9s/conversation)
+Conversations: 35, Split: 500K
+
+Note: LIGHT scores are full QA (LLM-as-judge), not retrieval-only.
+      Cortex scores here are retrieval MRR/Recall — not directly comparable
+      but show retrieval quality that feeds downstream QA.
++/tmp/paper-compute-runs.sh:14> echo '--- 500K assembler (explicit) ---'
+--- 500K assembler (explicit) ---
++/tmp/paper-compute-runs.sh:15> CORTEX_USE_ASSEMBLER=1 .venv/bin/python benchmarks/beam/run_benchmark.py --split 500K
++/tmp/paper-compute-runs.sh:15> tail -12
+preference_following          0.514 68.6% 68.6%   70   0.483
+summarization                 0.285 40.0% 41.4%   70   0.277
+temporal_reasoning            0.602 67.1% 67.1%   70   0.075
+----------------------------------------------------------------------
+OVERALL                       0.570 65.1% 65.4%  699   0.329
+
+Total time: 12486.2s (356.7s/conversation)
+Conversations: 35, Split: 500K
+
+Note: LIGHT scores are full QA (LLM-as-judge), not retrieval-only.
+      Cortex scores here are retrieval MRR/Recall — not directly comparable
+      but show retrieval quality that feeds downstream QA.
++/tmp/paper-compute-runs.sh:11> split=1M
++/tmp/paper-compute-runs.sh:12> echo '--- 1M plain WRRF ---'
+--- 1M plain WRRF ---
++/tmp/paper-compute-runs.sh:13> .venv/bin/python benchmarks/beam/run_benchmark.py --split 1M
++/tmp/paper-compute-runs.sh:13> tail -12
+preference_following          0.369 50.0% 61.4%   69   0.483
+summarization                 0.332 48.5% 57.4%   66   0.277
+temporal_reasoning            0.709 88.6% 90.0%   70   0.075
+----------------------------------------------------------------------
+OVERALL                       0.466 58.3% 63.4%  695   0.329
+
+Total time: 2189.2s (62.5s/conversation)
+Conversations: 35, Split: 1M
+
+Note: LIGHT scores are full QA (LLM-as-judge), not retrieval-only.
+      Cortex scores here are retrieval MRR/Recall — not directly comparable
+      but show retrieval quality that feeds downstream QA.
++/tmp/paper-compute-runs.sh:14> echo '--- 1M assembler (explicit) ---'
+--- 1M assembler (explicit) ---
++/tmp/paper-compute-runs.sh:15> CORTEX_USE_ASSEMBLER=1 .venv/bin/python benchmarks/beam/run_benchmark.py --split 1M
++/tmp/paper-compute-runs.sh:15> tail -12
+preference_following          0.510 65.7% 65.7%   69   0.483
+summarization                 0.338 52.9% 55.9%   66   0.277
+temporal_reasoning            0.597 65.7% 67.1%   70   0.075
+----------------------------------------------------------------------
+OVERALL                       0.535 62.6% 63.9%  695   0.329
+
+Total time: 14607.4s (417.4s/conversation)
+Conversations: 35, Split: 1M
+
+Note: LIGHT scores are full QA (LLM-as-judge), not retrieval-only.
+      Cortex scores here are retrieval MRR/Recall — not directly comparable
+      but show retrieval quality that feeds downstream QA.
++/tmp/paper-compute-runs.sh:18> echo '=== FIX 2.4A: full E2 sweeps N=1e3,1e4,1e5 ==='
+=== FIX 2.4A: full E2 sweeps N=1e3,1e4,1e5 ===
++/tmp/paper-compute-runs.sh:19> .venv/bin/python benchmarks/lib/e2_zipf_runner.py --n 1000 10000 100000 --db-url postgresql://localhost:5432/cortex_bench_papers
++/tmp/paper-compute-runs.sh:19> tail -15
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 234.91it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 230.52it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 231.87it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 225.83it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 227.62it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 226.77it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 233.43it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 224.58it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 233.42it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 225.84it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 227.37it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 231.70it/s]
+    r@1=1.000 r@10=1.000 mrr=1.000 (3076.7ms/q rss_peak=45.9MB)
+    -> benchmarks/results/e2_zipf/20260611T015337Z/100000_cortex_flat.json
+summary: benchmarks/results/e2_zipf/20260611T015337Z/summary.csv
++/tmp/paper-compute-runs.sh:20> .venv/bin/python benchmarks/lib/e2_subsample_runner.py --benchmark beam --n 1000 10000 100000 --db-url postgresql://localhost:5432/cortex_bench_papers
++/tmp/paper-compute-runs.sh:20> tail -15
+usage: e2_subsample_runner.py [-h]
+                              --benchmark {longmemeval-s,locomo,beam-100K}
+                              --n N [N ...] [--queries QUERIES] [--seed SEED]
+                              [--quick] [--db-url DB_URL]
+e2_subsample_runner.py: error: argument --benchmark: invalid choice: 'beam' (choose from longmemeval-s, locomo, beam-100K)
++/tmp/paper-compute-runs.sh:22> echo '=== decay dose-response: lambda curve ==='
+=== decay dose-response: lambda curve ===
++/tmp/paper-compute-runs.sh:23> .venv/bin/python benchmarks/lib/decay_sweep_runner.py --benchmark beam --lambda 0.90 0.925 0.95 0.975 0.99 1.0
++/tmp/paper-compute-runs.sh:23> tail -15
+[sweep] λ=1.0 — applying DDL override…
+[sweep] λ=1.0  MRR=0.545  R@10=0.744  (741.8s)
+
+[sweep] restoring production p_factor…
+
+[sweep] curve analysis:
+  optimum_lambda: 1.0
+  optimum_mrr: 0.545
+  plateau_lo: 1.0
+  plateau_hi: 1.0
+  plateau_width: 0.0
+  slope_left: 4.2
+  slope_right: None
+
+[sweep] DONE → /Users/cdeust/Developments/Cortex/benchmarks/results/decay_sweep/20260611T052523Z
++/tmp/paper-compute-runs.sh:25> echo '=== ALL COMPUTE RUNS DONE ==='
+=== ALL COMPUTE RUNS DONE ===
