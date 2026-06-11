@@ -54,14 +54,19 @@ the published retrieval baselines), and a retrieval-proxy MRR of
 \emph{not} commensurable with BEAM's end-to-end LLM-as-judge score;
 we therefore make no head-to-head BEAM claim and use BEAM only for
 within-system, same-harness comparisons (\S\ref{sec:beam-proxy}).
-A direct decay dose--response on BEAM isolates the mechanism:
-disabling the Ebbinghaus heat decay (setting the per-hour retention
-factor to 1.0) drops retrieval-proxy MRR from 0.671 to 0.399
-($-41\%$) and R@10 from 0.867 to 0.567, on the same code path.  The
-benefit is regime-dependent: it requires a corpus with differential
-access history (\S\ref{sec:regime}); on single-pass,
-isolated-haystack evaluations decay is neutral-to-slightly-negative,
-exactly as its mechanism-of-action predicts.  We characterise when
+A direct decay dose--response on BEAM, re-measured forensically on a
+clean store, reverses an earlier finding of ours: on a freshly loaded
+corpus decay contributes no ranking benefit (six-point
+$\lambda$-sweep, 395 questions; $\lambda = 1.0$ weakly optimal at MRR
+0.545 versus a flat 0.503 plateau for all $\lambda < 1$).  An earlier
+two-point sweep that had shown $+68\%$ from decay is traced, by
+factor isolation (same code, same sample, clean versus contaminated
+store), to store contamination: decay had been cooling stale
+out-of-task memories below the retrieval heat floor.  We therefore
+re-scope decay's measured value as store \emph{hygiene} and capacity
+control---protective in long-lived stores that accumulate stale
+content, neutral-to-slightly-negative for ranking on clean
+single-pass loads (\S\ref{sec:decay-dose}).  We characterise when
 flat memory remains adequate, quantify the calibration cost of
 decay, and bound the per-write overhead of biological
 consolidation.  Code, data, and benchmark harness are publicly
@@ -578,20 +583,23 @@ holds (\S\ref{sec:regime}), we open the integrated number on a
 single benchmark and ask which of the \S\ref{sec:thermodynamic} mechanisms
 carry it.
 
-\subsection{Direct Dose--Response: Decay On vs.\ Off on BEAM}
+\subsection{Direct Dose--Response: Decay On vs.\ Off on BEAM
+(a Negative Result, and the Confound That Hid It)}
 \label{sec:decay-dose}
 
 The per-mechanism ablations of \S\ref{sec:per-mechanism} are run on
 isolated-haystack benchmarks where every memory is written
 milliseconds before retrieval, so the heat distribution is uniform
 by construction (\S\ref{sec:regime}).  To measure decay where its
-mechanism-of-action applies, we run a direct dose--response on
+mechanism-of-action could apply, we run a direct dose--response on
 BEAM-100K, varying only the per-hour heat-retention factor
-$\lambda_{\mathrm{base}}$ between the engineering default $0.95$ and
-$1.0$ (decay fully disabled), holding the entire rest of the stack
-and the same \texttt{recall\_memories()} code path fixed.  Artefact:
-\texttt{benchmarks/results/decay\_sweep/20260430T111134Z/}
-(\texttt{summary.csv}, \texttt{analysis.json}).
+$\lambda_{\mathrm{base}}$, holding the entire rest of the stack and
+the same \texttt{recall\_memories()} code path fixed.
+
+\paragraph{Clean-store dose--response (the result).}
+Six-point $\lambda$-sweep on a freshly created benchmark database,
+full 395-question BEAM-100K.  Artefact:
+\texttt{benchmarks/results/decay\_sweep/20260611T052523Z/}.
 
 \begin{center}
 \small
@@ -599,25 +607,91 @@ and the same \texttt{recall\_memories()} code path fixed.  Artefact:
 \toprule
 $\lambda_{\mathrm{base}}$ & retrieval-proxy MRR & R@10 \\
 \midrule
-$0.95$ (decay on)  & \textbf{0.671} & \textbf{0.867} \\
-$1.00$ (decay off) & 0.399 & 0.567 \\
-\midrule
-$\Delta$ (on $-$ off) & $+0.272$ ($+68\%$) & $+0.300$ \\
+$0.90$  & 0.503 & 0.687 \\
+$0.925$ & 0.500 & 0.684 \\
+$0.95$ (engineering default) & 0.503 & 0.684 \\
+$0.975$ & 0.503 & 0.687 \\
+$0.99$  & 0.503 & 0.684 \\
+$1.00$ (decay off) & \textbf{0.545} & \textbf{0.744} \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Disabling decay removes $41\%$ of retrieval-proxy MRR
-($0.272/0.671$) and $35\%$ of R@10 ($0.300/0.867$) on the same code
-path.  The sweep's two-point grid places the optimum at
-$\lambda_{\mathrm{base}} = 0.95$ with a measured sensitivity slope
-of $\approx -5.44$ MRR per unit $\lambda$ near the decay-off boundary
-(\texttt{analysis.json}: \texttt{slope\_right} $= -5.44$); the
-plateau width at $\varepsilon = 0.005$ MRR is the single optimum
-cell (\texttt{plateau\_width} $= 0$ grid spacing on this two-point
-sweep).  This is the dose--response that the isolated-haystack
-ablations cannot produce, and it is the load-bearing evidence that
-decay is causal in the regime where access history is heterogeneous.
+Decay-off is weakly optimal ($+0.042$ MRR over the flat
+$\approx 0.503$ plateau spanning every $\lambda < 1$;
+\texttt{analysis.json}: \texttt{optimum\_lambda} $= 1.0$).  On a
+clean store, decay contributes no ranking benefit on BEAM and costs
+a small amount.  This is a negative result for the hypothesis that
+heat decay is a retrieval-\emph{quality} mechanism in this setting,
+and it corrects an earlier finding of ours, as follows.
+
+\paragraph{The earlier artefact and its forensic resolution.}
+An earlier two-point sweep
+(\texttt{benchmarks/results/decay\_sweep/20260430T111134Z/}, quick
+mode $=$ 3 BEAM conversations) had shown the opposite: $\lambda =
+0.95$ at MRR 0.671 versus $\lambda = 1.0$ at 0.399, a $+0.272$
+($+68\%$) advantage for decay that earlier drafts of this paper
+reported as load-bearing evidence.  When the clean six-point sweep
+above failed to reproduce it, we isolated the factors one at a time:
+
+\begin{center}
+\small
+\begin{tabular}{llrrr}
+\toprule
+code path & store & $\lambda{=}0.95$ & $\lambda{=}1.0$ & $\Delta$ \\
+\midrule
+Apr-30 commit & contaminated & 0.671 & 0.399 & $+0.272$ \\
+Apr-30 commit & clean        & 0.671 & 0.671 & $0.000$ \\
+current       & clean        & 0.694 & 0.694 & $0.000$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent (All three rows: identical quick-mode 3-conversation
+sample.  Row 1 is the committed artefact; rows 2--3:
+\texttt{benchmarks/results/decay\_sweep/20260611T081541Z-apr30code-cleandb/}
+and \texttt{.../20260611T080828Z/}.)  Re-running the \emph{exact}
+April commit on a freshly created database lifts the decay-off
+condition from 0.399 to 0.671 and erases the entire gap.  The only
+factor that changes between rows 1 and 2 is database cleanliness:
+the $+68\%$ was a contaminated-store confound, not a property of the
+decay mechanism.
+
+\paragraph{What the confound reveals (decay as hygiene).}
+The explanation consistent with all four measurements: in the
+contaminated store, stale memories from prior benchmark runs
+competed with the gold memories at retrieval time.  With decay
+enabled, those stale items had cooled below the recall heat floor
+(\texttt{recall\_memories()} filters candidates at
+\texttt{effective\_heat} $\geq$ \texttt{p\_min\_heat}) and were
+excluded; with $\lambda = 1.0$ they stayed permanently hot and
+polluted the ranking.  Decay was not improving the ranking of
+relevant memories---it was suppressing garbage.  On a clean store
+there is no garbage to suppress, and because BEAM ingests every
+memory at effectively one instant, \texttt{effective\_heat} is
+near-uniform across items and the ranking is invariant to $\lambda$
+(rows 2--3: bit-identical MRR at both $\lambda$ values).  We could
+not re-inspect the original contaminated store (it was rebuilt
+between runs), so the cooling-below-floor mechanism is the inferred
+explanation consistent with the data rather than a directly observed
+one; the factor isolation itself (contamination, not code, produced
+the gap) is directly measured.
+
+\paragraph{Re-scoped claim.}
+We withdraw the claim that decay is causal for retrieval quality on
+heterogeneous-access corpora.  The defensible, measured claim is
+operational: decay bounds the effective working set of a long-lived
+store and suppresses accumulated stale content---a \emph{hygiene and
+capacity} mechanism.  The contaminated-store row is, read honestly,
+a demonstration of exactly that value ($0.399 \to 0.671$ proxy-MRR
+recovery in a polluted store), and the longitudinal aging control
+(\S\ref{sec:regime}) shows the complementary safety property: decay
+does not erode old-but-relevant items within a year.  Whether decay
+earns retrieval-quality lift in stores with genuinely differential
+\emph{access} histories accumulated over weeks of live use (rather
+than single-instant benchmark ingestion) remains an open question
+that none of our current benchmarks can answer
+(\S\ref{sec:limitations}).
 
 \subsection{Per-mechanism evidence (LongMemEval-S, $n{=}500$)}
 \label{sec:per-mechanism}
@@ -706,12 +780,16 @@ uniformly-fresh items---hence the small negative $\Delta$ (LME-S
 $-0.0014$, LoCoMo $-0.0163$).  This is not evidence against decay;
 it is the predicted null (and slight harm) of applying a
 longitudinal mechanism to a corpus with no longitudinal structure.
-The decay dose--response of \S\ref{sec:decay-dose}, run on BEAM
-where access history is heterogeneous, measures the mechanism in the
-regime where its mechanism-of-action applies, and there decay
-contributes $+0.272$ MRR.  The two results are consistent: decay
-helps exactly where there is access-history structure to exploit,
-and is inert where there is not.
+The decay dose--response of \S\ref{sec:decay-dose}, run on BEAM on a
+clean store, agrees: decay is neutral-to-slightly-negative for
+ranking there too ($0.503$ vs $0.545$ at $\lambda{=}1.0$, full
+395-question sample), because benchmark ingestion writes every
+memory at effectively one instant and leaves no differential heat
+for decay to exploit.  The two results are consistent in the
+opposite direction from our earlier draft: across every benchmark we
+can measure, decay adds no ranking signal; its measured value
+appears only when the store is contaminated with stale content,
+where it acts as hygiene (\S\ref{sec:decay-dose}).
 
 \subsubsection{Per-category specialization (the load-bearing finding)}
 \label{sec:per-mech-category}
@@ -1042,10 +1120,13 @@ has structure to exploit.}  We characterise that regime explicitly.
 \begin{enumerate}
 \item \emph{Corpus size $N$.}  The \S\ref{sec:flat-failure} collapse
   argument is asymptotic; at small $N$ vector similarity alone
-  disambiguates and heat has nothing to add.  The crossover where
-  decay starts to dominate sits empirically near $N \approx 10^4$
-  for the corpora we measured; below this, well-tuned flat RAG is
-  competitive.
+  disambiguates and heat has nothing to add.  On clean synthetic
+  corpora we observe \emph{no} crossover up to $N = 10^5$: the flat
+  variant matches or beats the full stack at every $N$ measured
+  (see the regime controls below).  The asymptotic argument
+  therefore remains empirically untested in our setting; if a
+  crossover exists it sits beyond the corpus sizes and
+  single-instant ingestion patterns our benchmarks reach.
 \item \emph{Access density $K/N$ (write-time accesses per memory).}
   Heat is signal only when items have differential access histories.
   On a corpus where every item is touched once, the priority
@@ -1063,17 +1144,22 @@ has structure to exploit.}  We characterise that regime explicitly.
   heterogeneity for heat to reflect.}
 \end{enumerate}
 
-\paragraph{Regime controls (preliminary).}
+\paragraph{Regime controls.}
 Two controls bound the operating regime.  On a uniform-random
 synthetic corpus (no access-history structure), \texttt{cortex\_full}
 and \texttt{cortex\_flat} produce identical metrics to four decimal
 places at $N=100$ (\texttt{benchmarks/results/e2\_zipf/}), confirming
 the harness is well-controlled and that decay is inert without
-structure.  A Zipf-$\alpha{=}1.5$ access pattern at $N=100$ is
-likewise saturated (both at MRR 1.0).  The full
-$N \in \{10^3,10^4,10^5\}$ curve that would locate the crossover is
-in progress; we report the committed points here and defer the curve
-to a revision rather than report unreproduced figures.  Independently,
+structure.  The full Zipf-$\alpha{=}1.5$ curve
+(\texttt{benchmarks/results/e2\_zipf/20260611T015337Z/}) does not
+locate a crossover in the full stack's favour---it shows the
+opposite: \texttt{cortex\_flat} matches or beats \texttt{cortex\_full}
+at every $N$ (MRR full vs flat: $0.980$ vs $0.998$ at $N{=}10^3$,
+$0.645$ vs $1.000$ at $10^4$, $0.622$ vs $1.000$ at $10^5$), with
+the gap widening as $N$ grows.  The synthetic ground truth may
+structurally favour flat relevance retrieval, but the direction
+agrees with the clean-store dose--response of
+\S\ref{sec:decay-dose}, and we report it accordingly.  Independently,
 a longitudinal aging control ($N=5000$, queries bucketed by memory
 age 30--360 days; \texttt{benchmarks/results/longitudinal/}) shows
 retrieval is stable across age: R@10 ranges 0.98--1.00 from the
@@ -1086,21 +1172,28 @@ $10^6$ per active user, with realistic conversational access
 patterns ($K/N \gg 1$, heterogeneous topics).  This is the regime
 where the headline numbers were measured.  Users in the cold-start
 regime ($N < 10^3$, no access history yet) get vector-baseline
-retrieval quality, which is also what flat RAG would give them;
-once they cross $N \approx 10^4$ with accumulated access history,
-the thermodynamic stack contributes the lift reported in
-\S\ref{sec:empirical}.
+retrieval quality, which is also what flat RAG would give them.  As
+the store grows and ages, decay's role is protective rather than
+discriminative: it keeps accumulated stale content from polluting
+retrieval (\S\ref{sec:decay-dose}) while the integrated stack's
+ranking lift (\S\ref{sec:empirical}) is carried by fusion, gating,
+and consolidation.
 
-\paragraph{The honest framing.}  Decay is not a magic bullet that
-always helps.  It is a mechanism that converts
-\emph{structure-the-corpus-already-has} into a discriminative
-ranking signal.  Where the structure is absent (uniform-random
-synthetic, single-pass loads, micro-corpora) it adds bounded latency
-cost and no retrieval benefit.  Where the structure is present
-(long-running conversational memory, multi-session reasoning, mature
-deployments) it lifts retrieval by the amounts \S\ref{sec:empirical}
-reports.  The regime where it lifts is the regime where long-term
-agent memory operates.
+\paragraph{The honest framing.}  Decay is not a ranking mechanism on
+any corpus we can measure.  Every clean-store measurement we
+have---isolated-haystack ablations, the BEAM dose--response, the
+Zipf synthetic curve---finds it neutral to slightly negative for
+retrieval quality.  Its measured value is operational: it bounds the
+effective working set of a long-lived store and suppresses
+accumulated stale content, recovering substantial retrieval quality
+in a contaminated store ($0.399 \to 0.671$ proxy-MRR,
+\S\ref{sec:decay-dose}) while not eroding old-but-relevant items
+(the aging control above).  The headline retrieval numbers of
+\S\ref{sec:empirical} are carried by the rest of the stack---fusion,
+gating, consolidation---not by decay's contribution to ranking.
+Whether weeks of genuinely differential live access history would
+give decay a ranking role is an open question our single-instant
+ingestion benchmarks cannot answer.
 
 \medskip
 \noindent We turn next to limitations that hold even within the
@@ -1301,15 +1394,23 @@ memories---implemented through heat decay, a hierarchical
 predictive-coding write gate, neuromodulatory tagging, and a
 four-stage consolidation cascade---and by using that distribution
 as both a retrieval prior and a tie-breaker in WRRF fusion.  On
-three long-term-memory benchmarks, Cortex outperforms the published
-bests by margins consistent with the theoretical argument: largest
-on the question categories that most require non-flat priors,
-smaller on surface-fact retrieval where similarity alone suffices.
+three long-term-memory benchmarks, the integrated stack outperforms
+the published bests: largest on the question categories that most
+require non-flat priors, smaller on surface-fact retrieval where
+similarity alone suffices.
 
-The ablation work needed to make this story tight---per-mechanism
-contribution to each benchmark, dose--response curves for the decay
-constants, head-to-head re-runs of published baselines on the same
-protocol---is the natural next step.
+The per-mechanism decomposition and the clean-store decay
+dose--response (\S\ref{sec:decay-dose}) qualify the attribution: the
+ranking lift is carried by fusion, gating, and consolidation, while
+heat decay---the mechanism the theoretical argument most directly
+motivates---contributes hygiene and capacity control rather than
+ranking signal on every corpus we can measure.  The asymptotic
+collapse argument (Appendix~\ref{app:shannon}) therefore remains
+empirically untested at reachable $N$ and single-instant ingestion;
+testing it requires a benchmark whose store accumulates genuinely
+differential access history over weeks of live use.  That benchmark,
+together with head-to-head re-runs of published baselines on the
+same protocol, is the natural next step.
 
 %----------------------------------------------------------------------
 \appendix
@@ -1744,11 +1845,20 @@ Optimal decay $\lambda^*$ & maximal, unique       & random argument (Thm~3) \\
 \end{table}
 
 The crossover $N_{\mathrm{cross}} \approx 10^4$ ($k=10$,
-$\gamma=1.2$, $\sigma=0.05$) demarcates the regime in which decay
-is optional (small corpora) from the regime in which it is
-necessary (production-scale memory).  LongMemEval at
-$N \approx 10^5$ is firmly in the latter, predicting the observed
-$78.4\% \to 98.4\%$ improvement.
+$\gamma=1.2$, $\sigma=0.05$) demarcates, \emph{within the model},
+the regime in which decay is optional (small corpora) from the
+regime in which it would become necessary (production-scale
+memory).  We caution that this prediction is not corroborated by
+our measurements: the clean-store dose--response and Zipf controls
+(\S\ref{sec:decay-dose}, \S\ref{sec:regime}) find no crossover up
+to $N = 10^5$ under single-instant benchmark ingestion, and the
+observed $78.4\% \to 98.4\%$ LongMemEval improvement is carried by
+the integrated stack (fusion, gating, consolidation), not by decay
+(per-mechanism ablation, \S\ref{sec:per-mechanism}).  The theorem's
+premises---a store with genuinely differential access history
+accumulated over time---are not instantiated by any benchmark we
+can currently run; the prediction stands as falsifiable, untested
+theory.
 
 %----------------------------------------------------------------------
 \section{Falsifiability Audit (Popper Protocol)}
@@ -1821,8 +1931,17 @@ in $N$.
         claim is refuted.
 \end{itemize}
 
-\textbf{Current evidence.} \textbf{UNTESTED} at the scaling level.
-Each benchmark provides a single $N$-point.
+\textbf{Current evidence.} \textbf{TESTED on synthetic; refuted in
+that regime.}  The Zipf-$\alpha{=}1.5$ $N$-scan
+(\texttt{benchmarks/results/e2\_zipf/20260611T015337Z/};
+\S\ref{sec:regime}) runs exactly this protocol on synthetic corpora
+and finds the gap \emph{negative and widening in flat's favour}
+($N{=}10^3$: full 0.980 vs flat 0.998; $10^4$: 0.645 vs 1.000;
+$10^5$: 0.622 vs 1.000).  In the synthetic single-instant-ingestion
+regime the monotone-gap prediction is refuted.  The claim survives
+only as restricted to corpora with genuinely differential access
+history, which remains UNTESTED (each real benchmark provides a
+single $N$-point and single-instant ingestion).
 
 \subsection{C2 --- Heat Decay Alone is Sufficient to Prevent Collapse (severity: high)}
 \label{app:popper-c2}
@@ -1842,7 +1961,16 @@ mechanism only.  Run on LongMemEval, LoCoMo, BEAM.  Threshold: if
 the no-decay ablation recovers $\ge 50\%$ of the gap to flat-RAG,
 the ``decay alone is sufficient'' claim is refuted.
 
-\textbf{Current evidence.} \textbf{UNTESTED.}
+\textbf{Current evidence.} \textbf{REFUTED in the measurable
+regime.}  The clean-store BEAM dose--response
+(\S\ref{sec:decay-dose}) finds decay-off \emph{weakly better} than
+decay-on (MRR 0.545 vs 0.503), and the per-mechanism ablations
+(\S\ref{sec:per-mechanism}) find decay's isolated contribution
+sub-noise-floor to slightly negative on LME-S and LoCoMo.  Decay is
+not merely insufficient to prevent collapse on these corpora---it
+contributes no ranking signal at all.  The claim could survive only
+in a store with genuinely differential live access history, which
+no current benchmark instantiates.
 
 \subsection{C5 --- 98.4\% LongMemEval R@10 Generalizes Beyond the Benchmark (severity: high)}
 \label{app:popper-c5}
