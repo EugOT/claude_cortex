@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.19.3] - 2026-06-11
+
 ### Fixed
 
 - **`ingest_codebase` silently truncated every ingest — four wiring bugs
