@@ -1782,6 +1782,21 @@ the assembler does not need oracle metadata; whether temporal
 partitioning transfers to corpora whose topic structure is
 decoupled from time is an open question.
 
+\paragraph{Reproduction on a later code revision.}
+Both configurations were re-run two months later on the
+then-current retrieval stack (which had absorbed unrelated scoring
+revisions), each against a freshly created database, same 196
+questions: oracle 0.496 MRR / R@10 62.5\%, temporal \textbf{0.523}
+MRR / R@10 59.3\% (artefact
+\texttt{benchmarks/results/beam10m\_paired/RESULTS.md}).  The
+temporal MRR advantage reproduces ($+0.027$, vs.\ $+0.042$ on the
+original revision), and the same fine structure recurs in both
+pairs: temporal wins MRR while oracle holds a small R@10 edge---
+temporal partitioning ranks the gold memory higher when it is
+retrieved, while oracle boundaries retrieve it slightly more often.
+Absolute numbers are comparable only within a pair, not across code
+revisions.
+
 \subsection{Comparison with LIGHT}
 \label{sec:light-comparison}
 
