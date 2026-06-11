@@ -8,9 +8,9 @@ scenarios:
 
 Also verifies CLAUDE_PLUGIN_DATA controls deps_dir location.
 
-Source: Discord report 2026-05-09 — `.mcp.json` now uses
-${CLAUDE_PLUGIN_ROOT} substitution; we must confirm the launcher
-honours it correctly.
+Source: Discord report 2026-05-09 — the plugin MCP config (inline in
+.claude-plugin/plugin.json) uses ${CLAUDE_PLUGIN_ROOT} substitution;
+we must confirm the launcher honours it correctly.
 """
 
 from __future__ import annotations

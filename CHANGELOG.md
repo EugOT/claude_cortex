@@ -6,6 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`/mcp` showed a failing `cortex` server (-32000) whenever the plugin
+  source repo itself was the working directory.** The repo-root
+  `.mcp.json` served double duty: plugin MCP config (plugin.json
+  referenced it as `"./.mcp.json"`) AND — unintentionally —
+  project-scoped MCP config picked up by Claude Code when working in
+  this repo. In project scope `${CLAUDE_PLUGIN_ROOT}` is never
+  substituted (it is plugin-scope only), so the spawn ran
+  `python3 '<repo>/${CLAUDE_PLUGIN_ROOT}/scripts/launcher.py'` → ENOENT
+  → "MCP error -32000: Connection closed", shadowing the healthy
+  plugin-scoped server (`plugin:cortex:cortex`, which connected in
+  ~1.7s in the same session's logs). Fix: the MCP server config moved
+  inline into `.claude-plugin/plugin.json` `mcpServers` (documented
+  form, plugins-reference) and the repo-root `.mcp.json` was deleted —
+  inline plugin config is invisible to project-scope discovery. The
+  contract test now reads the inline object and pins the absence of a
+  repo-root `.mcp.json`.
+
 ## [3.19.3] - 2026-06-11
 
 ### Fixed

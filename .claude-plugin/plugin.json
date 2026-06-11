@@ -25,7 +25,20 @@
       "default": "postgresql://127.0.0.1:5432/cortex"
     }
   },
-  "mcpServers": "./.mcp.json",
+  "mcpServers": {
+    "cortex": {
+      "command": "python3",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/launcher.py",
+        "mcp_server"
+      ],
+      "env": {
+        "DATABASE_URL": "${user_config.database_url}",
+        "CORTEX_RUNTIME": "",
+        "CORTEX_MEMORY_AP_ENABLED": "1"
+      }
+    }
+  },
   "postInstall": {
     "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/install-plugin.sh",
     "message": "Installing Cortex (PostgreSQL + pgvector + Python deps + embedding model) and removing any stale older Cortex installs..."
