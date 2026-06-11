@@ -85,6 +85,16 @@ _DEFAULT_SENSORY_PREDICTIONS = {
 }
 
 
+def extract_sensory_features(content: str) -> dict[str, float]:
+    """Public Level 0 (sensory) feature vector for a single document.
+
+    Callers building ``recent_memories_features`` for
+    ``compute_hierarchical_novelty`` use this to turn each recent memory's
+    raw content into the same feature space the new content is scored in.
+    """
+    return _extract_sensory_features(content)
+
+
 def compute_sensory_prediction(
     recent_memories_features: list[dict[str, float]],
 ) -> tuple[dict[str, float], dict[str, float]]:

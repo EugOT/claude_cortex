@@ -59,6 +59,43 @@ def compute_entity_info(
     return extracted, names, known, compute_entity_novelty(names, known)
 
 
+def _hierarchical_novelty_score(
+    content: str,
+    ent_names: list[str],
+    known: set[str],
+    recent: list[dict],
+) -> float:
+    """Hierarchical free-energy novelty score in [0, 1].
+
+    Routes the same content/entity/recent-memory evidence the flat path uses
+    through the 3-level predictive hierarchy (Friston 2005) and returns the
+    sigmoid ``novelty_score``, which is on the identical [0, 1] scale as
+    ``compute_novelty_score`` — so the gate threshold and calibration EMA are
+    unaffected by the choice of scorer. Schema level (L2) uses the neutral
+    default schema_match here because schema matching runs after the gate
+    (apply_modulations).
+
+    MEASURED LIMITATION (benchmarks/gate_precision, 2026-06-11): this scorer
+    does NOT separate novel content from duplicates of stored content —
+    ROC-AUC 0.5514 vs 0.9998 for the flat path. The neutral L2 default makes
+    its free energy a constant 1.5, flooring the score above the default
+    threshold for all content, and no level sees embedding similarity to the
+    nearest stored neighbor (the flat path's dominant duplicate signal).
+    Kept behind WRITE_GATE_HIERARCHICAL=False pending an L0/L2 redesign;
+    any change must re-run benchmarks/gate_precision/run_benchmark.py.
+    """
+    from mcp_server.core.hierarchical_predictive_coding import (
+        compute_hierarchical_novelty,
+    )
+    from mcp_server.core.predictive_coding_signals import extract_sensory_features
+
+    features = [
+        extract_sensory_features(m["content"]) for m in recent if m.get("content")
+    ]
+    prediction = compute_hierarchical_novelty(content, ent_names, known, features)
+    return prediction.novelty_score
+
+
 def _compute_gate_decision(
     score: float,
     force: bool,
@@ -119,6 +156,8 @@ def evaluate_gate(
         content, [m["content"] for m in recent if m.get("content")]
     )
     score = compute_novelty_score(emb_nov, ent_nov, temp_nov, struct_nov)
+    if get_memory_settings().WRITE_GATE_HIERARCHICAL:
+        score = _hierarchical_novelty_score(content, ent_names, known, recent)
     should_store, gate_reason, threshold = _compute_gate_decision(
         score, force, content, tags, domain=domain
     )

@@ -1,0 +1,73 @@
+{
+  "benchmark": "gate_precision",
+  "date": "2026-06-11T22:11:08.508958+00:00",
+  "database_url": "postgresql://127.0.0.1:5432/cortex_gateeval",
+  "rng_seed": 0,
+  "default_threshold": 0.4,
+  "modes": {
+    "flat": {
+      "auc": 0.9998,
+      "accuracy_at_default_threshold": 0.98,
+      "confusion_at_default": {
+        "tp": 96,
+        "fn": 4,
+        "tn": 100,
+        "fp": 0
+      },
+      "gate_decision_accuracy_excl_bypass": 0.8934,
+      "bypass_count": 3,
+      "by_kind": {
+        "trailing_space": {
+          "n": 37,
+          "accepted_at_default": 0
+        },
+        "novel": {
+          "n": 100,
+          "accepted_at_default": 96
+        },
+        "synonym_swap": {
+          "n": 29,
+          "accepted_at_default": 0
+        },
+        "exact": {
+          "n": 34,
+          "accepted_at_default": 0
+        }
+      },
+      "wall_seconds": 13.6
+    },
+    "hierarchical": {
+      "auc": 0.5514,
+      "accuracy_at_default_threshold": 0.5,
+      "confusion_at_default": {
+        "tp": 100,
+        "fn": 0,
+        "tn": 0,
+        "fp": 100
+      },
+      "gate_decision_accuracy_excl_bypass": 0.533,
+      "bypass_count": 3,
+      "by_kind": {
+        "trailing_space": {
+          "n": 37,
+          "accepted_at_default": 37
+        },
+        "novel": {
+          "n": 100,
+          "accepted_at_default": 100
+        },
+        "synonym_swap": {
+          "n": 29,
+          "accepted_at_default": 29
+        },
+        "exact": {
+          "n": 34,
+          "accepted_at_default": 34
+        }
+      },
+      "wall_seconds": 3.6
+    }
+  },
+  "auc_delta": -0.4484,
+  "pass": false
+}

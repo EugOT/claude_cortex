@@ -84,6 +84,21 @@ class MemorySettings(BaseSettings):
     WRITE_GATE_THRESHOLD: float = 0.4
     WRITE_GATE_CONTINUITY_DISCOUNT: float = 0.15
     WRITE_GATE_CONTINUITY_WINDOW: int = 10
+    # Novelty-score source for the write gate. False = flat 4-signal
+    # weighted sum (compute_novelty_score); True = 3-level hierarchical
+    # free-energy gate (Friston 2005), whose sigmoid novelty_score is on the
+    # same [0,1] scale so the threshold/bypass/calibration path is unchanged.
+    # Default MUST stay flat: benchmarks/gate_precision (2026-06-11,
+    # benchmarks/results/gate_precision/20260611-220728.json) measured
+    # ROC-AUC flat 0.9998 vs hierarchical 0.5514 on novel-vs-duplicate
+    # separation. Two structural defects in the hierarchical path: (1) the
+    # neutral schema default (match=0.0) makes L2 free energy a constant 1.5,
+    # flooring the sigmoid score above the 0.4 threshold for ALL content;
+    # (2) no level carries embedding-similarity evidence, so duplicates of
+    # stored content are invisible to it. Do not flip without redesigning
+    # L0/L2 and re-running gate_precision.
+    # Toggle: CORTEX_MEMORY_WRITE_GATE_HIERARCHICAL.
+    WRITE_GATE_HIERARCHICAL: bool = False
 
     # ── Reconsolidation ───────────────────────────────────────────────────
     RECONSOLIDATION_LOW_THRESHOLD: float = 0.3
