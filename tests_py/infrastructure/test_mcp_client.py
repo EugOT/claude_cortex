@@ -1213,6 +1213,9 @@ class TestIdleLoop:
         async def _test():
             _, client = _make_client(idleTimeoutMs=999999000)
             client._connected = True
+            # connect() binds the owning loop; replicate that so the
+            # loop-liveness guard in ``connected`` is satisfied here.
+            client._bound_loop = asyncio.get_running_loop()
             client._last_activity = asyncio.get_running_loop().time()
 
             async def _cancel_sleep(t):
@@ -1224,6 +1227,149 @@ class TestIdleLoop:
             assert client.connected is True
 
         _run(_test())
+
+
+# ── stdio deadlock regression (RCA 2026-06-11) ───────────────────────────────
+
+
+# A minimal real MCP child. It answers ``initialize`` and ``tools/list`` so the
+# handshake completes, then for ``tools/call`` writes a response whose text
+# block is ``pad_bytes`` of padding — large enough (256KB) to overflow the
+# 64KB macOS pipe buffer. A correctly draining reader receives it; a wedged
+# one (reader on a dead loop) would let the child block on write() forever.
+_FAKE_CHILD_BIG = r"""
+import sys, json
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n"); sys.stdout.flush()
+PAD = "x" * {pad_bytes}
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    msg = json.loads(line)
+    mid = msg.get("id"); method = msg.get("method")
+    if method == "initialize":
+        send({{"jsonrpc":"2.0","id":mid,"result":{{
+            "protocolVersion":"2025-11-25","serverInfo":{{"name":"fake"}}}}}})
+    elif method == "tools/list":
+        send({{"jsonrpc":"2.0","id":mid,"result":{{"tools":[
+            {{"name":"big"}}]}}}})
+    elif method == "tools/call":
+        send({{"jsonrpc":"2.0","id":mid,"result":{{"content":[
+            {{"type":"text","text":PAD}}]}}}})
+"""
+
+_FAKE_CHILD_SILENT = r"""
+import sys, json
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n"); sys.stdout.flush()
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    msg = json.loads(line)
+    mid = msg.get("id"); method = msg.get("method")
+    if method == "initialize":
+        send({"jsonrpc":"2.0","id":mid,"result":{
+            "protocolVersion":"2025-11-25","serverInfo":{"name":"silent"}}})
+    elif method == "tools/list":
+        send({"jsonrpc":"2.0","id":mid,"result":{"tools":[{"name":"hang"}]}})
+    # tools/call: deliberately never answer — reproduces a wedged child.
+"""
+
+
+def _real_child_client(script: str) -> MCPClient:
+    """Build a client that spawns a real python child running ``script``."""
+    config = {"command": "python3", "args": ["-c", script]}
+    client = MCPClient(config)
+    client._extra_allowed_commands = {"python3"}
+    return client
+
+
+class TestStdioDeadlockRegression:
+    """Reproduces the 2026-06-11 ingest stdio deadlock at the mechanism level.
+
+    Root cause: a pooled client's stdout reader was bound to a worker-thread
+    event loop that closed after the first call; the second call awaited a
+    future nothing would resolve while the child blocked writing a >64KB
+    response into a full pipe → 4.5h hang at 0% CPU on both sides.
+    """
+
+    def test_large_response_over_pipe_buffer_is_received(self):
+        """A 256KB response (>64KB pipe buffer) must arrive within the timeout."""
+
+        async def _test():
+            client = _real_child_client(_FAKE_CHILD_BIG.format(pad_bytes=256 * 1024))
+            await client.connect()
+            try:
+                result = await asyncio.wait_for(client.call("big", {}), timeout=20)
+                # call() unwraps the text block; padding is 256KB of "x".
+                assert isinstance(result, str)
+                assert len(result) >= 256 * 1024
+            finally:
+                client.close()
+
+        _run(_test())
+
+    def test_silent_child_raises_loud_timeout(self):
+        """A never-answering child must raise McpConnectionError, not hang."""
+
+        async def _test():
+            client = _real_child_client(_FAKE_CHILD_SILENT)
+            # Short per-call ceiling so the test fails loudly in ~1s.
+            client._call_timeout_ms = 1000
+            await client.connect()
+            try:
+                with pytest.raises(McpConnectionError) as exc:
+                    await client.call("hang", {})
+                assert "timed out" in str(exc.value)
+            finally:
+                client.close()
+
+        _run(_test())
+
+    def test_connected_false_when_bound_loop_closed(self):
+        """The root-cause guard: a client bound to a closed loop is NOT reusable.
+
+        This is exactly what let the pool hand back a dead client. After the
+        owning loop closes, ``connected`` must be False so ``get_client``
+        discards and reconnects on the live loop.
+        """
+        _, client = _make_client()
+        client._connected = True
+
+        dead_loop = asyncio.new_event_loop()
+        client._bound_loop = dead_loop
+        dead_loop.close()
+
+        async def _check():
+            # Running on a DIFFERENT, live loop — the closed bound loop must
+            # read as not connected.
+            assert client.connected is False
+
+        _run(_check())
+
+    def test_connected_false_when_running_on_foreign_loop(self):
+        """A client bound to loop A is not reusable from a different live loop B.
+
+        Mirrors batch reuse: each call runs on a fresh per-call loop in a
+        worker thread, so a cached client's bound loop differs from the
+        caller's. Reuse across loops is unsafe and must read as disconnected.
+        """
+        _, client = _make_client()
+        client._connected = True
+
+        other_loop = asyncio.new_event_loop()  # live but not the running one
+        client._bound_loop = other_loop
+
+        async def _check():
+            assert asyncio.get_running_loop() is not other_loop
+            assert client.connected is False
+
+        try:
+            _run(_check())
+        finally:
+            other_loop.close()
 
 
 # ── Module constants ─────────────────────────────────────────────────────────

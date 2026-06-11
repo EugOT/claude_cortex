@@ -12,6 +12,7 @@ import sys
 from typing import Any
 
 from mcp_server.errors import McpConnectionError
+from mcp_server.infrastructure.mcp_call_timeout import default_call_timeout_s
 
 CLIENT_INFO = {"name": "cortex", "version": "1.0.0"}
 PROTOCOL_VERSION = "2025-11-25"
@@ -42,6 +43,18 @@ class MCPClient:
         self._last_activity = 0.0
         self._idle_task: asyncio.Task | None = None
         self._reader_task: asyncio.Task | None = None
+        # The event loop that owns this client's stdout reader, stdin
+        # stream, and pending-call futures. Set at connect(). A pooled
+        # client may be handed to a DIFFERENT loop on reuse (batch
+        # handlers run each call on a fresh per-call loop in a worker
+        # thread — see tool_error_handler._run_coroutine_on_thread). If
+        # the original loop has since closed, its _read_loop never drains
+        # stdout again: the child blocks writing a >64KB response into a
+        # full pipe and the reused caller's ``await future`` hangs forever.
+        # ``connected`` checks loop liveness so the pool discards a client
+        # bound to a dead/foreign loop and reconnects on the live one.
+        # source: ingest stdio-deadlock RCA 2026-06-11.
+        self._bound_loop: asyncio.AbstractEventLoop | None = None
         self.tool_calls = 0
 
     async def connect(self) -> None:
@@ -49,6 +62,7 @@ class MCPClient:
         if self._connected:
             return
 
+        self._bound_loop = asyncio.get_running_loop()
         await self._spawn_process()
         self._reader_task = asyncio.create_task(self._read_loop())
         asyncio.create_task(self._stderr_loop())
@@ -226,7 +240,28 @@ class MCPClient:
 
     @property
     def connected(self) -> bool:
-        return self._connected
+        """True only when the client is usable FROM THE CALLING CONTEXT.
+
+        precondition: called from within a running event loop (the pool's
+          ``get_client`` always is).
+        postcondition: returns False if the handshake never completed, OR
+          the loop that owns this client's reader/streams is closed, OR a
+          DIFFERENT loop is now running. In those cases the cached client
+          cannot drain the child's stdout for THIS caller, so the pool must
+          discard it and reconnect on the live loop. Returns True only when
+          reuse is safe. source: ingest stdio-deadlock RCA 2026-06-11.
+        """
+        if not self._connected:
+            return False
+        bound = self._bound_loop
+        if bound is None or bound.is_closed():
+            return False
+        try:
+            return asyncio.get_running_loop() is bound
+        except RuntimeError:
+            # No running loop in this thread — cannot safely reuse a
+            # loop-bound client. Treat as not connected.
+            return False
 
     @property
     def max_concurrent_calls(self) -> int:
@@ -264,6 +299,7 @@ class MCPClient:
     def close(self) -> None:
         """Gracefully close the connection."""
         self._connected = False
+        self._bound_loop = None
 
         if self._idle_task:
             self._idle_task.cancel()
@@ -308,22 +344,33 @@ class MCPClient:
 
         # Even when the operator opted into "no per-call timeout"
         # (callTimeoutMs == 0), enforce a hard ceiling so a wedged
-        # upstream cannot deadlock the caller forever. 60 minutes is
-        # well above any legitimate codebase indexing job (the
-        # largest production runs we have observed are ~12 minutes).
-        # source: deadlock observed 2026-04-27 — ingest_codebase hung
-        # for >8 minutes with both Cortex and the upstream sleeping
-        # at 0% CPU on a polyglot Android repo. Reader had exited
-        # silently and ``await future`` was unbounded.
+        # upstream — or a client bound to a now-dead event loop whose
+        # reader can no longer drain stdout — cannot deadlock the caller
+        # forever. The ceiling is CORTEX_MCP_CALL_TIMEOUT_S (default 600s
+        # = 10x the measured 32s analyze latency). source: ingest
+        # stdio-deadlock RCA 2026-06-11 (4.5h hang at 0% CPU on both
+        # sides; reader's owning loop had closed, ``await future`` was
+        # unbounded).
+        loop = asyncio.get_running_loop()
         effective_timeout = (
-            self._call_timeout_ms / 1000 if self._call_timeout_ms else 3600.0
+            self._call_timeout_ms / 1000
+            if self._call_timeout_ms
+            else default_call_timeout_s()
         )
+        start = loop.time()
         try:
             return await asyncio.wait_for(future, timeout=effective_timeout)
         except asyncio.TimeoutError:
             self._pending.pop(req_id, None)
+            elapsed = loop.time() - start
             raise McpConnectionError(
-                f"Timeout after {int(effective_timeout * 1000)}ms: {method}"
+                f"MCP call '{method}' to '{self._config.get('command')}' "
+                f"timed out after {elapsed:.1f}s "
+                f"(limit {effective_timeout:.0f}s). The upstream child did "
+                f"not answer — it may be wedged writing a response larger "
+                f"than the OS pipe buffer, or the reader loop is no longer "
+                f"draining its stdout.",
+                {"method": method, "elapsed_s": round(elapsed, 1)},
             )
 
     def _notify(self, method: str, params: dict | None = None) -> None:
