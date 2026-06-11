@@ -196,6 +196,45 @@ def analyze_curve(points: list[tuple[float, float]]) -> dict:
     }
 
 
+# ── Provenance ───────────────────────────────────────────────────────────
+
+
+def _collect_provenance() -> dict:
+    """Record what produced this artefact: commit, DB, environment.
+
+    Added after the 2026-06-11 dirty-DB confound forensics: the
+    20260430T111134Z artefact carried no record of which database or
+    commit produced it, which cost a day of factor isolation.
+    Credentials are stripped from the DB URL before recording.
+    """
+    import os
+    import subprocess
+
+    try:
+        sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+        dirty = bool(
+            subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            ).stdout.strip()
+        )
+    except Exception:
+        sha, dirty = "unknown", None
+    raw_url = os.environ.get("DATABASE_URL", "")
+    # Strip credentials: keep scheme, host, port, dbname only.
+    db = re.sub(r"//[^@/]*@", "//", raw_url) if raw_url else "default (memory_config)"
+    return {"git_sha": sha, "git_dirty": dirty, "database": db}
+
+
 # ── Main ─────────────────────────────────────────────────────────────────
 
 
@@ -203,7 +242,10 @@ def run_sweep(lambdas: list[float], quick: bool) -> Path:
     timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     out_dir = RESULTS_ROOT / timestamp
     out_dir.mkdir(parents=True, exist_ok=True)
+    provenance = _collect_provenance()
+    (out_dir / "provenance.json").write_text(json.dumps(provenance, indent=2))
     print(f"[sweep] output → {out_dir}")
+    print(f"[sweep] provenance: {provenance}")
     print(f"[sweep] lambdas: {lambdas}  quick={quick}")
 
     points: list[tuple[float, float]] = []

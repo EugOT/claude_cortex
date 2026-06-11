@@ -659,8 +659,10 @@ decay mechanism.
 
 \paragraph{What the confound reveals (decay as hygiene).}
 The explanation consistent with all four measurements: in the
-contaminated store, stale memories from prior benchmark runs
-competed with the gold memories at retrieval time.  With decay
+contaminated store, stale out-of-task memories---rows predating or
+escaping the harness's per-run benchmark purge, which removes only
+rows flagged \texttt{is\_benchmark}---competed with the gold
+memories at retrieval time.  With decay
 enabled, those stale items had cooled below the recall heat floor
 (\texttt{recall\_memories()} filters candidates at
 \texttt{effective\_heat} $\geq$ \texttt{p\_min\_heat}) and were

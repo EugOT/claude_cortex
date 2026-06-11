@@ -188,7 +188,7 @@ Every system in the paper collapses at this scale. The best result reported (LIG
 | BEAM-100K | 0.591 | **0.602** | Flat search still works at small scale |
 | **BEAM-10M** | 0.353 | **0.471 (+33.4%, temporal label-free; 0.429 with oracle labels)** | Structured assembly dominates when flat search drowns |
 
-<sub>BEAM-10M family: 196 questions / 10 conversations, measured 2026-04-09/10 on the same code revision — artefacts `benchmarks/beam/variance/assembler_10m_stagefixed.txt` (oracle 0.429) and `assembler_10m_temporal.txt` (temporal 0.471).</sub>
+<sub>Measurement family: 2026-04, same code revision throughout. BEAM-100K = the 200-question split available at the time (the split later re-based to 395 questions). BEAM-10M = 196 questions / 10 conversations — artefacts `benchmarks/beam/variance/assembler_10m_stagefixed.txt` (oracle 0.429) and `assembler_10m_temporal.txt` (temporal 0.471).</sub>
 
 **BEAM-10M per-ability breakdown (Temporal Context Assembler — no oracle labels, timestamps only):**
 
