@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "n": 1000,
+  "condition": "cortex_flat",
+  "seed": 42,
+  "n_queries": 200,
+  "access_events": 1000,
+  "zipf_alpha": 1.5,
+  "r_at_1": 0.995,
+  "r_at_10": 1.0,
+  "mrr": 0.9975,
+  "wall_per_query_ms": 202.10449,
+  "rss_peak_mb": 9.068526,
+  "timestamp": "2026-06-11T02:04:09.967241+00:00",
+  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "embedding_dim": 384
+}
