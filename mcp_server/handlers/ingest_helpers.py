@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -132,12 +133,83 @@ def find_cached_graph(store, project_path: str) -> str | None:
         if path:
             candidates.append((_memo_recency_key(mem), path))
 
-    # Most-recent first; return the first whose graph is materialised.
+    # Most-recent first; return the first whose graph is materialised AND
+    # still fresh (built after the newest source change). A stale graph is
+    # skipped so the caller re-analyses — "never serve a stale graph".
     candidates.sort(key=lambda c: c[0], reverse=True)
     for _, path in candidates:
-        if graph_path_is_materialised(path):
-            return path
+        if not graph_path_is_materialised(path):
+            continue
+        if not graph_is_fresh(project_path, path):
+            continue
+        return path
     return None
+
+
+# Directories never worth scanning for source-change detection: VCS,
+# dependency caches, build outputs, virtualenvs, and the graph's own
+# sidecar index. Pruned so the freshness walk early-exits cheaply on a
+# real repo instead of stat-ing hundreds of thousands of vendored files.
+_FRESHNESS_IGNORE_DIRS = frozenset(
+    {
+        ".git",
+        "node_modules",
+        "target",
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".cache",
+        "dist",
+        "build",
+        ".next",
+        ".idea",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        "search_index",
+    }
+)
+
+
+def graph_is_fresh(project_path: str, graph_path: str) -> bool:
+    """False when a source file changed AFTER the graph was built.
+
+    Compares the graph artefact's own mtime (its build time) against the
+    newest source file under ``project_path``. A bounded, ignore-pruned
+    ``os.walk`` early-exits on the FIRST file newer than the graph, so a
+    changed repo is detected without a full scan in the common case.
+
+    Returns True (treat as fresh) when the project root is absent or the
+    graph mtime is unreadable — staleness cannot be proven, and rejecting
+    on uncertainty would force a needless re-analyse. The existence and
+    health gates handle those cases; this gate's sole job is detecting a
+    real source-vs-graph time skew.
+
+    source: ingest stale-graph reuse Jun-2026 — ``find_cached_graph``
+    reused a graph built before the codebase changed, so /cortex-visualize
+    served a stale AST. ``graph_path_is_materialised`` (existence only)
+    could not catch this; only a build-vs-source time comparison can.
+    """
+    try:
+        built_at = Path(graph_path).expanduser().stat().st_mtime
+    except OSError:
+        return True
+    root = Path(project_path).expanduser()
+    if not root.is_dir():
+        return True
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if d not in _FRESHNESS_IGNORE_DIRS and not d.startswith(".")
+        ]
+        for fn in filenames:
+            try:
+                if os.stat(os.path.join(dirpath, fn)).st_mtime > built_at:
+                    return False
+            except OSError:
+                continue
+    return True
 
 
 def memoise_graph_path(store, project_path: str, graph_path: str) -> int | None:

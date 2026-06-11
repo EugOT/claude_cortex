@@ -10,9 +10,12 @@ Source: ingest staleness bug Jun-2026 (a memo outlived its graph dir).
 
 from __future__ import annotations
 
+import os
+
 from mcp_server.handlers.ingest_helpers import (
     code_graph_tag,
     find_cached_graph,
+    graph_is_fresh,
     graph_path_is_materialised,
 )
 
@@ -158,3 +161,72 @@ class TestFindCachedGraph:
             ]
         )
         assert find_cached_graph(store, PROJECT) == str(d)
+
+
+def _build_graph_and_source(tmp_path, *, source_newer: bool):
+    """A materialised graph + a project dir with one source file.
+
+    ``source_newer`` controls the mtime skew: when True the source file is
+    stamped AFTER the graph (a real edit-since-build); when False the graph
+    is the newer artefact (built after the last edit).
+    """
+    proj = tmp_path / "proj"
+    (proj / "pkg").mkdir(parents=True)
+    src = proj / "pkg" / "mod.py"
+    src.write_text("def f(): ...\n")
+    graph = tmp_path / "graph"
+    graph.mkdir()
+    (graph / "data.kz").write_text("x")
+    base = 1_700_000_000.0
+    if source_newer:
+        os.utime(graph, (base, base))
+        os.utime(src, (base + 100, base + 100))
+    else:
+        os.utime(src, (base, base))
+        os.utime(graph, (base + 100, base + 100))
+    return proj, graph
+
+
+class TestGraphIsFresh:
+    def test_graph_newer_than_source_is_fresh(self, tmp_path):
+        proj, graph = _build_graph_and_source(tmp_path, source_newer=False)
+        assert graph_is_fresh(str(proj), str(graph)) is True
+
+    def test_source_newer_than_graph_is_stale(self, tmp_path):
+        proj, graph = _build_graph_and_source(tmp_path, source_newer=True)
+        assert graph_is_fresh(str(proj), str(graph)) is False
+
+    def test_absent_project_root_is_treated_fresh(self, tmp_path):
+        graph = tmp_path / "graph"
+        graph.mkdir()
+        (graph / "data.kz").write_text("x")
+        assert graph_is_fresh(str(tmp_path / "no-such-proj"), str(graph)) is True
+
+    def test_unreadable_graph_is_treated_fresh(self, tmp_path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "a.py").write_text("x")
+        assert graph_is_fresh(str(proj), str(tmp_path / "missing-graph")) is True
+
+    def test_ignored_dirs_do_not_trip_staleness(self, tmp_path):
+        proj, graph = _build_graph_and_source(tmp_path, source_newer=False)
+        # A freshly-written file inside an ignored dir must NOT mark the
+        # graph stale (vendored / build output is not source).
+        vendored = proj / "node_modules" / "dep.js"
+        vendored.parent.mkdir()
+        vendored.write_text("x")  # mtime = now, newer than the graph
+        assert graph_is_fresh(str(proj), str(graph)) is True
+
+
+class TestFindCachedGraphFreshness:
+    def test_stale_graph_skipped(self, tmp_path):
+        proj, graph = _build_graph_and_source(tmp_path, source_newer=True)
+        tag = code_graph_tag(str(proj))
+        store = _FakeStore([_memo(tag, str(graph))])
+        assert find_cached_graph(store, str(proj)) is None
+
+    def test_fresh_graph_returned(self, tmp_path):
+        proj, graph = _build_graph_and_source(tmp_path, source_newer=False)
+        tag = code_graph_tag(str(proj))
+        store = _FakeStore([_memo(tag, str(graph))])
+        assert find_cached_graph(store, str(proj)) == str(graph)
