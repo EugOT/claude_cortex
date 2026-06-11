@@ -151,12 +151,12 @@ LongMemEval (Wu et al., ICLR 2025): 500 human-curated questions embedded in ~40 
 |---|---|---|---|
 | Single-session (assistant) | 1.000 | 100.0% | Verbatim assistant responses are easy to match |
 | Multi-session reasoning | 0.962 | 100.0% | Entity graph connects evidence across sessions |
-| Knowledge updates | 0.925 | 100.0% | Heat decay naturally surfaces the newest version of a fact |
+| Knowledge updates | 0.925 | 100.0% | Recency weighting and update-intent routing surface the newest version of a fact |
 | Temporal reasoning | 0.926 | 98.5% | Time anchors embedded directly in memory content |
 | Single-session (user) | 0.814 | 94.3% | User phrasing varies more than assistant responses |
 | Single-session (preference) | 0.668 | 93.3% | Preferences are implicit — harder to retrieve by keyword |
 
-Knowledge updates scored highest because heat-based decay naturally pushes newer information above older versions of the same fact. This wasn't designed for the benchmark. It's just how the thermodynamic model works.
+Knowledge updates scored highest because the retrieval stack's recency signal and update-intent routing push newer information above older versions of the same fact. (An earlier draft credited heat decay here; per-mechanism ablations and a clean-store dose-response later showed decay contributes no ranking signal on these benchmarks — its measured value is store hygiene, not ranking. See the thermodynamic paper §6.)
 
 ### LoCoMo — can you handle trick questions and multi-hop reasoning?
 
@@ -186,7 +186,9 @@ Every system in the paper collapses at this scale. The best result reported (LIG
 | Split | WRRF baseline | With Context Assembler | What happened |
 |---|---|---|---|
 | BEAM-100K | 0.591 | **0.602** | Flat search still works at small scale |
-| **BEAM-10M** | 0.353 | **0.471 (+33.4%)** | Structured assembly dominates when flat search drowns |
+| **BEAM-10M** | 0.353 | **0.471 (+33.4%, temporal label-free; 0.429 with oracle labels)** | Structured assembly dominates when flat search drowns |
+
+<sub>BEAM-10M family: 196 questions / 10 conversations, measured 2026-04-09/10 on the same code revision — artefacts `benchmarks/beam/variance/assembler_10m_stagefixed.txt` (oracle 0.429) and `assembler_10m_temporal.txt` (temporal 0.471).</sub>
 
 **BEAM-10M per-ability breakdown (Temporal Context Assembler — no oracle labels, timestamps only):**
 

@@ -48,12 +48,17 @@ condensers and truncation warning injection, and
 a third summary-fallback phase is designed but not yet benchmarked) with submodular coverage
 selection, Personalized PageRank entity graph traversal, and
 schema-structured summary fallback.
-On BEAM-10M, the assembler achieves 0.471 MRR, a $+33.4\%$ improvement
-over the flat baseline, with 8 of 10 memory abilities improving.
-This result uses ground-truth stage boundaries (BEAM \texttt{plan\_id});
-we report it as an upper bound on the assembler's benefit and discuss
-label-free stage detection, which we have not yet benchmarked, as the
-primary open question for deployment (\S\ref{sec:stage-detection-deployment}).
+On BEAM-10M (196 questions, 10 conversations), the assembler with
+ground-truth stage boundaries (BEAM \texttt{plan\_id}) achieves 0.429
+MRR, a $+21.5\%$ improvement over the flat baseline (0.353), with 8
+of 10 memory abilities improving.  Replacing the oracle labels with
+\emph{label-free} temporal stage detection (day-level timestamp
+partitioning, no metadata) raises this to 0.471 ($+33.4\%$):
+temporal proximity proved a stronger stage signal than topic
+boundaries on this benchmark
+(\S\ref{sec:temporal-stage-results}), so the architecture deploys
+without oracle metadata
+(\S\ref{sec:stage-detection-deployment}).
 The architecture was originally designed in September 2025 for
 generating coherent product requirement documents on Apple
 Intelligence's 4,096-token context window---one month before the
@@ -239,8 +244,10 @@ We make four contributions:
   \item \textbf{Empirical validation} on BEAM at two scales (100K
     and 10M tokens), showing that structured assembly is net-flat at
     small scale (where flat retrieval is already sufficient) and
-    provides a $+33.4\%$ improvement at large scale (where flat
-    retrieval collapses)---with 8 of 10 memory abilities improving.
+    provides a $+21.5\%$ improvement at large scale with oracle
+    stage labels, rising to $+33.4\%$ with label-free temporal stage
+    detection (where flat retrieval collapses)---with 8 of 10 memory
+    abilities improving in both configurations.
 
   \item \textbf{Ablation analysis} isolating the contribution of
     submodular selection ($+17.6\%$ over naive top-$k$) and
@@ -1463,10 +1470,13 @@ top-$k$.
 
 \begin{table}[t]
 \centering
-\caption{BEAM-10M results (10 conversations, full benchmark).
+\caption{BEAM-10M results (10 conversations, 196 questions; assembler
+  with \emph{oracle} \texttt{plan\_id} stage boundaries; artefact
+  \texttt{benchmarks/beam/variance/assembler\_10m\_stagefixed.txt}).
   $\Delta$ = Assembler $-$ WRRF.  LIGHT scores are end-to-end QA
   (LLM-as-judge, Llama-4-Maverick); not comparable to retrieval MRR.
-  Shown for directional reference only.}
+  Shown for directional reference only.  Label-free temporal stage
+  detection scores higher still (\S\ref{sec:temporal-stage-results}).}
 \label{tab:10m}
 \small
 \begin{tabular}{lcccccc}
@@ -1484,7 +1494,7 @@ instruction\_follow. & 0.068 & \textbf{0.125} & $+0.057$ & 15\% & 15\% & 0.500 \
 \graynoise{event\_ordering} & \graynoise{0.067} & \graynoise{0.067} & \graynoise{$0.000$} & \graynoise{10\%} & \graynoise{10\%} & \graynoise{0.266} \\
 \graynoise{summarization} & \graynoise{0.186} & \graynoise{0.150} & \graynoise{$-0.036$} & \graynoise{22\%} & \graynoise{22\%} & \graynoise{0.277} \\
 \midrule
-\textbf{Overall MRR} & \textbf{0.353} & \textbf{0.471} & $\mathbf{+0.076}$ \textbf{(+33.4\%)} & & & 0.266$^*$ \\
+\textbf{Overall MRR} & \textbf{0.353} & \textbf{0.429} & $\mathbf{+0.076}$ \textbf{(+21.5\%)} & & & 0.266$^*$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1713,11 +1723,71 @@ questions need: one compressed summary per stage, covering the entire
 conversation at the cost of detail.  We predict that wiring Phase~3
 will eliminate the summarization regression.
 
+\subsection{Label-Free Temporal Stage Detection Outperforms the Oracle}
+\label{sec:temporal-stage-results}
+
+The Table~\ref{tab:10m} results use BEAM's ground-truth
+\texttt{plan\_id} stage boundaries---metadata a production system
+does not have.  To measure the deployable configuration, we re-ran
+the identical BEAM-10M protocol (same 10 conversations, same 196
+questions, same code revision) with the
+\texttt{TemporalStageDetector}: stages are induced purely from
+memory timestamps by day-level gap partitioning, with no access to
+\texttt{plan\_id} or any other label.  Artefact:
+\texttt{benchmarks/beam/variance/assembler\_10m\_temporal.txt}.
+
+\begin{table}[t]
+\centering
+\caption{BEAM-10M, label-free temporal stage detection (same
+  conversations, questions, and code revision as
+  Table~\ref{tab:10m}).  $\Delta$ = temporal assembler $-$ WRRF
+  baseline.}
+\label{tab:10m-temporal}
+\small
+\begin{tabular}{lccc}
+\toprule
+Ability & MRR & R@10 & $\Delta$ vs.\ WRRF \\
+\midrule
+knowledge\_update & \textbf{0.950} & 100.0\% & $+0.115$ \\
+contradiction\_res. & \textbf{0.892} & 95.0\% & $+0.259$ \\
+info\_extraction & \textbf{0.592} & 75.0\% & $+0.144$ \\
+abstention & \textbf{0.600} & 60.0\% & $+0.500$ \\
+preference\_follow. & \textbf{0.508} & 60.0\% & $+0.096$ \\
+temporal\_reasoning & \textbf{0.460} & 50.0\% & $+0.090$ \\
+multi\_session\_reas. & 0.425 & 60.0\% & $+0.010$ \\
+instruction\_follow. & 0.150 & 15.0\% & $+0.082$ \\
+summarization & 0.083 & 11.1\% & $-0.103$ \\
+event\_ordering & 0.050 & 5.0\% & $-0.017$ \\
+\midrule
+\textbf{Overall MRR} & \textbf{0.471} & 53.1\% & $+0.118$ (\textbf{+33.4\%}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The label-free configuration scores \textbf{0.471 overall---higher
+than the 0.429 oracle configuration} ($+0.042$).  This was not
+predicted.  Day-level temporal partitioning groups same-day memories
+into one stage, and on conversational memory this proves a stronger
+stage signal than BEAM's topic boundaries: knowledge updates and
+contradictions cluster in time (the newer fact arrives in a later
+stage), and temporal scoping empties irrelevant stages, driving the
+largest single gain (abstention $+0.500$).  Two abilities regress
+relative to WRRF: summarization ($-0.103$, steeper than the oracle
+configuration's $-0.036$; same structural cause,
+\S\ref{sec:summarization-tradeoff}) and event ordering ($-0.017$,
+unchanged under oracle labels)---chronological sequencing needs more
+than retrieval in either configuration.  We emphasise the practical
+consequence rather than a general claim: \emph{on this benchmark}
+the assembler does not need oracle metadata; whether temporal
+partitioning transfers to corpora whose topic structure is
+decoupled from time is an open question.
+
 \subsection{Comparison with LIGHT}
 \label{sec:light-comparison}
 
 LIGHT achieves 0.266 overall on BEAM-10M.  We achieve 0.471 on
-retrieval-proxy MRR.  \textbf{These numbers are not directly
+retrieval-proxy MRR with the label-free temporal configuration
+(0.429 with oracle labels).  \textbf{These numbers are not directly
 comparable.}
 
 LIGHT's 0.266 is an end-to-end score: it reflects the reader model's
@@ -1989,10 +2059,15 @@ BEAM-10M MRR as the objective) could improve results.
 \subsection{Stage Detection for Free-Form Conversations}
 \label{sec:stage-detection-deployment}
 
-Our experiments use ground-truth plan IDs from BEAM.  Production
-deployment requires robust stage detection without explicit labels.
-The TemporalStageDetector (4-hour gap threshold) is reasonable but
-untested on BEAM.
+Production deployment requires stage detection without explicit
+labels.  The TemporalStageDetector is now benchmarked on BEAM-10M
+and outperforms the oracle labels there
+(\S\ref{sec:temporal-stage-results}), so label-free deployment is
+demonstrated for conversational memory whose topic structure
+correlates with time.  The open question is narrower than before:
+corpora where topic structure is decoupled from time (interleaved
+projects, bursty multi-topic sessions) may need content-based stage
+detection, which remains unbenchmarked.
 
 \subsection{Larger Embedding Models}
 
@@ -2039,10 +2114,13 @@ uncovered stages \citep{Tse2007}.
 
 The empirical results on BEAM validate the scale-dependent thesis:
 the architecture is net-flat at 100K tokens ($+1.9\%$, within noise)
-and provides a $+33.4\%$ improvement at 10M tokens, with 8 of 10
-memory abilities improving.  The multi-session reasoning sign flip
-(from $-0.312$ at 100K to $+0.128$ at 10M) is the strongest evidence
-that the benefit is genuinely scale-dependent rather than incidental.
+and provides a $+21.5\%$ improvement at 10M tokens with oracle stage
+labels---rising to $+33.4\%$ label-free
+(\S\ref{sec:temporal-stage-results})---with 8 of 10 memory abilities
+improving in both configurations.  The multi-session reasoning sign
+flip (from $-0.312$ at 100K to $+0.128$ at 10M, oracle
+configuration) is the strongest evidence that the benefit is
+genuinely scale-dependent rather than incidental.
 
 The architecture does not introduce novel retrieval primitives.
 Every building block has strong paper backing.  The contribution is
@@ -2330,12 +2408,13 @@ Configuration & MRR & Issue \\
 \midrule
 First run (entity\_ids bug) & 0.100 & Phase~2 returned 0 results \\
 After entity\_ids fix & 0.120 & Stage detection used local turn IDs \\
-After stage fix (final) & 0.471 & Correct stage assignment \\
+After stage fix (oracle labels) & 0.429 & Correct stage assignment \\
+Temporal detector replaces oracle & 0.471 & Label-free (\S\ref{sec:temporal-stage-results}) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The jump from 0.120 to 0.471 upon fixing the stage detection confirms
+The jump from 0.120 to 0.429 upon fixing the stage detection confirms
 that correct stage assignment is critical to the architecture's
 performance.
 

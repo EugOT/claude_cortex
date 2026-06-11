@@ -25,7 +25,7 @@ condensers and truncation warning injection, and
 (2) a two-phase stage-aware assembler (with a planned summary tier) with submodular coverage
 selection, Personalized PageRank entity graph traversal, and
 schema-structured summary fallback.
-On BEAM-10M, the assembler achieves 0.471 MRR, a +33.4% improvement
+On BEAM-10M, the assembler achieves 0.471 MRR with label-free temporal stage detection (0.429, +21.5%, with oracle labels), a +33.4% improvement
 over the flat baseline, with 8 of 10 memory abilities improving.
 The architecture was originally designed in September 2025 for
 generating coherent product requirement documents on Apple
@@ -1309,7 +1309,7 @@ aspects of the stage than naive top-k.
 | instruction\_following | 0.068 | **0.125** | +0.057 | 15.0% | 15.0% | 0.500 |
 | event\_ordering | 0.067 | 0.067 | 0.000 | 10.0% | 10.0% | 0.266 |
 | summarization | 0.186 | 0.150 | -0.036 | 22.2% | 22.2% | 0.277 |
-| **Overall MRR** | **0.353** | **0.429** | **+0.076 (+33.4%)** | | | 0.266* |
+| **Overall MRR** | **0.353** | **0.429** | **+0.076 (+21.5%)** | | | 0.266* |
 
 *LIGHT scores are end-to-end QA (LLM-as-judge, Llama-4-Maverick).
 Not comparable to retrieval MRR.  Shown for directional reference.
