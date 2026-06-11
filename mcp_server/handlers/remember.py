@@ -1,4 +1,4 @@
-"""Handler: remember — store a memory through the hierarchical predictive coding gate.
+"""Handler: remember — store a memory through the flat 4-signal predictive coding gate.
 
 Composition root: wires core modules + infrastructure storage + embeddings.
 """
@@ -63,9 +63,10 @@ schema = {
         },
     },
     "description": (
-        "Store a memory through the hierarchical predictive-coding write "
-        "gate (Friston 2010 free-energy minimization across sensory / "
-        "entity / schema levels). Novel surprising content passes; "
+        "Store a memory through the flat 4-signal predictive-coding write "
+        "gate (embedding, entity, temporal, and structural novelty — "
+        "Friston-inspired prediction-error gating). Novel surprising "
+        "content passes; "
         "redundant content is rejected or merged with the most-similar "
         "existing memory via active curation. After write: thermodynamic "
         "tagging, knowledge-graph entity extraction, neuromodulation "
