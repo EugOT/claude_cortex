@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/tests-3000+_passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/citations-45_papers-orange.svg" alt="Citations">
-  <img src="https://img.shields.io/badge/version-3.19.0-brightgreen.svg" alt="Version 3.19.0">
+  <img src="https://img.shields.io/badge/version-3.19.1-brightgreen.svg" alt="Version 3.19.1">
   <a href="https://glama.ai/mcp/servers/cdeust/Cortex"><img src="https://glama.ai/mcp/servers/cdeust/Cortex/badges/score.svg" alt="Glama score: security A, license A"></a>
 </p>
 
@@ -93,6 +93,8 @@ docker run -it \
 ---
 
 ## What's new
+
+**v3.19.1 — ingest stdio pipe deadlock fix.** `ingest_codebase` could hang forever (hours at 0% CPU): a pooled MCP client bound to a closed per-call event loop was reused with a dead reader task, so once the analyzer's response exceeded the 64KB OS pipe buffer both sides slept indefinitely — the upstream cause of "graph shows only the global domain" reports. The client now detects a dead or foreign event loop and reconnects, and a new `CORTEX_MCP_CALL_TIMEOUT_S` (default 600s) makes a wedged call fail loudly in minutes with a diagnostic naming the cause.
 
 **v3.19.0 — memory hygiene + scoring integrity.** The headline is a fix to an auto-capture scoring inversion at all three roots: prospective-trigger injection no longer harvests garbage keyword triggers from raw tool dumps; WRRF fusion excludes mechanical freshness (`post_tool_capture`) from the hot/recency pools so churn isn't mistaken for importance; and `rate_memory` feedback now wires into rank as a metamemory confidence prior (Kraaij 2002). Oversized auto-captures store a deterministic gist plus a content-addressed artifact pointer — full output one `Read` away, no truncation. The `cortex-visualize` Graph galaxy is restored alongside the live Trace view. And pytest now refuses destructive isolation against any populated non-test database, after a 2026-06-10 incident lost 537k production rows to a misconfigured CI run. Benchmarks regression-free (LongMemEval R@10 98.4% / MRR 0.916; LoCoMo MRR 0.828).
 
