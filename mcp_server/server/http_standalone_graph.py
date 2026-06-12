@@ -874,15 +874,18 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
             # ── Stage 2: full baseline (load + ingest the heavy sources) ──
             # Replaces the cumulative cache with the full graph. The client
             # already painted the skeleton; this fills it in.
-            # Cap memory nodes at the top-N hottest so the galaxy
-            # renders fast. The DB holds 400k+ memories; rendering all
-            # of them made a 484k-node graph that never hit <=200 ms.
-            # Override with CORTEX_VIZ_MEMORY_LIMIT (0 = no cap).
-            # source: measured 2026-05-31; user decision = ~25k.
+            # Default UNCAPPED (user direction 2026-06-12): the 25k
+            # hottest-memory cap was a workaround for the fat-JSON wire
+            # where every record shipped whole; with the slim wire,
+            # on-demand detail, and slim-dict retention in the builder
+            # (workflow_graph.py memory loop) the full corpus is tens
+            # of MB, and a hard cap is a truncation of the record.
+            # CORTEX_VIZ_MEMORY_LIMIT > 0 remains available as an
+            # explicit opt-in subset for constrained machines.
             try:
-                _mem_limit = int(os.environ.get("CORTEX_VIZ_MEMORY_LIMIT", "25000"))
+                _mem_limit = int(os.environ.get("CORTEX_VIZ_MEMORY_LIMIT", "0"))
             except ValueError:
-                _mem_limit = 25000
+                _mem_limit = 0
             baseline = build_workflow_graph(
                 store,
                 domain_filter=domain_filter,
@@ -907,7 +910,17 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
 
                 _bl_nodes = baseline.get("nodes", [])
                 _bl_edges = baseline.get("edges", [])
-                _ids = [n["id"] for n in _bl_nodes if n.get("id")]
+                # DrL over the STRUCTURAL graph only. Memory nodes are
+                # the bulk of the corpus (10^5+) and would dominate the
+                # layout cost; they get deterministic ray placement
+                # around their domain hub instead — same approach as
+                # the L6 symbols, O(1) per node.
+                _ids = [
+                    n["id"]
+                    for n in _bl_nodes
+                    if n.get("id") and (n.get("kind") or n.get("type")) != "memory"
+                ]
+                _id_set = set(_ids)
                 _edge_pairs = []
                 for _e in _bl_edges:
                     _s = _e.get("source")
@@ -916,17 +929,29 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                         _s = _s.get("id")
                     if isinstance(_t, dict):
                         _t = _t.get("id")
-                    if _s and _t and _s != _t:
+                    if _s and _t and _s != _t and _s in _id_set and _t in _id_set:
                         _edge_pairs.append((_s, _t))
                 _coords = layout_engine.layout(_ids, _edge_pairs)
                 _pos = {nid: (x, y) for nid, x, y in _coords}
+                _placed_mem = 0
                 for _n in _bl_nodes:
                     _xy = _pos.get(_n.get("id"))
                     if _xy is not None:
                         _n["x"], _n["y"] = _xy[0], _xy[1]
+                # Memories: ray around their domain hub's baked coord.
+                for _n in _bl_nodes:
+                    if (_n.get("kind") or _n.get("type")) != "memory":
+                        continue
+                    _hub = _pos.get(_n.get("domain_id"))
+                    if _hub is None:
+                        continue
+                    _n["x"], _n["y"] = _place_around(
+                        _hub[0], _hub[1], str(_n.get("id"))
+                    )
+                    _placed_mem += 1
                 print(
-                    f"[cortex] layout baked: {len(_coords)} coords "
-                    f"for {len(_bl_nodes)} nodes",
+                    f"[cortex] layout baked: {len(_coords)} structural coords"
+                    f" + {_placed_mem} memory rays for {len(_bl_nodes)} nodes",
                     file=sys.stderr,
                 )
             except Exception as _exc:  # pragma: no cover - defensive

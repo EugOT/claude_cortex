@@ -120,10 +120,10 @@ Inventory of remaining silent caps, all to be removed:
 
 | Cap | Where | What it amputates |
 |---|---|---|
-| `CORTEX_VIZ_MEMORY_LIMIT=25000` | build (`http_standalone_graph.py`) | 375k+ of 400k+ memories never enter the cache — wire, browser, AND the MCP live-cache path inherit the hole. Heat is a retrieval prior, not an existence criterion. Replace DrL-bake dependency with `_place_around` rays per memory (O(1) each) so the bake cost doesn't force the cap. |
-| `EXTREME > 25k` | renderer (`workflow_graph.js`) | every `calls` edge — a call graph without calls |
-| `HEAVY > 8k` | renderer | symbol→file edges |
-| `ENTITY_TOPN` heat gate | renderer (~line 895) | cold entities hidden |
+| `CORTEX_VIZ_MEMORY_LIMIT=25000` | build (`http_standalone_graph.py`) | REMOVED 2026-06-12: default now 0 (uncapped); unbounded path retains slim dicts per batch (builder discard kept — it bounds pydantic objects only) and memories get `_place_around` rays (DrL stays structural-only). Measured on the current DB (1,698 memories — the 107k/400k figures were the May dev DB, since purged): build 198 s, RSS 0.7 GB. The 10⁵-corpus behaviour is PROJECTED (~227 B/row stream + ~0.4 KB/dict retention ≈ hundreds of MB), not yet measured — re-measure when the corpus regrows. Env var stays as explicit opt-in subset. |
+| `EXTREME > 25k` | renderer (`workflow_graph.js`) | REMOVED in static mode (69ba5b40) — never applies when server positions drive the draw |
+| `HEAVY > 8k` | renderer | REMOVED in static mode (69ba5b40) |
+| `ENTITY_TOPN` heat gate | renderer (~line 895) | inert in static mode (it only gated slot assignment for the simulation; static positions come from the server) |
 
 These caps exist to keep the d3 force simulation alive; the
 static-draw mode (server positions, client draws — memory 4197492)

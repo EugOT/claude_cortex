@@ -632,7 +632,13 @@ def _build_interleaved(
     # drill. memory_limit=0 means "no cap" (the legacy hard_cap applies).
     # source: measured 2026-05-31 — build log "loaded ... 412000 memories"
     # climbing; user decision = top ~25k hottest in the base galaxy.
+    # SUPERSEDED 2026-06-12 (user direction): the 25k cap compensated
+    # for the fat-JSON wire where every record shipped whole. With the
+    # slim wire + on-demand detail the unbounded path RETAINS slim
+    # dicts (lists below) instead of losing memories from the cache.
     memories_total = 0
+    retained_memory_nodes: list[dict] = []
+    retained_memory_edges: list[dict] = []
     # Structural baseline — every node/edge ingested before the memory
     # phase (domains, hubs, files, discussions, entities ≈ 30k). The
     # memory phase is pruned back to this size after every batch.
@@ -679,13 +685,22 @@ def _build_interleaved(
         # source: cap = CORTEX_VIZ_MEMORY_LIMIT default 25000, measured
         #   2026-05-31; retention bound = retained set ≤ memory_limit.
         #
-        # When ``_mem_cap == 0`` the stream is the FULL corpus (400k+ rows,
-        # measured 4 GB peak / OOM watchdog 2026-06-03) — keep the legacy
-        # per-batch DISCARD so the builder stays at structural size. The
-        # cold long-tail renders via tiles + /api/memories pagination.
+        # When ``_mem_cap == 0`` the stream is the FULL corpus. The
+        # per-batch discard stays (it bounds the BUILDER's pydantic
+        # object population — the 4 GB peak measured 2026-06-03 was
+        # builder objects, pre-dating the ~227 B/row projection), but
+        # each batch is RETAINED as plain slim dicts before the
+        # discard, so every memory reaches the cumulative cache, the
+        # node index, and the MCP live-cache path. Retention cost is
+        # ~0.4 KB/dict — tens of MB for the full corpus, not GB.
         if _mem_cap <= 0:
             for _nd in builder._node_order[_struct_n:]:  # noqa: SLF001
+                retained_memory_nodes.append(_node_to_dict(_nd))
                 builder._nodes.pop(_nd.id, None)  # noqa: SLF001
+            retained_memory_edges.extend(
+                _edge_to_dict(_e)
+                for _e in builder._edges[_struct_e:]  # noqa: SLF001
+            )
             del builder._node_order[_struct_n:]  # noqa: SLF001
             del builder._edges[_struct_e:]  # noqa: SLF001
         # Surface progress every chunk so /api/graph/progress shows the
@@ -731,28 +746,37 @@ def _build_interleaved(
     validate_graph(nodes, edges)
 
     domain_count = sum(1 for n in nodes if n.kind == "domain")
-    memory_count = sum(1 for n in nodes if n.kind == "memory")
+    memory_count = sum(1 for n in nodes if n.kind == "memory") + len(
+        retained_memory_nodes
+    )
     file_count = sum(1 for n in nodes if n.kind == "file")
     discussion_count = sum(1 for n in nodes if n.kind == "discussion")
     symbol_count = sum(1 for n in nodes if n.kind == "symbol")
     entity_node_count = sum(1 for n in nodes if n.kind == "entity")
+    # Retained memory dicts join AFTER validate_graph: their only
+    # edges are memory→domain in_domain links whose domain endpoint is
+    # in the validated structural set and whose memory endpoint is in
+    # the retained set — consistent by construction (each batch was
+    # ingested by the same builder before the slim-dict capture).
+    node_dicts = [_node_to_dict(n) for n in nodes] + retained_memory_nodes
+    edge_dicts = [_edge_to_dict(e) for e in edges] + retained_memory_edges
     return {
-        "nodes": [_node_to_dict(n) for n in nodes],
-        "edges": [_edge_to_dict(e) for e in edges],
-        "links": [_edge_to_dict(e) for e in edges],
+        "nodes": node_dicts,
+        "edges": edge_dicts,
+        "links": edge_dicts,
         "meta": {
             "schema": "workflow_graph.v1",
             "domain_filter": domain_filter,
-            "node_count": len(nodes),
-            "edge_count": len(edges),
+            "node_count": len(node_dicts),
+            "edge_count": len(edge_dicts),
             "domain_count": domain_count,
             "memory_count": memory_count,
             "entity_count": entity_node_count,
             "file_count": file_count,
             "discussion_count": discussion_count,
             "counts": {
-                "nodes": len(nodes),
-                "edges": len(edges),
+                "nodes": len(node_dicts),
+                "edges": len(edge_dicts),
                 "tool_events": len(tool_events),
                 "skills": len(skills),
                 "hooks": len(hooks),
