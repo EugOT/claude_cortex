@@ -896,30 +896,16 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
             for _phase_key in ("L0", "L1"):
                 _mark_phase_ready(_phase_key)
 
-            # Write a skeleton CXGB snapshot NOW so /api/graph.bin starts
-            # serving in <200 ms (the full snapshot below replaces it
-            # when ingestion finishes — could be minutes on a large DB).
-            # Without this the first /api/graph.bin returns 404 until the
-            # full build completes, which defeats the whole point of the
-            # precomputed-snapshot protocol.
-            try:
-                from mcp_server.server.graph_snapshot import (
-                    write_from_graph_cache,
-                )
-
-                _snap_path, _snap_bytes = write_from_graph_cache(
-                    skeleton.get("nodes", []),
-                    skeleton.get("edges", []),
-                )
-                print(
-                    f"[cortex] skeleton snapshot: {_snap_bytes:,} bytes → {_snap_path}",
-                    file=sys.stderr,
-                )
-            except Exception as _exc:  # pragma: no cover - defensive
-                print(
-                    f"[cortex] skeleton snapshot write failed: {_exc}",
-                    file=sys.stderr,
-                )
+            # NO snapshot write here. The skeleton snapshot used to be
+            # written at this point "so /api/graph.bin serves early",
+            # but that route no longer exists — the write's only real
+            # effects were destructive: it clobbered the previous FULL
+            # snapshot (36,931 nodes → 31) at the shared default path,
+            # and, being under the 1 MB completeness floor, flipped
+            # _complete_snapshot_counts() to None for every process —
+            # destroying cold-start readiness and triggering rebuild
+            # cascades (observed 2026-06-12). The full build below
+            # writes the only snapshot anyone reads.
 
             # ── Stage 2: full baseline (load + ingest the heavy sources) ──
             # Replaces the cumulative cache with the full graph. The client
@@ -1010,11 +996,11 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                 )
 
             # ── CXGB binary snapshot ──
-            # Write the precomputed snapshot so subsequent /api/graph.bin
-            # loads finish in ~110 ms instead of re-serialising JSON on
-            # every request. Atomic rename means a concurrent reader
-            # either gets the previous complete snapshot or the new
-            # complete snapshot — never a torn write.
+            # Persist the completed build; _complete_snapshot_counts()
+            # peeks this file so a cold process reports full_ready
+            # instead of kicking a rebuild. Atomic rename means a
+            # concurrent reader either gets the previous complete
+            # snapshot or the new complete snapshot — never a torn write.
             try:
                 from mcp_server.server.graph_snapshot import (
                     write_from_graph_cache,

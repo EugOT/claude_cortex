@@ -6,7 +6,11 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from mcp_server.handlers import open_visualization
-from mcp_server.handlers.open_visualization import _find_dev_source, handler
+from mcp_server.handlers.open_visualization import (
+    _find_dev_source,
+    _url_from_bootstrap,
+    handler,
+)
 
 
 class TestOpenVisualizationSchema:
@@ -23,23 +27,24 @@ class TestOpenVisualizationSchema:
 
 
 class TestOpenVisualizationHandler:
-    """The handler now drives the full prepare-then-render pipeline:
-    after launching the standalone server it polls /api/graph/progress,
-    invokes /api/recompute_layout, and only then opens the browser at
-    the ``?viz=force`` path. Tests stub ``_prepare_layout`` so they
-    don't issue real HTTP traffic."""
+    """The handler delegates to the bootstrap script when a dev source
+    exists, otherwise to ``launch_server``. Tests stub
+    ``_find_dev_source`` to ``None`` so they are hermetic on developer
+    machines (a real checkout at ``~/Developments/Cortex`` would
+    otherwise run the real bootstrap subprocess and kill live
+    servers), and exercise the ``launch_server`` fallback path."""
 
     def test_returns_url(self):
         with (
+            patch(
+                "mcp_server.handlers.open_visualization._find_dev_source",
+                return_value=None,
+            ),
             patch(
                 "mcp_server.handlers.open_visualization.launch_server",
                 return_value="http://localhost:3458",
             ),
             patch("mcp_server.handlers.open_visualization.open_in_browser"),
-            patch(
-                "mcp_server.handlers.open_visualization._prepare_layout",
-                return_value={"status": "ok", "node_count": 0, "cached": True},
-            ),
         ):
             result = asyncio.run(handler({}))
 
@@ -49,14 +54,14 @@ class TestOpenVisualizationHandler:
     def test_default_args_none(self):
         with (
             patch(
+                "mcp_server.handlers.open_visualization._find_dev_source",
+                return_value=None,
+            ),
+            patch(
                 "mcp_server.handlers.open_visualization.launch_server",
                 return_value="http://localhost:3458",
             ),
             patch("mcp_server.handlers.open_visualization.open_in_browser"),
-            patch(
-                "mcp_server.handlers.open_visualization._prepare_layout",
-                return_value={"status": "ok", "node_count": 0, "cached": True},
-            ),
         ):
             result = asyncio.run(handler(None))
         assert result["url"] == "http://localhost:3458/?viz=force"
@@ -65,47 +70,27 @@ class TestOpenVisualizationHandler:
         mock_launch = MagicMock(return_value="http://localhost:3458")
         with (
             patch(
+                "mcp_server.handlers.open_visualization._find_dev_source",
+                return_value=None,
+            ),
+            patch(
                 "mcp_server.handlers.open_visualization.launch_server",
                 mock_launch,
             ),
             patch("mcp_server.handlers.open_visualization.open_in_browser"),
-            patch(
-                "mcp_server.handlers.open_visualization._prepare_layout",
-                return_value={"status": "ok", "node_count": 0, "cached": True},
-            ),
         ):
             asyncio.run(handler({}))
 
         mock_launch.assert_called_once_with("unified")
 
-    def test_opens_browser_at_tilemap_url(self):
-        """When extras are present the browser opens at the tilemap URL."""
-        with (
-            patch(
-                "mcp_server.handlers.open_visualization.launch_server",
-                return_value="http://localhost:5555",
-            ),
-            patch(
-                "mcp_server.handlers.open_visualization.open_in_browser",
-            ) as mock_open,
-            patch(
-                "mcp_server.handlers.open_visualization._prepare_layout",
-                return_value={"status": "ok", "node_count": 0, "cached": True},
-            ),
-        ):
-            asyncio.run(handler({}))
-        mock_open.assert_called_once_with("http://localhost:5555/?viz=force")
-
     def test_opens_browser_at_force_url_unconditionally(self):
         """Handler always opens the force-directed URL — graph build happens on
-        demand via the UI's Graph button, not on launch.
-
-        Previously a fallback path opened the legacy URL when
-        ``_prepare_layout`` reported ``igraph_missing``; that branch
-        was removed when the on-launch layout precomputation was
-        dropped (2026-05). The handler now returns immediately after
-        opening ``?viz=force`` regardless of any layout state."""
+        demand via the UI's Graph button, not on launch."""
         with (
+            patch(
+                "mcp_server.handlers.open_visualization._find_dev_source",
+                return_value=None,
+            ),
             patch(
                 "mcp_server.handlers.open_visualization.launch_server",
                 return_value="http://localhost:5555",
@@ -118,6 +103,65 @@ class TestOpenVisualizationHandler:
         mock_open.assert_called_once_with("http://localhost:5555/?viz=force")
         assert "force" in result["url"]
         assert "Workflow graph" in result["message"]
+
+    def test_bootstrap_url_skips_launch_server(self):
+        """When the bootstrap reports a live URL the handler must NOT
+        call launch_server — the old unconditional call is the
+        double-spawn race that leaked instances on ephemeral ports."""
+        mock_launch = MagicMock(return_value="http://127.0.0.1:3458")
+        with (
+            patch(
+                "mcp_server.handlers.open_visualization._url_from_bootstrap",
+                return_value="http://127.0.0.1:56746",
+            ),
+            patch(
+                "mcp_server.handlers.open_visualization._find_dev_source",
+                return_value=None,
+            ),
+            patch(
+                "mcp_server.handlers.open_visualization.launch_server",
+                mock_launch,
+            ),
+            patch("mcp_server.handlers.open_visualization.open_in_browser"),
+        ):
+            result = asyncio.run(handler({}))
+        mock_launch.assert_not_called()
+        assert result["url"] == "http://127.0.0.1:56746/?viz=force"
+
+
+class TestUrlFromBootstrap:
+    """``_url_from_bootstrap`` parses + verifies the bootstrap status
+    line. Verification (HTTP probe) is stubbed via urllib."""
+
+    def _probe_ok(self):
+        ctx = MagicMock()
+        ctx.__enter__ = MagicMock(return_value=MagicMock(read=lambda n: b"x"))
+        ctx.__exit__ = MagicMock(return_value=False)
+        return patch("urllib.request.urlopen", return_value=ctx)
+
+    def test_parses_reuse_line(self):
+        line = "ok reused pid=123 synced=4 url=http://127.0.0.1:56746/?viz=force"
+        with self._probe_ok():
+            assert _url_from_bootstrap(line) == "http://127.0.0.1:56746"
+
+    def test_parses_spawn_line(self):
+        line = "ok synced=9 url=http://127.0.0.1:3458/?viz=force extras=ok"
+        with self._probe_ok():
+            assert _url_from_bootstrap(line) == "http://127.0.0.1:3458"
+
+    def test_rejects_failure_status(self):
+        assert _url_from_bootstrap("no_dev_source") is None
+        assert _url_from_bootstrap("bootstrap_failed: OSError: x") is None
+
+    def test_rejects_non_loopback_url(self):
+        line = "ok synced=1 url=http://evil.example:80/?viz=force extras=ok"
+        with self._probe_ok():
+            assert _url_from_bootstrap(line) is None
+
+    def test_unreachable_server_returns_none(self):
+        line = "ok synced=1 url=http://127.0.0.1:3458/?viz=force extras=ok"
+        with patch("urllib.request.urlopen", side_effect=OSError("refused")):
+            assert _url_from_bootstrap(line) is None
 
 
 class TestDevSourceSecurityHardening:

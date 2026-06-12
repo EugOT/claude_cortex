@@ -15,6 +15,8 @@ import sys
 import urllib.request
 from pathlib import Path
 
+from mcp_server.server import viz_instance
+
 # Port assignments — one per server type. The ``methodology``
 # entry was removed in Gap 10 along with the broken
 # ``build_methodology_handler`` it depended on.
@@ -24,8 +26,11 @@ PORTS = {
 
 
 def _kill_port(port: int) -> None:
-    """Kill any process listening on ``port``. Best-effort — if ``lsof``
-    is unavailable or fails, silently return so we still attempt a spawn."""
+    """Kill any process listening on ``port`` and WAIT for it to exit.
+    Best-effort — if ``lsof`` is unavailable or fails, silently return
+    so we still attempt a spawn. Waiting matters: spawning while the
+    old listener still holds the socket forces the new server onto an
+    OS-assigned ephemeral port (the 2026-06-12 instance-leak bug)."""
     try:
         out = (
             subprocess.check_output(
@@ -42,10 +47,7 @@ def _kill_port(port: int) -> None:
             pid = int(pid_s.strip())
         except ValueError:
             continue
-        try:
-            os.kill(pid, 15)
-        except Exception:
-            pass
+        viz_instance.kill_and_wait(pid)
 
 
 def _detect_dev_source() -> Path | None:
@@ -288,14 +290,30 @@ def launch_server(server_type: str) -> str:
     port = PORTS[server_type]
 
     # Always-fresh policy: if a dev checkout is visible, overlay it
-    # onto the package path and kill any running server so the spawn
-    # below picks up the current source. Without this the plugin
-    # cache would serve yesterday's UI indefinitely.
+    # onto the package path so the next spawn picks up the current
+    # source. A running server is killed ONLY when the source actually
+    # changed since it started — a healthy instance running current
+    # code is reused (its graph build can represent minutes of work).
     pkg_root = Path(__file__).parent.parent.parent
     dev_src = _detect_dev_source()
     if dev_src is not None and dev_src != pkg_root:
         _sync_dev_source(dev_src, pkg_root)
+        inst = viz_instance.reusable_instance(dev_src)
+        if inst is not None:
+            return f"http://127.0.0.1:{inst['port']}"
+        stale = viz_instance.read_instance()
+        if stale is not None:
+            # Registry knows the real pid + port — covers instances
+            # that fell back to an ephemeral port and would survive a
+            # well-known-port kill.
+            viz_instance.kill_and_wait(stale["pid"])
         _kill_port(port)
+    else:
+        # No dev checkout (client install): reuse whatever instance is
+        # registered and answering, whatever port it bound.
+        inst = viz_instance.reusable_instance(None)
+        if inst is not None:
+            return f"http://127.0.0.1:{inst['port']}"
 
     # Reuse existing server if alive (and no dev-source sync happened above).
     existing = _probe_port(port)

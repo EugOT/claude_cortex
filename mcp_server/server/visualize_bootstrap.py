@@ -29,6 +29,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 PORT = 3458
@@ -160,11 +161,28 @@ def _sync(src: Path) -> int:
     return count
 
 
-def _kill_port(port: int) -> None:
+def _viz_instance_mod(src: Path):
+    """Import ``viz_instance`` from the dev checkout this script lives
+    in. The bootstrap is always re-parsed from disk, so importing its
+    sibling module preserves the fresh-from-disk property."""
+    sys.path.insert(0, str(src))
+    from mcp_server.server import viz_instance
+
+    return viz_instance
+
+
+def _kill_stale(src: Path, vi) -> None:
+    """Terminate the registered instance (whatever port it bound) plus
+    any squatter on the well-known port, WAITING for exit. Spawning
+    before the old listener releases the socket is the bind race that
+    pushed servers onto ephemeral ports."""
+    inst = vi.read_instance()
+    if inst is not None:
+        vi.kill_and_wait(inst["pid"])
     try:
         out = (
             subprocess.check_output(
-                ["lsof", "-t", "-i", f":{port}"],
+                ["lsof", "-t", "-i", f":{PORT}"],
                 stderr=subprocess.DEVNULL,
             )
             .decode()
@@ -174,8 +192,7 @@ def _kill_port(port: int) -> None:
         return
     for pid_s in out.splitlines():
         try:
-            pid = int(pid_s.strip())
-            os.kill(pid, 15)
+            vi.kill_and_wait(int(pid_s.strip()))
         except Exception:
             pass
 
@@ -228,7 +245,7 @@ def _extras_available(src: Path) -> bool:
         return False
 
 
-def _drive_prepare_then_render(timeout_s: int = 600) -> str | None:
+def _drive_prepare_then_render(base: str, timeout_s: int = 600) -> str | None:
     """Wait for graph baseline, fire /api/recompute_layout, return the
     force-directed graph URL on success.
 
@@ -249,8 +266,6 @@ def _drive_prepare_then_render(timeout_s: int = 600) -> str | None:
     import time as _time
     import urllib.request as _ur
     import webbrowser as _wb
-
-    base = f"http://127.0.0.1:{PORT}"
 
     def _run() -> None:
         try:
@@ -280,16 +295,55 @@ def _drive_prepare_then_render(timeout_s: int = 600) -> str | None:
     return f"{base}/?viz=force"
 
 
+def _wait_for_instance(vi, spawned_after: float, timeout: float = 15.0):
+    """Wait for the just-spawned server to register itself + answer
+    HTTP. Returns the instance dict (carrying the ACTUAL bound port,
+    which may differ from PORT on bind fallback) or ``None``."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        inst = vi.read_instance()
+        if (
+            inst is not None
+            and float(inst.get("started_at", 0)) >= spawned_after
+            and vi.probe(inst["port"])
+        ):
+            return inst
+        time.sleep(0.25)
+    return None
+
+
 def main() -> None:
     src = _find_dev_source()
     if src is None:
         print("no_dev_source", flush=True)
         return
+    vi = _viz_instance_mod(src)
     synced = _sync(src)
-    _kill_port(PORT)
+
+    # Reuse a live instance running current code instead of discarding
+    # its (possibly minutes-long) completed graph build. The always-
+    # fresh policy only demands a respawn when the source CHANGED since
+    # the server started — viz_instance.is_current checks exactly that.
+    inst = vi.reusable_instance(src)
+    if inst is not None:
+        print(
+            f"ok reused pid={inst['pid']} synced={synced} "
+            f"url=http://127.0.0.1:{inst['port']}/?viz=force",
+            flush=True,
+        )
+        return
+
+    _kill_stale(src, vi)
+    spawned_after = time.time()
     _spawn_server(src)
+    new_inst = _wait_for_instance(vi, spawned_after)
+    base = (
+        f"http://127.0.0.1:{new_inst['port']}"
+        if new_inst is not None
+        else f"http://127.0.0.1:{PORT}"
+    )
     if _extras_available(src):
-        target = _drive_prepare_then_render()
+        target = _drive_prepare_then_render(base)
         print(
             f"ok synced={synced} url={target} extras=ok",
             flush=True,
@@ -298,7 +352,7 @@ def main() -> None:
         # Explicit ?viz=force so the HTML's inline auto-redirect probe
         # doesn't bounce a bare URL to the tilemap default.
         print(
-            f"ok synced={synced} url=http://127.0.0.1:{PORT}/?viz=force extras=missing",
+            f"ok synced={synced} url={base}/?viz=force extras=missing",
             flush=True,
         )
 

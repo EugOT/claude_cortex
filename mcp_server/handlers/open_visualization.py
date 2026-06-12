@@ -199,6 +199,39 @@ def _kill_port(port: int) -> None:
             pass
 
 
+def _url_from_bootstrap(status: str) -> str | None:
+    """Extract + verify the server base URL from the bootstrap's
+    status line (``ok ... url=http://127.0.0.1:<port>/?viz=force``).
+
+    Returns ``None`` when the bootstrap didn't run, failed, or its
+    server doesn't answer — the caller then falls back to
+    ``launch_server``. Honoring the bootstrap's URL instead of always
+    calling ``launch_server`` fixes the double-spawn race: previously
+    the bootstrap spawned a server AND ``launch_server`` killed the
+    port + spawned another, the two racing for 3458 with the loser
+    landing on an ephemeral port (leaked instances :56746/:57167,
+    observed 2026-06-12).
+    """
+    import re
+    import urllib.request
+
+    if not status.startswith("ok"):
+        return None
+    for token in status.split():
+        if not token.startswith("url="):
+            continue
+        base = token[4:].split("/?", 1)[0].rstrip("/")
+        if not re.match(r"^http://127\.0\.0\.1:\d{1,5}$", base):
+            return None
+        try:
+            with urllib.request.urlopen(base + "/", timeout=3) as resp:
+                resp.read(64)
+        except Exception:
+            return None
+        return base
+    return None
+
+
 async def handler(args: dict | None = None) -> dict:
     # Python caches every imported module in ``sys.modules``; the
     # long-lived MCP plugin process therefore ignores on-disk edits
@@ -235,8 +268,13 @@ async def handler(args: dict | None = None) -> dict:
             _auto_sync_all_caches(dev_src)
             _kill_port(3458)
 
-    # Regardless of how we got here, launch the standalone server.
-    url = launch_server("unified")
+    # The bootstrap reused or spawned a server and reported its URL —
+    # use that instance. Only fall back to launch_server when the
+    # bootstrap didn't run (no dev source / failure) or its server is
+    # unreachable; launch_server has its own reuse-or-respawn logic.
+    url = _url_from_bootstrap(bootstrap_status)
+    if url is None:
+        url = launch_server("unified")
 
     # 2026-05-17 (user direction): the indexing/graph build must NEVER
     # block the MCP tool launch OR the interface load. The graph build
@@ -272,52 +310,3 @@ async def handler(args: dict | None = None) -> dict:
         "bootstrap": bootstrap_status,
         "layout": {"status": "not_triggered", "reason": "user_action_pending"},
     }
-
-
-def _prepare_layout(server_url: str, timeout_s: int = 600) -> dict:
-    """Wait for the graph build, then drive /api/recompute_layout.
-
-    Both endpoints belong to the spawned standalone server; we reach
-    them via plain HTTP from this MCP-process handler so the standalone
-    owns the only ``MemoryStore`` connection. Returns the JSON status
-    dict /api/recompute_layout produced, or an error stub if the
-    pipeline never completed in ``timeout_s``.
-    """
-    import json as _json
-    import time as _time
-    import urllib.error as _ue
-    import urllib.request as _ur
-
-    base = server_url.rstrip("/")
-
-    # Step 1: wait for graph build to be full_ready (the standalone
-    # builds the graph in a background thread on first /api/graph hit).
-    deadline = _time.monotonic() + timeout_s
-    last_progress: dict = {}
-    # Kick the build off — first /api/graph fetch starts the background
-    # builder if it's not already running.
-    try:
-        _ur.urlopen(f"{base}/api/graph", timeout=5).read(1024)
-    except Exception:
-        pass
-    while _time.monotonic() < deadline:
-        try:
-            with _ur.urlopen(f"{base}/api/graph/progress", timeout=5) as r:
-                last_progress = _json.loads(r.read().decode("utf-8"))
-        except Exception:
-            last_progress = {}
-        if last_progress.get("full_ready") or last_progress.get("baseline_ready"):
-            break
-        _time.sleep(2)
-
-    # Step 2: recompute_layout (idempotent — skips if fingerprint matches).
-    try:
-        with _ur.urlopen(f"{base}/api/recompute_layout", timeout=timeout_s) as r:
-            return _json.loads(r.read().decode("utf-8"))
-    except _ue.HTTPError as exc:
-        try:
-            return _json.loads(exc.read().decode("utf-8"))
-        except Exception:
-            return {"status": "error", "reason": "http_error", "detail": str(exc)}
-    except Exception as exc:
-        return {"status": "error", "reason": "exception", "detail": str(exc)}

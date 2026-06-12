@@ -508,7 +508,14 @@ def main() -> None:
     handler_cls = _build_unified_handler(ui_root, store)
 
     server = _bind_server(handler_cls, args.port)
-    url = f"http://127.0.0.1:{server.server_address[1]}"
+    bound_port = server.server_address[1]
+    url = f"http://127.0.0.1:{bound_port}"
+    # Register this instance (pid + ACTUAL bound port) so launchers can
+    # reuse it instead of respawning, and can find it even when binding
+    # fell back to an OS-assigned port (see viz_instance docstring).
+    from mcp_server.server.viz_instance import write_instance
+
+    write_instance(bound_port)
     _announce(url)
 
     threading.Thread(
