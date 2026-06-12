@@ -114,6 +114,24 @@ class TestAuditPageDrift:
         assert d is not None
         assert REASON_OFF_TEMPLATE in d.reasons
 
+    def test_technology_names_not_flagged_as_missing(self, tmp_path):
+        """Product names like Node.js / Three.js match the path regex but
+        are technologies, not source files — they must not fire the
+        missing-source axis (false positive observed 2026-06-11)."""
+        wiki = tmp_path / "wiki"
+        src = tmp_path / "src"
+        src.mkdir()
+        body = ADR_BODY_WITH_SOURCE.replace(
+            "Used `mcp_server/core/foo.py` to do bar.",
+            "A zero-dep Node.js MCP server rendering via Three.js.",
+        ).replace("Edited `mcp_server/core/foo.py`.", "Edited nothing.")
+        _write(str(wiki / "adr" / "p" / "0001-foo.md"), body)
+        d = audit_page_drift(str(wiki), "adr/p/0001-foo.md", str(src), max_age_days=365)
+        if d is not None:
+            assert REASON_MISSING_SOURCE not in d.reasons
+            assert "Node.js" not in d.missing_source_files
+            assert "Three.js" not in d.missing_source_files
+
     def test_no_source_root_skips_missing_check(self, tmp_path):
         """Pages from domains without a checked-out tree don't trigger
         the missing-source-file axis."""

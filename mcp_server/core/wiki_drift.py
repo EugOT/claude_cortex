@@ -90,6 +90,32 @@ _WIKI_INTERNAL_PREFIXES: Final[frozenset[str]] = frozenset(
 )
 
 
+# Product names that _FILE_PATH_RE captures because they end in a code
+# extension but are technologies, not files. Observed false positives:
+# a page saying "zero-dep Node.js MCP server" was flagged for a missing
+# source file ``Node.js`` (curate_wiki batch 4, 2026-06-11). Matched
+# case-insensitively against the whole token.
+_TECHNOLOGY_NAMES: Final[frozenset[str]] = frozenset(
+    {
+        "angular.js",
+        "backbone.js",
+        "chart.js",
+        "d3.js",
+        "day.js",
+        "ember.js",
+        "express.js",
+        "moment.js",
+        "next.js",
+        "node.js",
+        "nuxt.js",
+        "p5.js",
+        "react.js",
+        "three.js",
+        "vue.js",
+    }
+)
+
+
 def _is_likely_source_path(token: str) -> bool:
     """Filter cited paths to those that plausibly point at the source
     tree, not at another wiki page.
@@ -97,9 +123,13 @@ def _is_likely_source_path(token: str) -> bool:
     Rejects:
       * Tokens whose first segment is a wiki-internal kind directory.
       * URL fragments and protocol-prefixed strings.
+      * Bare technology names (``Node.js``, ``Three.js``) that the path
+        regex captures only because they end in a code extension.
       * Empty tokens.
     """
     if not token or "://" in token:
+        return False
+    if token.lower() in _TECHNOLOGY_NAMES:
         return False
     first = token.split("/", 1)[0]
     if first in _WIKI_INTERNAL_PREFIXES:
