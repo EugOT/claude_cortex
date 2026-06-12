@@ -182,18 +182,18 @@ def test_build_emits_to_stream_and_closes_once_at_end():
     assert len(events) == stats["count"]
 
     # Slim wire contract (graph_event_stream.js decoder counterpart):
-    # node = [id, kind, domain_id, x, y, label, color, heat, extra_ids],
-    # edge = [source, target, kind, weight]. Full records never ride
-    # the stream — they stay behind /api/graph/node and /api/graph/slice.
+    # node = [id, kind, x, y] and the stream carries NO EDGES AT ALL —
+    # the planetarium renders dots from id+position alone; neighbors,
+    # labels and details are on-demand queries (/api/graph/node, MCP
+    # tools). User direction 2026-06-12.
     streamed_nodes = [n for _, ev in events for n in ev.get("nodes", [])]
     streamed_edges = [e for _, ev in events for e in ev.get("edges", [])]
-    assert all(isinstance(n, list) and len(n) == 9 for n in streamed_nodes)
-    assert all(isinstance(e, list) and len(e) == 4 for e in streamed_edges)
+    assert all(isinstance(n, list) and len(n) == 4 for n in streamed_nodes)
+    assert streamed_edges == [], "edges must NEVER ride the stream"
     streamed_node_ids = [n[0] for n in streamed_nodes]
     kinds = {n[0]: n[1] for n in streamed_nodes}
     assert kinds.get("domain:alpha") == "domain"
     assert kinds.get("file:a.py") == "file"
-    assert ["file:a.py", "domain:alpha", "in_domain", None] in streamed_edges
 
     # Added-only emission: the same node is never streamed twice even
     # though skeleton and full baseline both returned it.

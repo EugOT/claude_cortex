@@ -317,12 +317,6 @@ def get_node_neighbors(node_id: str, offset: int = 0, limit: int = 500) -> dict:
 # Absent values are null; the client decoder skips nulls so the
 # renderer's existing fallbacks engage.
 
-# Labels are render hints, not records — the detail panel fetches the
-# full text on click. Cap protects the wire from gist-length memory
-# labels. source: measured 2026-06-12 — uncapped memory labels alone
-# added ~5 MB to the replay.
-_WIRE_LABEL_CAP = 64
-
 
 def _round4(v):
     """Coordinates ride the wire at 4 decimals. The DrL layout emits
@@ -334,31 +328,17 @@ def _round4(v):
 
 
 def _slim_node(n: dict) -> list:
-    label = n.get("label")
-    if isinstance(label, str) and len(label) > _WIRE_LABEL_CAP:
-        label = label[:_WIRE_LABEL_CAP]
-    extra = n.get("extra_domain_ids") or None
+    """THE wire record: id, kind, x, y — nothing else. No labels, no
+    colors, no domain ids, no metadata, and the stream carries NO
+    edges at all (user direction 2026-06-12: the planetarium renders
+    every dot from id+position alone; every other byte — neighbors,
+    labels, details — is a query through the on-demand endpoints and
+    MCP tools, fetched only when asked)."""
     return [
         n.get("id"),
         n.get("kind") or n.get("type"),
-        n.get("domain_id"),
         _round4(n.get("x")),
         _round4(n.get("y")),
-        label,
-        n.get("color"),
-        n.get("heat"),
-        extra,
-    ]
-
-
-def _slim_edge(e: dict) -> list:
-    s = e.get("source")
-    t = e.get("target")
-    return [
-        s.get("id") if isinstance(s, dict) else s,
-        t.get("id") if isinstance(t, dict) else t,
-        e.get("kind") or e.get("type"),
-        e.get("weight"),
     ]
 
 
@@ -691,14 +671,14 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
             # Every _merge (skeleton, baseline, every L6 batch) pushes
             # its added delta onto the event stream the moment it lands
             # in the cache, projected to the slim wire format (see
-            # _slim_node/_slim_edge) — the full records stay in the
+            # _slim_node) — the full records stay in the
             # cache for /api/graph/node and /api/graph/slice.
             try:
-                if added_nodes or added_edges:
+                if added_nodes:
                     _events.emit(
                         stage,
                         [_slim_node(n) for n in added_nodes],
-                        [_slim_edge(e) for e in added_edges],
+                        [],
                         chunk=1000,
                     )
             except Exception as _exc:  # pragma: no cover - defensive
@@ -827,10 +807,7 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
             _events.reset()
             _source_totals.clear()
 
-            from mcp_server.handlers.workflow_graph import (
-                _edge_to_dict,
-                _node_to_dict,
-            )
+            from mcp_server.handlers.workflow_graph import _node_to_dict
 
             def _on_source_loaded(label: str, count: int) -> None:
                 _source_totals[label] = count
@@ -851,7 +828,6 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
             # NOT filtered by these sets, so every node still arrives
             # at most twice: once live, once coordinated.
             _wire_seen_n: set = set()
-            _wire_seen_e: set = set()
 
             def _on_batch(label: str, nodes_objs, edges_objs) -> None:
                 """Push per-source batch onto the SSE event queue, in the
@@ -873,15 +849,8 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                     if nid and nid not in _wire_seen_n:
                         _wire_seen_n.add(nid)
                         n_slim.append(_slim_node(d))
-                e_slim = []
-                for e in edges_objs:
-                    d = _edge_to_dict(e)
-                    key = (d.get("source"), d.get("target"), d.get("kind"))
-                    if key not in _wire_seen_e:
-                        _wire_seen_e.add(key)
-                        e_slim.append(_slim_edge(d))
-                if n_slim or e_slim:
-                    _events.emit(label, n_slim, e_slim, chunk=1000)
+                if n_slim:
+                    _events.emit(label, n_slim, [], chunk=1000)
 
             # ── Stage 1: skeleton (≪1 s) → first paint ──
             # stage="skeleton" loads only skills + hooks, no memories, no

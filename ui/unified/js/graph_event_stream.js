@@ -31,32 +31,22 @@
   }
 
   // ── Slim wire decode ──
-  // The server emits positional arrays (see _slim_node/_slim_edge in
-  // http_standalone_graph.py):
-  //   node: [id, kind, domain_id, x, y, label, color, heat, extra_ids]
-  //   edge: [source, target, kind, weight]
-  // Nulls mean "absent" — fields are only assigned when present so the
-  // renderer's fallbacks (palette by kind, label→id, default weight)
-  // engage. Full records stay server-side; the detail panel drills
-  // /api/graph/node on click.
+  // The server emits node tuples [id, kind, x, y] and NOTHING else —
+  // no edges, labels, colors, or metadata ride the stream (user
+  // direction 2026-06-12: the planetarium renders every dot from
+  // id+position alone; neighbors, labels and details are on-demand
+  // queries via /api/graph/node and the MCP tools).
   function _decodeNode(a) {
     if (!Array.isArray(a)) return a;  // already an object (tests, legacy)
     var n = { id: a[0], kind: a[1], type: a[1] };
-    if (a[2] != null) n.domain_id = a[2];
-    if (a[3] != null) n.x = a[3];
-    if (a[4] != null) n.y = a[4];
-    if (a[5] != null) n.label = a[5];
-    if (a[6] != null) n.color = a[6];
-    if (a[7] != null) n.heat = a[7];
-    if (a[8] != null) n.extra_domain_ids = a[8];
+    if (a[2] != null) n.x = a[2];
+    if (a[3] != null) n.y = a[3];
     return n;
   }
 
   function _decodeEdge(a) {
     if (!Array.isArray(a)) return a;
-    var e = { source: a[0], target: a[1], kind: a[2], type: a[2] };
-    if (a[3] != null) e.weight = a[3];
-    return e;
+    return { source: a[0], target: a[1], kind: a[2], type: a[2] };
   }
 
   function _onBatchEvent(ev) {

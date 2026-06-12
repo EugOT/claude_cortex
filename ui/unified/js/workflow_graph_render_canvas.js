@@ -32,7 +32,6 @@
     var STATIC = !!(ctx && ctx._world);
     var base = null, baseT = null, baseTimer = null;
     var grid = null, GRID_CELL = 24;     // px; ≥ 2× max node radius
-    var nodeEdges = null;                // id -> [edge, ...]
 
     function buildStaticIndexes() {
       grid = {};
@@ -40,13 +39,6 @@
         var n = ctx.nodes[i];
         var key = ((n.x / GRID_CELL) | 0) + ':' + ((n.y / GRID_CELL) | 0);
         (grid[key] || (grid[key] = [])).push(n);
-      }
-      nodeEdges = {};
-      for (var j = 0; j < ctx.edges.length; j++) {
-        var e = ctx.edges[j];
-        var s = e.source.id || e.source, t = e.target.id || e.target;
-        (nodeEdges[s] || (nodeEdges[s] = [])).push(e);
-        (nodeEdges[t] || (nodeEdges[t] = [])).push(e);
       }
     }
 
@@ -143,6 +135,33 @@
       baseT = { k: transform.k, x: transform.x, y: transform.y };
     }
 
+    var _labelFetched = {};
+    function fetchHubLabels() {
+      var pending = [];
+      for (var i = 0; i < ctx.nodes.length; i++) {
+        var n = ctx.nodes[i];
+        if ((n.kind === 'domain' || n.kind === 'tool_hub') &&
+            !n.label && !_labelFetched[n.id]) {
+          _labelFetched[n.id] = 1;
+          pending.push(n);
+        }
+      }
+      if (!pending.length) return;
+      var left = pending.length;
+      pending.forEach(function (n) {
+        fetch('/api/graph/node?id=' + encodeURIComponent(n.id) + '&n_limit=1')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (p) {
+            if (p && p.record && p.record.label) n.label = p.record.label;
+          })
+          .catch(function () {})
+          .then(function () {
+            left--;
+            if (left === 0 && baseT) { renderBase(); draw(); }
+          });
+      });
+    }
+
     function scheduleBaseRerender() {
       if (baseTimer) clearTimeout(baseTimer);
       // Re-render crisply once the gesture pauses. 150 ms: long enough
@@ -159,13 +178,18 @@
       g.save();
       g.translate(transform.x, transform.y);
       g.scale(transform.k, transform.k);
-      var edges = (nodeEdges && nodeEdges[focusId]) || [];
+      // Edges exist ONLY here: drawn for the selected node from its
+      // on-demand /api/graph/node neighborhood (rows [other_id, kind,
+      // label, edge_kind, direction]), positions resolved against the
+      // dots already on screen. The stream carries no edges at all.
       g.strokeStyle = 'rgba(240,210,100,0.85)';
       g.lineWidth = 1.4 / (transform.k || 1);
-      for (var i = 0; i < edges.length; i++) {
-        var e = edges[i];
-        g.beginPath(); g.moveTo(e.source.x, e.source.y);
-        g.lineTo(e.target.x, e.target.y); g.stroke();
+      var rows = fn._neighbors || [];
+      for (var i = 0; i < rows.length; i++) {
+        var other = ctx.byId[rows[i][0]];
+        if (!other || other.x == null) continue;
+        g.beginPath(); g.moveTo(fn.x, fn.y);
+        g.lineTo(other.x, other.y); g.stroke();
       }
       var r = wfg.nodeRadius(fn);
       g.fillStyle = wfg.nodeColor(fn);
@@ -176,7 +200,7 @@
     }
 
     function drawStatic() {
-      if (!baseT) { buildStaticIndexes(); renderBase(); }
+      if (!baseT) { buildStaticIndexes(); renderBase(); fetchHubLabels(); }
       g.clearRect(0, 0, canvas.width, canvas.height);
       if (transform.k === baseT.k && transform.x === baseT.x && transform.y === baseT.y) {
         g.drawImage(base, 0, 0);
@@ -532,6 +556,7 @@
         buildStaticIndexes();
         renderBase();
         draw();
+        fetchHubLabels();
       },
     };
   }
