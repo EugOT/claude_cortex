@@ -256,3 +256,17 @@ def test_graph_slice_pages_are_complete():
     # Slice pages carry FULL records (the wire is slim; the slice is
     # the fidelity path for the MCP handler).
     assert all(isinstance(n, dict) for n in nodes)
+
+
+def test_place_around_is_deterministic_and_bounded():
+    """Symbol placement contract: same key → same position; distance
+    from the anchor stays inside the derived 0.05–0.25 world band
+    (renderer ratio derivation in the _place_around docstring)."""
+    a = graph._place_around(0.5, -0.25, "symbol:abc123")
+    b = graph._place_around(0.5, -0.25, "symbol:abc123")
+    assert a == b, "placement must be deterministic per id"
+    dx, dy = a[0] - 0.5, a[1] + 0.25
+    dist = (dx * dx + dy * dy) ** 0.5
+    assert 0.04 <= dist <= 0.26, f"distance {dist} outside derived band"
+    c = graph._place_around(0.5, -0.25, "symbol:other")
+    assert c != a, "different ids spread to different positions"

@@ -24,11 +24,14 @@ which matches the rules for server → handlers/core wiring.
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 import threading
 import time
 import traceback
+
+from mcp_server.shared.hash import simple_hash
 
 from mcp_server.server.http_standalone_state import (
     CONVERSATIONS_CACHE_TTL,
@@ -315,6 +318,32 @@ def _slim_edge(e: dict) -> list:
         e.get("kind") or e.get("type"),
         e.get("weight"),
     ]
+
+
+def _place_around(anchor_x: float, anchor_y: float, key: str) -> tuple[float, float]:
+    """Deterministic position near an anchor, in the layout engine's
+    [-1, 1] world coordinates.
+
+    Gives L6 symbols (and AP-only files) server-side coordinates so the
+    wire carries a position for EVERY node and the client never has to
+    force-simulate them — the plan is "server positions, client draws".
+    The DrL bake covers only the baseline; symbols are placed on a
+    deterministic ray around their parent file's baked coordinate.
+
+    Distance derivation (no invented constants): the client renderer
+    seeded symbols 30–150 px past their file on a ~1200 px viewport
+    (workflow_graph.js symbol seeding), i.e. 2.5–12.5 % of the view.
+    The world span is 2.0 ([-1,1]), so the same visual ratio is
+    0.05–0.25 world units. Angle and distance both derive from the
+    DJB2 hash of the node id — same input, same position, every build.
+    """
+    h = int(simple_hash(key), 16)
+    angle = (h % 3600) / 3600.0 * 2.0 * math.pi
+    dist = 0.05 + ((h >> 12) % 1000) / 1000.0 * 0.20
+    return (
+        round(anchor_x + math.cos(angle) * dist, 4),
+        round(anchor_y + math.sin(angle) * dist, 4),
+    )
 
 
 def get_graph_slice(offset: int = 0, limit: int = 20000) -> dict:
@@ -1152,6 +1181,16 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                     fp_ = sym.get("file_path") or ""
                     if fp_:
                         ap_file_paths.add(fp_)
+                # Anchor for this project's coordinate placement: the
+                # domain hub's baked coordinate (the DrL pass covered
+                # the baseline, which includes every domain node).
+                _hub = _node_index.get(proj_domain_id) or {}
+                _hub_xy = (
+                    (_hub.get("x"), _hub.get("y"))
+                    if _hub.get("x") is not None and _hub.get("y") is not None
+                    else None
+                )
+
                 for fp_ in ap_file_paths:
                     if file_id_by_path.get(fp_):
                         continue
@@ -1163,17 +1202,20 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                     parts = fp_.split("/")
                     for i in range(1, len(parts)):
                         file_id_by_path.setdefault("/".join(parts[i:]), fid)
-                    proj_nodes.append(
-                        {
-                            "id": fid,
-                            "kind": "file",
-                            "type": "file",
-                            "label": fp_.rsplit("/", 1)[-1],
-                            "path": fp_,
-                            "domain_id": proj_domain_id,
-                            "domain": proj_slug,
-                        }
-                    )
+                    _fnode = {
+                        "id": fid,
+                        "kind": "file",
+                        "type": "file",
+                        "label": fp_.rsplit("/", 1)[-1],
+                        "path": fp_,
+                        "domain_id": proj_domain_id,
+                        "domain": proj_slug,
+                    }
+                    if _hub_xy is not None:
+                        _fnode["x"], _fnode["y"] = _place_around(
+                            _hub_xy[0], _hub_xy[1], fid
+                        )
+                    proj_nodes.append(_fnode)
                     # Bind the file to its domain so L3-layout places
                     # it in the domain's file ring.
                     proj_edges.append(
@@ -1186,6 +1228,27 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                         }
                     )
 
+                # Coordinates of the files created in THIS loop — they
+                # are not in _node_index until the merge, but their
+                # symbols are placed right below.
+                _local_file_xy = {
+                    n["id"]: (n["x"], n["y"])
+                    for n in proj_nodes
+                    if n.get("kind") == "file" and n.get("x") is not None
+                }
+
+                def _file_xy(fid_: str | None) -> tuple[float, float] | None:
+                    if not fid_:
+                        return None
+                    cached = _node_index.get(fid_)
+                    if (
+                        cached
+                        and cached.get("x") is not None
+                        and cached.get("y") is not None
+                    ):
+                        return (cached["x"], cached["y"])
+                    return _local_file_xy.get(fid_)
+
                 for sym in syms:
                     qn = sym.get("qualified_name") or ""
                     fp = sym.get("file_path") or ""
@@ -1194,19 +1257,26 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                     sid = NodeIdFactory.symbol_id(fp, qn)
                     proj_symbol_ids[proj_name].add(sid)
                     stype = str(sym.get("symbol_type") or "function")
-                    proj_nodes.append(
-                        {
-                            "id": sid,
-                            "kind": "symbol",
-                            "type": "symbol",
-                            "label": qn.rsplit("::", 1)[-1] or qn,
-                            "color": SYMBOL_COLORS.get(stype, SYMBOL_COLOR_DEFAULT),
-                            "path": fp,
-                            "symbol_type": stype,
-                            "domain_id": proj_domain_id,
-                            "domain": proj_slug,
-                        }
-                    )
+                    _snode = {
+                        "id": sid,
+                        "kind": "symbol",
+                        "type": "symbol",
+                        "label": qn.rsplit("::", 1)[-1] or qn,
+                        "color": SYMBOL_COLORS.get(stype, SYMBOL_COLOR_DEFAULT),
+                        "path": fp,
+                        "symbol_type": stype,
+                        "domain_id": proj_domain_id,
+                        "domain": proj_slug,
+                    }
+                    # Server-side position: ray around the parent file's
+                    # coordinate (baked L3 file or just-placed L6 file),
+                    # falling back to the domain hub. Every node on the
+                    # wire carries a position — the client draws, it
+                    # does not simulate.
+                    _axy = _file_xy(file_id_by_path.get(fp)) or _hub_xy
+                    if _axy is not None:
+                        _snode["x"], _snode["y"] = _place_around(_axy[0], _axy[1], sid)
+                    proj_nodes.append(_snode)
                     parent = file_id_by_path.get(fp)
                     if parent:
                         # Gap 6: shared provenance defaults.
