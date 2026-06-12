@@ -6,6 +6,46 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.19.6] - 2026-06-12
+
+### Fixed
+
+- **MCP server failed to connect forever after an interrupted first
+  bootstrap.** An interrupted `pip install --target deps/` (e.g. the MCP
+  client's startup timeout killing the first dependency install) left
+  package directories without `__init__.py`. Python imports such a husk
+  as a namespace package, so the launcher's missing-dep check passed
+  while `from fastmcp import FastMCP` died with "unknown location" — and
+  because `deps/` is first on `sys.path`, the husk shadowed every
+  healthy install on every retry. The launcher now detects husks
+  (`module.__file__ is None`), deletes them, and reinstalls; pip runs
+  against a temp dir and commits into `deps/` only on success (atomic —
+  a mid-install kill can no longer poison the deps dir); pip failures
+  are printed to stderr instead of swallowed, and PEP 668
+  externally-managed interpreters retry with `--break-system-packages`.
+- **Galaxy graph: L6 never finished, nodes weren't browsable, and the
+  build looked deadlocked.** Four stacked causes, all in the delivery
+  layer: the SSE event stream was closed at baseline (subscribers got
+  `done` before a single L6 symbol streamed); the SSE client script was
+  never loaded by the page (the polling phase loader was the only
+  delivery path); every L6 batch throttled a full second against the
+  LayoutAuthority's overload flag, which could never clear because the
+  authority has no consumer (~1 h of pure sleep per build); and `_merge`
+  rebuilt its dedup state over the whole cumulative cache per 200-node
+  batch (O(n²), GIL-pinned for hours, starving all HTTP requests). The
+  live SSE stream (`/api/graph/events`) is now the only graph delivery
+  path: the build kicks at server launch, every merge emits its delta
+  immediately, the stream closes once at true end-of-build, and warm
+  processes replay the event buffer. `_merge` is incremental, and
+  `/api/graph/node` resolves every node kind via a new id index
+  (previously only `memory:`/`entity:` PG ids resolved — symbol, file,
+  and domain clicks returned an empty detail panel). Measured: full
+  build to `full_ready` in 202 s with 143,816 nodes / 270,707 edges
+  incl. 94,437 L6 symbols (previously never finished); node detail in
+  ~0.5 ms.
+- **Wiki drift no longer flags technology names (`Node.js`,
+  `Three.js`) as missing source files.**
+
 ## [3.19.5] - 2026-06-12
 
 ### Fixed
