@@ -295,6 +295,35 @@ def serve_graph_events(handler, store=None) -> None:
         stream_closed()
 
 
+def serve_graph_slice(handler) -> None:
+    """GET /api/graph/slice?offset=N&limit=M — full-fidelity page of the
+    cumulative graph cache.
+
+    Complete-across-continuation: pages slice both nodes and edges by
+    [offset : offset+limit] with totals and ``done``; the union of all
+    pages equals the full cache (never a lossy cap — user direction
+    2026-06-12). Primary consumer: the ``query_workflow_graph`` MCP
+    handler in the Cortex server process, which drains pages from the
+    LIVE viz instance instead of rebuilding the graph per call.
+    """
+    from urllib.parse import parse_qs, urlparse
+
+    from mcp_server.server.http_standalone_graph import get_graph_slice
+
+    try:
+        qs = parse_qs(urlparse(handler.path).query)
+
+        def _int(name: str, default: int) -> int:
+            try:
+                return int(qs[name][0])
+            except (KeyError, IndexError, ValueError):
+                return default
+
+        send_json_ok(handler, get_graph_slice(_int("offset", 0), _int("limit", 20000)))
+    except Exception as e:
+        send_json_error(handler, e)
+
+
 def serve_graph_progress(handler, store=None) -> None:
     """GET /api/graph/progress — background-build progress snapshot.
 

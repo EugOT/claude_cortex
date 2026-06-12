@@ -174,6 +174,11 @@ def _route_unified_get(
 
         serve_graph_phase(handler)
         return
+    if path_no_qs == "/api/graph/slice":
+        from mcp_server.server.http_standalone_endpoints import serve_graph_slice
+
+        serve_graph_slice(handler)
+        return
     if path_no_qs == "/api/graph":
         # Lazy-kicks the background build on first hit with an empty
         # cache (see http_standalone_graph.py). Must stay AFTER the more

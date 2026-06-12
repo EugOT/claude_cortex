@@ -253,6 +253,104 @@ def get_node_record(node_id: str) -> dict | None:
     return _node_index.get(node_id)
 
 
+# ── Slim wire projection (graphify-informed, 2026-06-12) ──────────────
+#
+# The SSE stream used to ship every node's FULL record — measured
+# 259 bytes/item, 107 MB for the complete galaxy replay (414k items).
+# The renderer only consumes: id, kind, domain_id, x, y, label, color,
+# heat, extra_domain_ids (verified consumer audit: workflow_graph.js
+# nodeColor/labelOf fall back to palette/id; filters read domain_id +
+# extra_domain_ids; memory/entity weighting reads heat). Everything
+# else — path, symbol_type, memory metadata, edge confidence/reason —
+# is detail-panel data served on demand by /api/graph/node.
+#
+# Plain JSON positional arrays, deliberately NO enum tables and NO
+# index↔id mapping layer (user direction: light JSON without a mapper
+# — the codec class of solution is what kept breaking). Fixed layout:
+#   node: [id, kind, domain_id, x, y, label, color, heat, extra_ids]
+#   edge: [source, target, kind, weight]
+# Absent values are null; the client decoder skips nulls so the
+# renderer's existing fallbacks engage.
+
+# Labels are render hints, not records — the detail panel fetches the
+# full text on click. Cap protects the wire from gist-length memory
+# labels. source: measured 2026-06-12 — uncapped memory labels alone
+# added ~5 MB to the replay.
+_WIRE_LABEL_CAP = 64
+
+
+def _round4(v):
+    """Coordinates ride the wire at 4 decimals. The DrL layout emits
+    unit-scale doubles (observed 0.6026883210462267 — 18 chars); 1e-4
+    resolution is sub-pixel even on a 4k-wide render of the unit
+    square, and the rounding alone removes ~2 MB from the full replay
+    (measured 2026-06-12: 45,871 baked coordinate pairs)."""
+    return round(v, 4) if isinstance(v, float) else v
+
+
+def _slim_node(n: dict) -> list:
+    label = n.get("label")
+    if isinstance(label, str) and len(label) > _WIRE_LABEL_CAP:
+        label = label[:_WIRE_LABEL_CAP]
+    extra = n.get("extra_domain_ids") or None
+    return [
+        n.get("id"),
+        n.get("kind") or n.get("type"),
+        n.get("domain_id"),
+        _round4(n.get("x")),
+        _round4(n.get("y")),
+        label,
+        n.get("color"),
+        n.get("heat"),
+        extra,
+    ]
+
+
+def _slim_edge(e: dict) -> list:
+    s = e.get("source")
+    t = e.get("target")
+    return [
+        s.get("id") if isinstance(s, dict) else s,
+        t.get("id") if isinstance(t, dict) else t,
+        e.get("kind") or e.get("type"),
+        e.get("weight"),
+    ]
+
+
+def get_graph_slice(offset: int = 0, limit: int = 20000) -> dict:
+    """Paginated FULL-fidelity page of the cumulative graph cache.
+
+    The complete-across-continuation contract (no silent truncation —
+    user direction 2026-06-12): each page slices BOTH nodes and edges
+    by ``[offset : offset+limit]`` and reports totals; ``done`` flips
+    once the window covers ``max(node_total, edge_total)``. The union
+    of all pages equals the full cache. ``phase_seq`` keys consumer-
+    side memoisation (a changed seq means the build published more).
+    """
+    cache = _graph_cache
+    data = cache.get("data", {}) if cache else {}
+    nodes = data.get("nodes", [])
+    edges = data.get("edges", [])
+    node_total = len(nodes)
+    edge_total = len(edges)
+    offset = max(0, int(offset))
+    limit = max(1, int(limit))
+    with _build_progress_lock:
+        phase_seq = _build_progress.get("phase_seq", 0)
+        full_ready = bool(_build_progress.get("full_ready"))
+    return {
+        "nodes": nodes[offset : offset + limit],
+        "edges": edges[offset : offset + limit],
+        "node_total": node_total,
+        "edge_total": edge_total,
+        "offset": offset,
+        "limit": limit,
+        "done": (offset + limit) >= max(node_total, edge_total),
+        "phase_seq": phase_seq,
+        "full_ready": full_ready,
+    }
+
+
 def ensure_build_started(store) -> None:
     """Kick the background galaxy build unless one is running or the
     in-process cache already holds nodes.
@@ -517,15 +615,15 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
             # ── Live SSE emission — the delivery path ──
             # Every _merge (skeleton, baseline, every L6 batch) pushes
             # its added delta onto the event stream the moment it lands
-            # in the cache. /api/graph/events subscribers see the graph
-            # grow in real time, label taken from ``stage`` so the user
-            # can tell ``L6 1/28 Cortex`` apart from ``memories``.
+            # in the cache, projected to the slim wire format (see
+            # _slim_node/_slim_edge) — the full records stay in the
+            # cache for /api/graph/node and /api/graph/slice.
             try:
                 if added_nodes or added_edges:
                     _events.emit(
                         stage,
-                        added_nodes,
-                        added_edges,
+                        [_slim_node(n) for n in added_nodes],
+                        [_slim_edge(e) for e in added_edges],
                         chunk=1000,
                     )
             except Exception as _exc:  # pragma: no cover - defensive
@@ -667,20 +765,47 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                     message=f"loaded {count} {label}",
                 )
 
-            def _on_batch(label: str, nodes_objs, edges_objs) -> None:
-                """Push per-source batch onto the SSE event queue.
+            # The raw per-source streams repeat items heavily — one
+            # discussion node was emitted 3,782 times by its source
+            # (measured 2026-06-12); the cache dedups on merge, but
+            # _on_batch bypasses the cache, so the wire paid for every
+            # repeat. Each id/edge-key goes over the live wire ONCE
+            # from _on_batch; the post-bake baseline _merge re-emission
+            # (which carries the coordinates the live copies lack) is
+            # NOT filtered by these sets, so every node still arrives
+            # at most twice: once live, once coordinated.
+            _wire_seen_n: set = set()
+            _wire_seen_e: set = set()
 
-                Intentionally JUST a push — no _merge, no LayoutAuthority
-                emit per item. The cumulative cache is populated by ONE
-                _merge after build completion (where the O(cache) work
-                is paid once). This keeps the build thread fast even on
-                the 107 k-memory batch that previously ground for minutes.
+            def _on_batch(label: str, nodes_objs, edges_objs) -> None:
+                """Push per-source batch onto the SSE event queue, in the
+                slim wire projection, deduped at the wire level.
+
+                Intentionally no _merge per item — the cumulative cache
+                is populated by ONE _merge after build completion. These
+                live batches carry null x/y (layout runs after the
+                load); the post-bake baseline _merge re-emits the same
+                ids WITH coordinates and the client backfills positions
+                on the deduped nodes.
                 """
                 if not nodes_objs and not edges_objs:
                     return
-                n_dicts = [_node_to_dict(n) for n in nodes_objs]
-                e_dicts = [_edge_to_dict(e) for e in edges_objs]
-                _events.emit(label, n_dicts, e_dicts, chunk=1000)
+                n_slim = []
+                for n in nodes_objs:
+                    d = _node_to_dict(n)
+                    nid = d.get("id")
+                    if nid and nid not in _wire_seen_n:
+                        _wire_seen_n.add(nid)
+                        n_slim.append(_slim_node(d))
+                e_slim = []
+                for e in edges_objs:
+                    d = _edge_to_dict(e)
+                    key = (d.get("source"), d.get("target"), d.get("kind"))
+                    if key not in _wire_seen_e:
+                        _wire_seen_e.add(key)
+                        e_slim.append(_slim_edge(d))
+                if n_slim or e_slim:
+                    _events.emit(label, n_slim, e_slim, chunk=1000)
 
             # ── Stage 1: skeleton (≪1 s) → first paint ──
             # stage="skeleton" loads only skills + hooks, no memories, no
@@ -739,37 +864,15 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                 memory_limit=_mem_limit,
             )
 
-            _merge(
-                baseline.get("nodes", []),
-                baseline.get("edges", []),
-                stage="baseline",
-                pct=0.30,
-                message=(
-                    f"baseline: {len(baseline.get('nodes', []))} nodes / "
-                    f"{len(baseline.get('edges', []))} edges"
-                ),
-                phase_key=None,
-            )
-            for _phase_key in ("L0", "L1", "L2", "L3", "L4", "L5"):
-                _mark_phase_ready(_phase_key)
-            _set_progress(
-                phase="baseline_ready",
-                pct=0.30,
-                message=(
-                    f"baseline ready: {len(baseline.get('nodes', []))} nodes / "
-                    f"{len(baseline.get('edges', []))} edges"
-                ),
-                baseline_ready=True,
-            )
-
-            # ── Bake layout coordinates into the nodes ──
-            # Each phase payload ships x/y per node. Without a layout pass
-            # every node ships at (0,0) and the browser recomputes the
-            # entire force layout live on each load — nodes start stacked
-            # at the origin and visibly fly apart for several seconds
-            # ("off by default"). Run one DrL pass here (OpenOrd; ~0.8 s
-            # for 34k nodes, measured 2026-05-31) and write the resulting
-            # coords so the galaxy opens already arranged.
+            # ── Bake layout coordinates BEFORE the baseline merge ──
+            # The merge's SSE emission snapshots each node into the slim
+            # wire tuple, so coordinates must exist at emission time.
+            # (The bake used to run after the merge and mutate the dicts
+            # the event buffer shared by reference — replay clients saw
+            # coords, live clients never did. Bake-before-merge gives
+            # both the same coordinated baseline.) One DrL pass (OpenOrd;
+            # ~0.8 s for 34k nodes, measured 2026-05-31); on failure the
+            # client still settles its own live layout, just slower.
             try:
                 from mcp_server.core import layout_engine
 
@@ -798,12 +901,33 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                     file=sys.stderr,
                 )
             except Exception as _exc:  # pragma: no cover - defensive
-                # igraph missing or layout error — fall back to (0,0);
-                # the client still settles a live layout, just slower.
                 print(
                     f"[cortex] layout bake skipped: {_exc}",
                     file=sys.stderr,
                 )
+
+            _merge(
+                baseline.get("nodes", []),
+                baseline.get("edges", []),
+                stage="baseline",
+                pct=0.30,
+                message=(
+                    f"baseline: {len(baseline.get('nodes', []))} nodes / "
+                    f"{len(baseline.get('edges', []))} edges"
+                ),
+                phase_key=None,
+            )
+            for _phase_key in ("L0", "L1", "L2", "L3", "L4", "L5"):
+                _mark_phase_ready(_phase_key)
+            _set_progress(
+                phase="baseline_ready",
+                pct=0.30,
+                message=(
+                    f"baseline ready: {len(baseline.get('nodes', []))} nodes / "
+                    f"{len(baseline.get('edges', []))} edges"
+                ),
+                baseline_ready=True,
+            )
 
             # NO _events.close() here. Closing the stream at baseline
             # made every SSE subscriber receive ``done`` and disconnect

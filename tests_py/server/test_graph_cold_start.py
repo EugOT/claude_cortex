@@ -180,9 +180,20 @@ def test_build_emits_to_stream_and_closes_once_at_end():
     # (closed + drained) — this is the warm-cache delivery path.
     events = list(stream.subscribe(since=0, timeout=0.5))
     assert len(events) == stats["count"]
-    streamed_node_ids = [n["id"] for _, ev in events for n in ev.get("nodes", [])]
-    assert "domain:alpha" in streamed_node_ids
-    assert "file:a.py" in streamed_node_ids
+
+    # Slim wire contract (graph_event_stream.js decoder counterpart):
+    # node = [id, kind, domain_id, x, y, label, color, heat, extra_ids],
+    # edge = [source, target, kind, weight]. Full records never ride
+    # the stream — they stay behind /api/graph/node and /api/graph/slice.
+    streamed_nodes = [n for _, ev in events for n in ev.get("nodes", [])]
+    streamed_edges = [e for _, ev in events for e in ev.get("edges", [])]
+    assert all(isinstance(n, list) and len(n) == 9 for n in streamed_nodes)
+    assert all(isinstance(e, list) and len(e) == 4 for e in streamed_edges)
+    streamed_node_ids = [n[0] for n in streamed_nodes]
+    kinds = {n[0]: n[1] for n in streamed_nodes}
+    assert kinds.get("domain:alpha") == "domain"
+    assert kinds.get("file:a.py") == "file"
+    assert ["file:a.py", "domain:alpha", "in_domain", None] in streamed_edges
 
     # Added-only emission: the same node is never streamed twice even
     # though skeleton and full baseline both returned it.
@@ -219,3 +230,29 @@ def test_node_index_serves_every_kind():
     rec = graph.get_node_record("file:a.py")
     assert rec is not None and rec["path"] == "a.py"
     assert graph.get_node_record("symbol:does-not-exist") is None
+
+
+def test_graph_slice_pages_are_complete():
+    """/api/graph/slice contract: bounded pages whose union equals the
+    full cache — defer, never discard."""
+    _reset_module_state()
+    _run_fake_build()
+
+    head = graph.get_graph_slice(offset=0, limit=1)
+    assert head["node_total"] == 2
+    assert head["done"] is False
+    nodes = list(head["nodes"])
+    edges = list(head["edges"])
+    offset = 1
+    while True:
+        page = graph.get_graph_slice(offset=offset, limit=1)
+        nodes.extend(page["nodes"])
+        edges.extend(page["edges"])
+        if page["done"]:
+            break
+        offset += 1
+    assert {n["id"] for n in nodes} == {"domain:alpha", "file:a.py"}
+    assert len(edges) == head["edge_total"] == 1
+    # Slice pages carry FULL records (the wire is slim; the slice is
+    # the fidelity path for the MCP handler).
+    assert all(isinstance(n, dict) for n in nodes)

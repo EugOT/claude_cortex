@@ -180,7 +180,7 @@ class TestApplyFilters:
         # s1's direct neighbours: file:aaa, symbol:s2, memory:42
         assert ids == {"symbol:s1", "file:aaa", "symbol:s2", "memory:42"}
 
-    def test_limit_nodes_trims_by_heat_and_reports_truncated(self):
+    def test_limit_nodes_pages_by_heat_and_reports_totals(self):
         r = _apply_filters(
             _GRAPH,
             node_kinds=None,
@@ -190,11 +190,41 @@ class TestApplyFilters:
             limit_nodes=3,
         )
         assert len(r["nodes"]) == 3
-        # Trimmed in heat-descending order — top 3 are s1 (0.8), mem42 (0.7),
-        # file:aaa (0.5).
+        # Page 1 in heat-descending order — top 3 include s1 (0.8).
         top_ids = {n["id"] for n in r["nodes"]}
         assert "symbol:s1" in top_ids  # highest heat
+        # Paged, not discarded: the remainder is reachable via offset.
         assert r["meta"]["truncated_nodes"] == len(_GRAPH["nodes"]) - 3
+        assert r["meta"]["node_total_matched"] == len(_GRAPH["nodes"])
+        assert r["meta"]["next_offset"] == 3
+        assert r["meta"]["complete"] is False
+
+    def test_pagination_union_equals_full_matched_set(self):
+        """Completeness contract (user direction 2026-06-12): draining
+        pages via next_offset yields EXACTLY the full matched subgraph
+        — nothing discarded, nothing duplicated."""
+        all_nodes: list = []
+        all_edges: list = []
+        offset = 0
+        for _ in range(20):  # hard stop against an infinite loop
+            r = _apply_filters(
+                _GRAPH,
+                node_kinds=None,
+                edge_kinds=None,
+                neighbour_of=None,
+                depth=1,
+                limit_nodes=2,
+                offset=offset,
+            )
+            all_nodes.extend(r["nodes"])
+            all_edges.extend(r["edges"])
+            if r["meta"]["next_offset"] is None:
+                assert r["meta"]["complete"] is True
+                break
+            offset = r["meta"]["next_offset"]
+        assert {n["id"] for n in all_nodes} == {n["id"] for n in _GRAPH["nodes"]}
+        assert len(all_nodes) == len(_GRAPH["nodes"])  # no duplicates
+        assert len(all_edges) == len(_GRAPH["edges"])
 
     def test_meta_records_filter(self):
         r = _apply_filters(
@@ -277,10 +307,41 @@ class _FakeStore:
 
 
 @pytest.mark.asyncio
-async def test_handler_returns_shaped_payload_on_empty_graph():
+async def test_handler_returns_shaped_payload_on_empty_graph(monkeypatch):
+    # Force the local-build path — a live viz server on the dev machine
+    # must not leak its real graph into this fixture-based test.
+    monkeypatch.setattr(
+        "mcp_server.handlers.query_workflow_graph.fetch_live_graph",
+        lambda: None,
+    )
     result = await handler({"limit_nodes": 10}, store=_FakeStore())
     assert "nodes" in result
     assert "edges" in result
     assert "meta" in result
     assert result["meta"]["filter"]["limit_nodes"] == 10
     assert result["meta"]["filtered"] is True
+    assert result["meta"]["source"] == "local-build"
+
+
+@pytest.mark.asyncio
+async def test_handler_prefers_live_cache(monkeypatch):
+    """When a live viz server answers, the handler serves ITS graph —
+    single graph authority shared by browser and agents — and never
+    touches the store/builder."""
+    live = {
+        "nodes": list(_GRAPH["nodes"]),
+        "edges": list(_GRAPH["edges"]),
+        "meta": {"source": "live-cache", "phase_seq": 7, "full_ready": True},
+    }
+    monkeypatch.setattr(
+        "mcp_server.handlers.query_workflow_graph.fetch_live_graph",
+        lambda: live,
+    )
+
+    class _ExplodingStore:
+        def __getattr__(self, name):  # any store touch is a failure
+            raise AssertionError("live-cache path must not touch the store")
+
+    result = await handler({"limit_nodes": 100}, store=_ExplodingStore())
+    assert result["meta"]["source"] == "live-cache"
+    assert {n["id"] for n in result["nodes"]} == {n["id"] for n in _GRAPH["nodes"]}

@@ -200,7 +200,11 @@
     JUG._existingIdSet = {};
     JUG._existingEdgeSet = {};
     var d = JUG.state.lastData || {};
-    (d.nodes || []).forEach(function(n){ JUG._existingIdSet[n.id] = true; });
+    // Store the node OBJECT (truthy, so dedup checks are unchanged):
+    // duplicate arrivals can then backfill fields onto the kept node —
+    // the live per-source batches stream with null x/y (no layout yet)
+    // and the post-bake baseline re-emission carries the coordinates.
+    (d.nodes || []).forEach(function(n){ JUG._existingIdSet[n.id] = n; });
     (d.edges || []).forEach(function(e){ JUG._existingEdgeSet[_edgeKey(e)] = true; });
   }
 
@@ -247,8 +251,21 @@
     var c = JUG._statCounts;
     for (var i = 0; i < nodes.length; i++) {
       var n = nodes[i];
-      if (!n || !n.id || JUG._existingIdSet[n.id]) continue;
-      JUG._existingIdSet[n.id] = true;
+      if (!n || !n.id) continue;
+      var kept = JUG._existingIdSet[n.id];
+      if (kept) {
+        // Duplicate id: keep the first node, but backfill coordinates
+        // the first copy lacked (live pre-layout batch → baked
+        // baseline re-emission). Object-shaped entries only — view
+        // switches (trace.js) may leave a Set whose lookups return
+        // undefined, which falls through to the insert path as before.
+        if (kept !== true && typeof kept === 'object') {
+          if (kept.x == null && n.x != null) kept.x = n.x;
+          if (kept.y == null && n.y != null) kept.y = n.y;
+        }
+        continue;
+      }
+      JUG._existingIdSet[n.id] = n;
       JUG.state.lastData.nodes.push(n);
       addedNodes.push(n);
       var kind = n.kind || n.type || '';

@@ -29,6 +29,7 @@ from mcp_server.handlers._tool_meta import READ_ONLY
 from mcp_server.handlers.workflow_graph import build_workflow_graph
 from mcp_server.infrastructure.memory_config import get_memory_settings
 from mcp_server.infrastructure.memory_store import MemoryStore, get_shared_store
+from mcp_server.infrastructure.viz_client import fetch_live_graph
 
 _store: MemoryStore | None = None
 
@@ -116,8 +117,22 @@ schema = {
                 "maximum": 5000,
                 "default": 500,
                 "description": (
-                    "Hard cap on returned nodes. Trimmed nodes get "
-                    "reported in ``meta.truncated_nodes``."
+                    "Page size, NOT a lossy cap: nodes and edges beyond "
+                    "the window stay reachable via ``offset`` — "
+                    "``meta`` reports ``node_total_matched``, "
+                    "``edge_total_matched``, ``next_offset``, and "
+                    "``complete``. Drain pages until ``complete`` for "
+                    "the full matched subgraph."
+                ),
+            },
+            "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 0,
+                "description": (
+                    "Continuation cursor — pass ``meta.next_offset`` "
+                    "from the previous page to fetch the next window "
+                    "of the same query."
                 ),
             },
         },
@@ -215,19 +230,45 @@ def _prune_dangling_edges(edges: list[dict], node_ids: set[str]) -> list[dict]:
     return kept
 
 
-def _cap_nodes_by_heat(
-    nodes: list[dict], edges: list[dict], limit: int
-) -> tuple[list[dict], list[dict], int]:
-    """Trim ``nodes`` to ``limit`` rows ranked by heat (desc)."""
-    if len(nodes) <= limit:
-        return nodes, edges, 0
-    nodes.sort(
-        key=lambda n: float(n.get("heat") or n.get("size") or 0.0),
-        reverse=True,
+def _page_by_heat(
+    nodes: list[dict], edges: list[dict], offset: int, limit: int
+) -> tuple[list[dict], list[dict], int, int, int | None]:
+    """Deterministic page window over the matched subgraph.
+
+    Replaces the old lossy heat cap (which DISCARDED everything past
+    ``limit``): a bounded response may defer, never discard (user
+    direction 2026-06-12 — Cortex's contract is scientific
+    completeness). Nodes are ranked heat-desc with id as the stable
+    tiebreak; nodes and edges are windowed INDEPENDENTLY by
+    ``[offset : offset+limit]`` (edges keep their match order), so the
+    union of pages equals the full matched subgraph. Cross-page edges
+    are therefore NOT pruned against the page's node set — consumers
+    draining for completeness union the pages; ``meta`` carries the
+    totals and ``next_offset``.
+
+    Returns ``(page_nodes, page_edges, node_total, edge_total,
+    next_offset)`` — ``next_offset`` is ``None`` once the window covers
+    both totals.
+    """
+    node_total = len(nodes)
+    edge_total = len(edges)
+    nodes = sorted(
+        nodes,
+        key=lambda n: (
+            -float(n.get("heat") or n.get("size") or 0.0),
+            str(n.get("id") or ""),
+        ),
     )
-    truncated = len(nodes) - limit
-    nodes = nodes[:limit]
-    return nodes, _prune_dangling_edges(edges, {n.get("id") for n in nodes}), truncated
+    page_nodes = nodes[offset : offset + limit]
+    page_edges = edges[offset : offset + limit]
+    done = (offset + limit) >= max(node_total, edge_total)
+    return (
+        page_nodes,
+        page_edges,
+        node_total,
+        edge_total,
+        (None if done else offset + limit),
+    )
 
 
 def _build_meta(
@@ -238,9 +279,12 @@ def _build_meta(
     neighbour_of: str | None,
     depth: int,
     limit_nodes: int,
-    truncated: int,
+    offset: int,
+    node_total: int,
+    edge_total: int,
+    next_offset: int | None,
 ) -> dict:
-    """Assemble the output meta block for a filtered subgraph."""
+    """Assemble the output meta block for a filtered subgraph page."""
     meta = dict(graph.get("meta") or {})
     meta["filtered"] = True
     meta["filter"] = {
@@ -250,8 +294,16 @@ def _build_meta(
         "depth": depth if neighbour_of else None,
         "limit_nodes": limit_nodes,
     }
-    if truncated:
-        meta["truncated_nodes"] = truncated
+    meta["offset"] = offset
+    meta["node_total_matched"] = node_total
+    meta["edge_total_matched"] = edge_total
+    meta["next_offset"] = next_offset
+    meta["complete"] = next_offset is None
+    # Matched-but-outside-this-page count. Continuable via
+    # ``offset=next_offset`` — nothing is discarded.
+    remaining = max(0, node_total - offset - limit_nodes)
+    if remaining:
+        meta["truncated_nodes"] = remaining
     return meta
 
 
@@ -263,8 +315,9 @@ def _apply_filters(
     neighbour_of: str | None,
     depth: int,
     limit_nodes: int,
+    offset: int = 0,
 ) -> dict:
-    """Apply BFS → edge_kind → node_kind → cap in that order.
+    """Apply BFS → edge_kind → node_kind → page window in that order.
 
     BFS runs over the FULL edge set so hop-count reflects structural
     reachability; ``edge_kind`` then slices edges inside the reached
@@ -287,7 +340,9 @@ def _apply_filters(
         nodes = [n for n in nodes if _node_kind(n) in node_kinds]
         edges = _prune_dangling_edges(edges, {n.get("id") for n in nodes})
 
-    nodes, edges, truncated = _cap_nodes_by_heat(nodes, edges, limit_nodes)
+    nodes, edges, node_total, edge_total, next_offset = _page_by_heat(
+        nodes, edges, offset, limit_nodes
+    )
 
     meta = _build_meta(
         graph,
@@ -296,13 +351,47 @@ def _apply_filters(
         neighbour_of=neighbour_of,
         depth=depth,
         limit_nodes=limit_nodes,
-        truncated=truncated,
+        offset=offset,
+        node_total=node_total,
+        edge_total=edge_total,
+        next_offset=next_offset,
     )
     return {"nodes": nodes, "edges": edges, "links": edges, "meta": meta}
 
 
+def _filter_domain(graph: dict, domain: str) -> dict:
+    """Restrict a full graph to one domain (live-cache path).
+
+    The local-build path applies ``domain_filter`` inside
+    ``build_workflow_graph``; the live viz cache is always the full
+    multi-domain graph, so the restriction happens here. Membership =
+    the node's ``domain_id`` (or any ``extra_domain_ids``) matches the
+    requested label's domain id (``shared.project_ids`` slugging — the
+    same convention the builder uses), plus the domain hub itself.
+    """
+    from mcp_server.shared.project_ids import domain_id_from_label
+
+    slug = domain_id_from_label(domain) or domain
+    did = f"domain:{slug}"
+    nodes = [
+        n
+        for n in graph.get("nodes", [])
+        if n.get("id") == did
+        or n.get("domain_id") == did
+        or did in (n.get("extra_domain_ids") or ())
+    ]
+    ids = {n.get("id") for n in nodes}
+    edges = _prune_dangling_edges(
+        list(graph.get("edges") or graph.get("links") or []), ids
+    )
+    return {"nodes": nodes, "edges": edges, "meta": dict(graph.get("meta") or {})}
+
+
 async def handler(args: dict | None = None, store=None) -> dict:
-    """Build the workflow graph, then apply the requested filter.
+    """Serve the requested subgraph page from the LIVE viz cache when a
+    viz server is running (single graph authority — the browser and
+    agents see the same graph), falling back to a local
+    ``build_workflow_graph`` when none answers.
 
     ``store`` is optional for tests; in MCP/production use it falls
     back to the same lazy-singleton ``MemoryStore`` that remember /
@@ -323,11 +412,22 @@ async def handler(args: dict | None = None, store=None) -> dict:
         limit_nodes = _DEFAULT_LIMIT
     limit_nodes = max(1, min(_MAX_LIMIT, limit_nodes))
 
-    graph = build_workflow_graph(
-        store if store is not None else _get_store(),
-        domain_filter=args.get("domain"),
-        stage="full",
-    )
+    try:
+        offset = max(0, int(args.get("offset") or 0))
+    except (TypeError, ValueError):
+        offset = 0
+
+    domain = args.get("domain")
+    graph = fetch_live_graph()
+    if graph is not None and domain:
+        graph = _filter_domain(graph, str(domain))
+    if graph is None:
+        graph = build_workflow_graph(
+            store if store is not None else _get_store(),
+            domain_filter=domain,
+            stage="full",
+        )
+        graph.setdefault("meta", {})["source"] = "local-build"
 
     return _apply_filters(
         graph,
@@ -336,6 +436,7 @@ async def handler(args: dict | None = None, store=None) -> dict:
         neighbour_of=args.get("neighbour_of"),
         depth=depth,
         limit_nodes=limit_nodes,
+        offset=offset,
     )
 
 
