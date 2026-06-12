@@ -6,6 +6,31 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.19.5] - 2026-06-12
+
+### Fixed
+
+- **`open_visualization` spawned a new server on a new port (with a cold
+  graph rebuild) on every call, leaking ephemeral-port processes.** Two
+  root causes: nothing recorded the running instance, and the handler
+  ran `launch_server` unconditionally even after the bootstrap had
+  already started a server (a double-spawn race). New
+  `mcp_server/server/viz_instance.py` keeps an instance registry at
+  `~/.cache/cortex/viz-server.json` (`{pid, port, started_at}`); launch
+  paths probe it and reuse a healthy, source-current instance
+  (source-currency compares the newest source mtime, excluding
+  `__pycache__`). Stale instances are stopped with kill-and-wait
+  (SIGTERM → wait → SIGKILL, reaping the instance's own zombie children)
+  before rebinding. The handler now parses the bootstrap's `url=` line
+  and skips `launch_server` when the bootstrap already produced a live
+  server. Verified by smoke test: run 1 spawns and registers, run 2
+  reuses the same pid.
+- **The skeleton-snapshot write clobbered the shared full graph
+  snapshot.** The skeleton write in `http_standalone_graph.py` fed a
+  nonexistent `/api/graph.bin` route; its only observable effects were
+  overwriting the full snapshot (36,931 → 31 nodes) and flipping the
+  complete-snapshot counts to `None`, forcing cold rebuilds. Removed.
+
 ## [3.19.4] - 2026-06-12
 
 ### Fixed
