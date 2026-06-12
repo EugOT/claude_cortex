@@ -111,6 +111,27 @@ Never a lossy cap; the response always states total counts.
    null x/y, post-bake re-emission carries 4-decimal coords, client
    backfills onto the deduped node. PASS.
 
+## Remaining work — renderer static-draw + END of silent caps
+
+User direction 2026-06-12: a hard cap is a truncation of the
+scientific record — the completeness principle applies to the WHOLE
+chain (build → cache → wire → render), not just the query surface.
+Inventory of remaining silent caps, all to be removed:
+
+| Cap | Where | What it amputates |
+|---|---|---|
+| `CORTEX_VIZ_MEMORY_LIMIT=25000` | build (`http_standalone_graph.py`) | 375k+ of 400k+ memories never enter the cache — wire, browser, AND the MCP live-cache path inherit the hole. Heat is a retrieval prior, not an existence criterion. Replace DrL-bake dependency with `_place_around` rays per memory (O(1) each) so the bake cost doesn't force the cap. |
+| `EXTREME > 25k` | renderer (`workflow_graph.js`) | every `calls` edge — a call graph without calls |
+| `HEAVY > 8k` | renderer | symbol→file edges |
+| `ENTITY_TOPN` heat gate | renderer (~line 895) | cold entities hidden |
+
+These caps exist to keep the d3 force simulation alive; the
+static-draw mode (server positions, client draws — memory 4197492)
+removes their reason to exist. Display-level LOD (what is LEGIBLE at
+a zoom level: labels, edge fading) remains allowed — it is a property
+of the viewport, not of the data; every node and edge stays in the
+scene and in the counts.
+
 ## Non-goals
 
 - No binary codec, no enum/index mapper — light JSON only, per user
