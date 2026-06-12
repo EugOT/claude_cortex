@@ -36,10 +36,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Pixi
+        # prefix-dev/setup-pixi v0.9.6
+        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11
         with:
-          python-version: "3.12"
+          pixi-version: v0.70.2
+          environments: py312
+          cache: true
 
       # Runner-local PostgreSQL + pgvector (no Docker Hub pull). See ci.yml for
       # the rationale: anonymous registry-1.docker.io pulls are rate-limited and
@@ -73,14 +76,14 @@ jobs:
           key: ${{ runner.os }}-hf-all-MiniLM-L6-v2
 
       - name: Install dependencies
-        run: pip install -e ".[dev,postgresql]"
+        run: pixi install --locked -e py312
 
       - name: Pre-download embedding model
-        run: python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2', device='cpu')"
+        run: pixi run -e py312 -- python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2', device='cpu')"
         continue-on-error: true
 
       - name: Run tests
-        run: pytest --tb=short -q
+        run: pixi run -e py312 test
 
   github-release:
     name: GitHub Release
@@ -122,16 +125,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Pixi
+        # prefix-dev/setup-pixi v0.9.6
+        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11
         with:
-          python-version: "3.12"
-
-      - name: Install build tools
-        run: pip install build
+          pixi-version: v0.70.2
+          environments: default
+          cache: true
 
       - name: Build sdist and wheel
-        run: python -m build
+        run: pixi run build
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

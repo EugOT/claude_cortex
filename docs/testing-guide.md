@@ -6,35 +6,35 @@ The test suite validates all layers of the Clean Architecture, from pure shared 
 
 **Framework:** pytest 8.0+ with pytest-cov for coverage reporting and pytest-asyncio for async tests
 
-**Test count:** 1387 tests passing
+**Test count:** 3,280 tests passing in the latest Python 3.12 CI coverage run; 9 skipped.
 
 ## Running Tests
 
 ```bash
 # Full suite
-pytest
+pixi run test
 
 # With coverage
-pytest --cov=mcp_server --cov-report=term-missing
+pixi run test-cov
 
 # HTML coverage report
-pytest --cov=mcp_server --cov-report=html
+pixi run -- python -m pytest --cov=mcp_server --cov-report=html
 open htmlcov/index.html
 
 # Specific layer
-pytest tests_py/shared/          # Pure utilities
-pytest tests_py/core/            # Domain logic
-pytest tests_py/infrastructure/  # I/O layer
-pytest tests_py/handlers/        # Composition roots
-pytest tests_py/server/          # MCP protocol
-pytest tests_py/transport/       # stdio framing
-pytest tests_py/hooks/           # Lifecycle hooks
+pixi run -- python -m pytest tests_py/shared/          # Pure utilities
+pixi run -- python -m pytest tests_py/core/            # Domain logic
+pixi run -- python -m pytest tests_py/infrastructure/  # I/O layer
+pixi run -- python -m pytest tests_py/handlers/        # Composition roots
+pixi run -- python -m pytest tests_py/server/          # MCP protocol
+pixi run -- python -m pytest tests_py/transport/       # stdio framing
+pixi run -- python -m pytest tests_py/hooks/           # Lifecycle hooks
 
 # Single file
-pytest tests_py/core/test_sparse_dictionary.py -v
+pixi run -- python -m pytest tests_py/core/test_sparse_dictionary.py -v
 
 # Run with keyword filter
-pytest -k "test_cosine" -v
+pixi run -- python -m pytest -k "test_cosine" -v
 ```
 
 ## Test Structure
@@ -279,14 +279,15 @@ When adding a new module:
 2. Ensure `__init__.py` exists in the test subdirectory
 3. Follow the naming convention: `class TestClassName` with `def test_specific_behavior`
 4. For async code, use the `_run()` wrapper pattern instead of `@pytest.mark.asyncio`
-5. Run `pytest --cov=mcp_server.foo.bar --cov-report=term-missing tests_py/foo/test_bar.py` to verify coverage
+5. Run `pixi run -- python -m pytest --cov=mcp_server.foo.bar --cov-report=term-missing tests_py/foo/test_bar.py` to verify coverage
 
 ## Continuous Integration
 
-The test suite is designed to run in CI with:
+The Python 3.12 CI leg publishes XML and terminal coverage reports with:
 
 ```bash
-pytest --cov=mcp_server --cov-report=xml --cov-fail-under=80
+pixi run test-cov
 ```
 
-This enforces the minimum 80% overall coverage threshold.
+Coverage is currently reported, not gated. The latest full CI coverage baseline is
+54.96%; add `--cov-fail-under` only after the baseline is raised to the target.
