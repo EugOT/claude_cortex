@@ -1,46 +1,49 @@
 # Contributing to Cortex
 
 Thanks for considering a contribution. Cortex is a persistent memory
-engine built on **20 biological mechanisms** with **41 academic citations**
+engine built on **26 biological mechanisms** with **45 academic citations**
 backing the algorithms. Every change is held to that bar.
 
 ---
 
 ## What this project is
 
-A Python 3.10+ MCP server with **47 tools, 9 automatic hooks**, persisting
+A Python 3.10+ MCP server with **49 tools, 9 automatic hooks**, persisting
 to PostgreSQL + pgvector. Implements rate-distortion forgetting,
 predictive-coding write gating, retrieval-induced reconsolidation, pattern
 separation, sleep-cycle consolidation, emotional-valence weighting, and
 more. See [README](README.md) for the full architecture and benchmark
-results (LongMemEval Recall@10 = 97.8%, LoCoMo Recall@10 = 92.6%, BEAM-10M
+results (LongMemEval Recall@10 = 98.4%, LoCoMo Recall@10 = 94.3%, BEAM-10M
 +33.4% over the published baseline).
 
 ---
 
 ## Dev setup
 
-**Prerequisites:** Python 3.10+, PostgreSQL 17 + pgvector extension,
-`uvx` (`pip install uv` or `pipx install uv`).
+**Prerequisites:** Pixi 0.70+ on `linux-64` or `osx-arm64`, Python 3.10+
+through Pixi, PostgreSQL 17 + pgvector extension. Intel macOS and Linux ARM
+contributors should use a matching remote runner or development container for
+Pixi-backed work until the `tree-sitter-language-pack` wheel set covers the
+full Python matrix.
 
 ```bash
 git clone https://github.com/cdeust/Cortex.git
 cd Cortex
 
-# Install with dev + benchmark extras
-pip install -e ".[postgresql,benchmarks,dev]"
+# Install the default Python 3.12 development environment
+pixi install
 
 # Or use the setup script (handles PostgreSQL + pgvector + DB init)
 bash scripts/setup.sh        # macOS / Linux
 
 # Verify everything is wired
-uvx --python 3.13 --from "neuro-cortex-memory[postgresql]" cortex-doctor
+pixi run doctor
 
-# Run tests (2500+ tests across functional + benchmark suites)
-pytest
+# Run tests (3,000+ tests across functional + benchmark suites)
+pixi run test
 
 # Run a benchmark
-python benchmarks/longmemeval/run_benchmark.py --variant s
+pixi run -- python benchmarks/longmemeval/run_benchmark.py --variant s
 ```
 
 ---
@@ -56,7 +59,7 @@ python benchmarks/longmemeval/run_benchmark.py --variant s
 
 ## Adding a biological mechanism
 
-Cortex's twenty mechanisms are not metaphors — each maps to a specific
+Cortex's 26 mechanisms are not metaphors — each maps to a specific
 neuroscience finding with a specific algorithmic implementation.
 A new mechanism PR must include:
 
@@ -98,7 +101,8 @@ reranker. Changes here:
 
 ## Coding standards (excerpt)
 
-Standard Python style (`black`, `ruff`, `mypy --strict`) plus
+Standard Python style (`ruff`, with `pyright` tracked as a visible baseline)
+plus
 project-specific rules:
 
 - **No `Any`** in production code. Use `Protocol` or generic typing.
@@ -107,7 +111,9 @@ project-specific rules:
 - **No mutable default arguments.** No globals except for read-once
   configuration objects.
 - **No bare `except:`.** Catch the specific exception you mean.
-- **Type-checked at `--strict`.** `mypy --strict src/cortex/` must pass.
+- **Type-check visible.** Run `pixi run typecheck` and attach the output when
+  touching typed contracts. It remains a non-blocking CI baseline until the
+  existing project-wide debt is paid down.
 - **§4.1 File ≤500 lines, §4.2 function ≤50 lines.**
 
 The full standard lives in
@@ -118,11 +124,12 @@ The full standard lives in
 ## Testing
 
 ```bash
-pytest                           # full suite (~2500 tests)
-pytest tests/unit                # unit only
-pytest tests/integration         # PostgreSQL-backed integration
-pytest tests/benchmark -k locomo # subset
-pytest -x --ff                   # stop on first fail, run failures first
+pixi run test                                      # full suite (3,000+ tests)
+pixi run -- python -m pytest tests_py/shared          # pure utilities
+pixi run -- python -m pytest tests_py/infrastructure  # I/O layer
+pixi run -- python -m pytest -k locomo                # subset
+pixi run -- python -m pytest -x --ff                  # stop on first fail, run failures first
+pixi run typecheck                                 # visible baseline, currently non-blocking in CI
 ```
 
 Tests run against a local PostgreSQL instance. CI provisions a fresh DB
@@ -132,7 +139,7 @@ per run.
 
 ## Adding an MCP tool
 
-47 tools currently. Adding a new one:
+49 tools currently. Adding a new one:
 
 1. **Define the JSON schema** in the tool's module-level decorator.
 2. **Implement the handler** following the `BaseTool` protocol.
@@ -152,7 +159,9 @@ per run.
   is not a citation.
 - Don't introduce a heavy ML model dependency that breaks the
   runs-on-your-machine guarantee.
-- Don't bypass `mypy --strict`. The type system is the contract.
+- Don't hide new type errors. If `pixi run typecheck` still reports baseline
+  debt, call out whether your change adds, removes, or leaves the count
+  unchanged.
 - Don't relax a test that fails on your branch. The test exists for a
   reason; understand the reason before changing it.
 

@@ -260,28 +260,28 @@ Handlers sit at the center as **composition roots**: they wire infrastructure (I
 
 | Module | Purpose |
 |---|---|
-| `__main__.py` | `python -m mcp_server` — FastMCP bootstrap, registers all 34 tools |
+| `__main__.py` | `python -m mcp_server` — FastMCP bootstrap, registers all 49 tools |
 
 ## Testing Strategy
 
 **Framework:** `pytest` with `pytest-cov` for coverage, `pytest-asyncio` for async tests
 
-**Runner:** `pytest tests_py/`
+**Runner:** `pixi run test`
 
-**Coverage:** `pytest --cov=mcp_server --cov-report=term-missing`
+**Coverage:** `pixi run test-cov`
 
 **Test commands by layer:**
 
 | Command | Scope |
 |---|---|
-| `pytest` | All tests (1387 passing) |
-| `pytest tests_py/shared/` | Shared utilities |
-| `pytest tests_py/core/` | Core domain logic |
-| `pytest tests_py/infrastructure/` | Infrastructure and I/O |
-| `pytest tests_py/handlers/` | Handler composition roots |
-| `pytest tests_py/server/` | MCP router |
-| `pytest tests_py/transport/` | stdio transport |
-| `pytest tests_py/hooks/` | Session lifecycle hooks |
+| `pixi run test` | All tests (3,000+ passing) |
+| `pixi run -- python -m pytest tests_py/shared/` | Shared utilities |
+| `pixi run -- python -m pytest tests_py/core/` | Core domain logic |
+| `pixi run -- python -m pytest tests_py/infrastructure/` | Infrastructure and I/O |
+| `pixi run -- python -m pytest tests_py/handlers/` | Handler composition roots |
+| `pixi run -- python -m pytest tests_py/server/` | MCP router |
+| `pixi run -- python -m pytest tests_py/transport/` | stdio transport |
+| `pixi run -- python -m pytest tests_py/hooks/` | Session lifecycle hooks |
 
 **Coverage targets by layer:**
 
