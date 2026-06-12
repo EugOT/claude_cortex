@@ -503,6 +503,21 @@
         addedE++;
       }
       if (addedN || addedE) {
+        // Static mode: no physics to reheat — new nodes are already
+        // positioned; they become visible/clickable when the canvas
+        // base layer re-renders. Debounced so a streaming burst costs
+        // one re-render per quiet period, not one per batch.
+        if (ctx._world) {
+          if (renderer && typeof renderer.refreshBase === 'function') {
+            if (append._baseTimer) clearTimeout(append._baseTimer);
+            append._baseTimer = setTimeout(function () {
+              append._baseTimer = null;
+              renderer.refreshBase();
+            }, 300);
+          }
+          return { addedNodes: addedN, addedEdges: addedE,
+                   totalNodes: nodes.length, totalEdges: edges.length };
+        }
         sim.nodes(nodes);
         // Static mode has no link force — positions are server-owned.
         var _lf = sim.force('link');

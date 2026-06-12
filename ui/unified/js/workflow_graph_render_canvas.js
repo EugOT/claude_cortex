@@ -248,17 +248,31 @@
       if (n) {
         selectedId = n.id;
         panel.show(n, ctx);
-        // Emit the selection on the global bus so view controllers react
-        // — the Trace view (trace.js) expands the clicked node's children
-        // and detail_panel.js enriches it. Without this, a real canvas
-        // click only showed the panel and never expanded the graph.
-        if (window.JUG && typeof JUG.emit === 'function') {
+        if (STATIC) {
+          // ONE panel, fed by ONE on-demand call: the slim wire only
+          // carries render fields, so the full record is fetched on
+          // click and merged into the node, then the SAME panel
+          // refreshes. graph:selectNode is NOT emitted here — it
+          // opened detail_panel.js on top of this panel (two stacked
+          // panels, user report 2026-06-12).
+          fetch('/api/graph/node?id=' + encodeURIComponent(n.id))
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (p) {
+              if (p && p.found && selectedId === n.id) {
+                Object.assign(n, p.record);
+                panel.show(n, ctx);
+              }
+            })
+            .catch(function () {});
+        } else if (window.JUG && typeof JUG.emit === 'function') {
+          // Trace view (simulated path) keeps the global selection
+          // event — trace.js expands the clicked node's children.
           try { JUG.emit('graph:selectNode', n); } catch (_e) {}
         }
       } else {
         selectedId = null;
         panel.hide();
-        if (window.JUG && typeof JUG.emit === 'function') {
+        if (!STATIC && window.JUG && typeof JUG.emit === 'function') {
           try { JUG.emit('graph:deselectNode'); } catch (_e) {}
         }
       }
@@ -501,6 +515,15 @@
       selectId: function (id) { var n = ctx.byId[id]; if (n) { selectedId = id; panel.show(n, ctx); draw(); } },
       fit: fitToContent,
       applyFilter: applyFilter,
+      // Static mode: rebuild hit-grid + edge index + base layer after
+      // the mount's append() pushed new nodes (they are invisible and
+      // unclickable until the base re-renders).
+      refreshBase: function () {
+        if (!STATIC) return;
+        buildStaticIndexes();
+        renderBase();
+        draw();
+      },
     };
   }
 
