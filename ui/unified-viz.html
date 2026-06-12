@@ -535,6 +535,14 @@
   function startStream() {
     if (started || !window.GraphEventStream) return;
     started = true;
+    // The workflow-graph renderer owns the galaxy from the FIRST byte.
+    // Without this, every stream batch that lands before the bridge's
+    // debounced first render triggers the LEGACY force-graph rebuild
+    // (graph.js _scheduleRebuild) on the growing node set — at replay
+    // speed that is a 140k-node rebuild per frame, the main thread
+    // saturates, and the loading screen never leaves (observed
+    // 2026-06-12).
+    JUG.__wfgActive = true;
     GraphEventStream.start({
       onProgress: function (s) {
         _status('streaming ' + (s.label || 'graph') + ' · ' +
