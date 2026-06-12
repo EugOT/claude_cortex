@@ -549,8 +549,14 @@
           s.nodes + ' nodes / ' + s.edges + ' edges');
       },
       onDone: function (s) {
-        _status('galaxy loaded · ' + s.nodes + ' nodes / ' +
-          s.edges + ' edges in ' + Math.round(s.elapsed_ms / 1000) + 's');
+        _status('galaxy loaded · ' + s.nodes + ' nodes in ' +
+          Math.round(s.elapsed_ms / 1000) + 's');
+        // Stream complete: every node now carries its server position
+        // (coordinate backfill included). Fire ONE final render so the
+        // bridge mounts the static galaxy exactly once.
+        if (JUG.state.lastData && typeof JUG.emit === 'function') {
+          JUG.emit('state:lastData', { value: JUG.state.lastData, delta: null });
+        }
       },
     });
   }

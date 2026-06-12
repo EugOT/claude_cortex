@@ -1224,13 +1224,48 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                         ap_file_paths.add(fp_)
                 # Anchor for this project's coordinate placement: the
                 # domain hub's baked coordinate (the DrL pass covered
-                # the baseline, which includes every domain node).
+                # the baseline, which includes every SESSION domain).
                 _hub = _node_index.get(proj_domain_id) or {}
                 _hub_xy = (
                     (_hub.get("x"), _hub.get("y"))
                     if _hub.get("x") is not None and _hub.get("y") is not None
                     else None
                 )
+                if _hub_xy is None:
+                    # AP-only project (indexed code with no session
+                    # history): no baseline domain node exists, so the
+                    # placement chain (hub -> files -> symbols) dead-
+                    # ended and 90,225 symbols shipped with NO
+                    # coordinates (measured on the wire 2026-06-13) —
+                    # the client fell back to simulation mode. Place
+                    # the project hub deterministically on the outer
+                    # ring: the DrL bake normalises to <=~0.91
+                    # (layout_engine 0.55-span padding), so radius 0.9
+                    # sits at the layout's edge; DJB2(domain id) sets
+                    # the angle so projects spread.
+                    _h = int(simple_hash(proj_domain_id), 16)
+                    _ang = (_h % 3600) / 3600.0 * 2.0 * math.pi
+                    _hub_xy = (
+                        round(0.9 * math.cos(_ang), 4),
+                        round(0.9 * math.sin(_ang), 4),
+                    )
+                    if not _hub:
+                        proj_nodes.append(
+                            {
+                                "id": proj_domain_id,
+                                "kind": "domain",
+                                "type": "domain",
+                                "label": proj_slug or proj_name,
+                                "domain_id": proj_domain_id,
+                                "domain": proj_slug,
+                                "x": _hub_xy[0],
+                                "y": _hub_xy[1],
+                            }
+                        )
+                    else:
+                        # Exists but never placed — set coordinates on
+                        # the cached record so the chain below resolves.
+                        _hub["x"], _hub["y"] = _hub_xy
 
                 for fp_ in ap_file_paths:
                     if file_id_by_path.get(fp_):
