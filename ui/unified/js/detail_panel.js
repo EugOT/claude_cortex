@@ -243,7 +243,7 @@
   // Event listeners
   // On select: open the panel immediately with the lightweight snapshot
   // node (id/kind/connections render instantly), then enrich it in place
-  // with the full PG record fetched on demand. The CXGB snapshot only
+  // with the full PG record fetched on demand. The phase payload only
   // carries 6 fields/node so the galaxy loads in ~30 ms; the rich body /
   // heat / stage / scientific fields are drilled here.
   // source: design 2026-05-31 — top-25k galaxy + on-demand cold-tail drill.

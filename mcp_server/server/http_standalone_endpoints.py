@@ -357,7 +357,7 @@ def serve_graph_phase(handler) -> None:
 def serve_graph_node(handler, store) -> None:
     """GET /api/graph/node?id=<node_id> — full record for one node.
 
-    The CXGB snapshot carries only 6 fields per node (id/kind/domain_id/
+    The phase payload carries only 6 fields per node (id/kind/domain_id/
     x/y/size) so the galaxy loads in ~30 ms. The rich detail panel fetches
     the full record on click via this endpoint (on-demand drill) instead
     of bloating the base graph. Resolves ``memory:<pg_id>`` and
@@ -383,6 +383,17 @@ def serve_graph_node(handler, store) -> None:
             record = store.get_memory(int(raw))
         elif kind == "entity" and raw.isdigit() and hasattr(store, "get_entity_by_id"):
             record = store.get_entity_by_id(int(raw))
+
+        # Fallback for every kind without a PG row (symbol, file,
+        # domain, skill, hook, tool_hub, discussion, command, mcp):
+        # serve the full cached node from the build's id index. Without
+        # this, only memory:/entity: ids ever resolved and the detail
+        # panel stayed empty for the rest of the galaxy — nodes were
+        # not browsable (observed 2026-06-12).
+        if record is None:
+            from mcp_server.server.http_standalone_graph import get_node_record
+
+            record = get_node_record(node_id)
 
         send_json_ok(
             handler,

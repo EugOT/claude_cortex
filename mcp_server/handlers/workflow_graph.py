@@ -516,7 +516,7 @@ def _build_interleaved(
         after the whole source finishes ingesting.
 
         ``stream=False`` ingests the items into the builder (so they ride
-        into the final baseline graph + CXGB snapshot) but does NOT emit
+        into the final baseline graph) but does NOT emit
         per-chunk batches over the live SSE/layout-authority path. Use it
         for dense edge-only sources whose live streaming dominates build
         time without adding visible structure — chiefly

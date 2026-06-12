@@ -489,23 +489,23 @@ def main() -> None:
     parser.add_argument("--port", type=int, required=True)
     args = parser.parse_args()
 
-    # 2026-05-17 (user direction): the graph build must NEVER auto-fire
-    # at server startup. It only runs when the user clicks the Graph
-    # button in the UI, which fires /api/graph — that endpoint already
-    # lazy-kicks _kick_background_build on first hit with empty cache
-    # (see http_standalone_graph.py line 1025). The previous behavior
-    # pinned CPU at 99% for 30+ minutes whether the user ever opened
-    # the Graph view or not, blocking every HTTP request via GIL
-    # contention.
-    #
-    # Same gating for _auto_enable_ap()'s AST roster indexer: it now
-    # only resolves the AP binary path; the per-project analyze_codebase
-    # walk is opt-in via CORTEX_AP_AUTO_INDEX=1.
+    # _auto_enable_ap() only resolves the AP binary path; the
+    # per-project analyze_codebase roster walk is opt-in via
+    # CORTEX_AP_AUTO_INDEX=1 (it pinned CPU for 30+ min otherwise).
     _auto_enable_ap()
 
     ui_root = _get_ui_root()
     store = _get_store()
     handler_cls = _build_unified_handler(ui_root, store)
+
+    # Kick the galaxy build at launch (user direction 2026-06-12) so the
+    # phase loader streams the graph in from the start instead of waiting
+    # for the first GRAPH-tab visit. Non-blocking: ensure_build_started
+    # spawns _kick_background_build on a daemon thread and acquires the
+    # build lock non-blocking, so serve_forever starts immediately.
+    from mcp_server.server.http_standalone_graph import ensure_build_started
+
+    ensure_build_started(store)
 
     server = _bind_server(handler_cls, args.port)
     bound_port = server.server_address[1]

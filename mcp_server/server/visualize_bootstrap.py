@@ -250,10 +250,11 @@ def _drive_prepare_then_render(base: str, timeout_s: int = 600) -> str | None:
     force-directed graph URL on success.
 
     Previously this opened the tilemap (Datashader CPU-layout renderer)
-    which doesn't share the skeleton-first / live-SSE-stream / binary-
-    snapshot path. The force-directed renderer (``?viz=force``) does:
-    skeleton_ready in ~1 s, live batches via /api/graph/events, fast
-    binary load via /api/graph.bin. See commits 0204da8, d9d8a98,
+    which doesn't share the skeleton-first / live-SSE-stream / phase-
+    loader path. The force-directed renderer (``?viz=force``) does:
+    skeleton_ready in ~1 s, live batches via /api/graph/events, and the
+    per-phase loader (/api/graph/progress + /api/graph/phase) as the
+    only graph-delivery path. See commits 0204da8, d9d8a98,
     972bb9a, f21e255.
 
     Idempotent — recompute_layout skips when fingerprint matches PG.
