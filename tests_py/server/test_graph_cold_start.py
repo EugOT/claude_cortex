@@ -270,3 +270,25 @@ def test_place_around_is_deterministic_and_bounded():
     assert 0.04 <= dist <= 0.26, f"distance {dist} outside derived band"
     c = graph._place_around(0.5, -0.25, "symbol:other")
     assert c != a, "different ids spread to different positions"
+
+
+def test_node_neighbors_served_on_demand():
+    """The detail panel's relational data comes from the server's
+    adjacency index — one on-demand call, paged, complete — never from
+    a client-side join over the full edge copy."""
+    _reset_module_state()
+    _run_fake_build()
+
+    nb = graph.get_node_neighbors("file:a.py")
+    assert nb["total"] == 1
+    row = nb["neighbors"][0]
+    assert row[0] == "domain:alpha"  # other_id
+    assert row[1] == "domain"  # other_kind
+    assert row[3] == "in_domain"  # edge_kind
+    assert row[4] == "out"  # file -> domain direction
+    assert nb["next_offset"] is None
+
+    # Pagination contract on the reverse direction.
+    nb2 = graph.get_node_neighbors("domain:alpha", offset=0, limit=1)
+    assert nb2["total"] == 1 and nb2["neighbors"][0][4] == "in"
+    assert graph.get_node_neighbors("symbol:none")["total"] == 0

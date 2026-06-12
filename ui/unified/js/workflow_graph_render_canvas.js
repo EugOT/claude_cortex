@@ -247,6 +247,10 @@
       var n = findNode(p[0], p[1]);
       if (n) {
         selectedId = n.id;
+        // Static: first paint shows JUST the node (empty neighbor set,
+        // never a client-side join); the on-demand call below fills
+        // the relational sections when it returns.
+        if (STATIC && !n._neighbors) n._neighbors = [];
         panel.show(n, ctx);
         if (STATIC) {
           // ONE panel, fed by ONE on-demand call: the slim wire only
@@ -260,6 +264,11 @@
             .then(function (p) {
               if (p && p.found && selectedId === n.id) {
                 Object.assign(n, p.record);
+                // Server-provided neighborhood: the panel's relational
+                // sections render from this, never from a client-side
+                // join over the full edge copy.
+                n._neighbors = p.neighbors || [];
+                n._neighborTotal = p.neighbor_total || n._neighbors.length;
                 panel.show(n, ctx);
               }
             })

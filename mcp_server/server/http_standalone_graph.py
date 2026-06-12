@@ -77,6 +77,12 @@ _graph_cache_ts: float = 0.0
 # endpoint only resolved memory:/entity: PG ids and the detail panel
 # stayed empty (nodes were not browsable, observed 2026-06-12).
 _node_index: dict[str, dict] = {}
+# id → [(other_id, edge_kind, "out"|"in"), ...] — incremental adjacency
+# maintained by _merge. Backs ``get_node_neighbors`` so the detail
+# panel's relational sections (symbols defined here, imports, callers)
+# come from ONE on-demand call instead of the client joining over its
+# full edge copy (the monolithic-load report, 2026-06-12).
+_adjacency: dict[str, list] = {}
 # Per-source totals from the last build (label -> rows loaded). Memory
 # nodes are emitted-then-DISCARDED from the cumulative node array (the
 # C5 bounded build), so meta counts derived from kind_counts read 0 for
@@ -254,6 +260,42 @@ def get_node_record(node_id: str) -> dict | None:
     detail panel can enrich every clicked node.
     """
     return _node_index.get(node_id)
+
+
+def get_node_neighbors(node_id: str, offset: int = 0, limit: int = 500) -> dict:
+    """One node's neighborhood, served on demand.
+
+    Returns ``{"neighbors": [[other_id, other_kind, other_label,
+    edge_kind, direction], ...], "total", "offset", "next_offset"}``.
+    Bounded per page, complete across continuation (next_offset is
+    None once drained) — high-degree hubs (a domain node carries tens
+    of thousands of in_domain edges) page instead of truncating.
+    Default page mirrors the MCP tool's 500-row default.
+    """
+    rows = _adjacency.get(node_id, [])
+    total = len(rows)
+    offset = max(0, int(offset))
+    limit = max(1, int(limit))
+    page = rows[offset : offset + limit]
+    out = []
+    for other_id, ekind, direction in page:
+        other = _node_index.get(other_id) or {}
+        out.append(
+            [
+                other_id,
+                other.get("kind") or other.get("type"),
+                other.get("label"),
+                ekind,
+                direction,
+            ]
+        )
+    nxt = offset + limit
+    return {
+        "neighbors": out,
+        "total": total,
+        "offset": offset,
+        "next_offset": nxt if nxt < total else None,
+    }
 
 
 # ── Slim wire projection (graphify-informed, 2026-06-12) ──────────────
@@ -603,6 +645,10 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
                     cur["edges"].append(e)
                     seen_e.add(key)
                     added_edges.append(e)
+                    s, t, ek = key
+                    if s and t:
+                        _adjacency.setdefault(s, []).append((t, ek, "out"))
+                        _adjacency.setdefault(t, []).append((s, ek, "in"))
             cur["links"] = cur["edges"]
             cur.setdefault("meta", {})
             cur["meta"]["stage"] = stage
@@ -697,6 +743,7 @@ def _kick_background_build(store, domain_filter: str | None) -> None:
             }
             _cached_domain_hub_ids.clear()
             _node_index.clear()
+            _adjacency.clear()
             # Reset per-phase state so a rebuild starts clean — phases
             # flip ready→pending and buffers empty. Otherwise stale L6
             # nodes from a prior run leak into the new publish and the

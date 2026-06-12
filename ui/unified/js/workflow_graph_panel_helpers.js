@@ -32,6 +32,13 @@
 
   function countNeighborsByKind(n, ctx) {
     var out = {};
+    if (n._neighbors) {
+      for (var i = 0; i < n._neighbors.length; i++) {
+        var k2 = n._neighbors[i][1] || '?';
+        out[k2] = (out[k2] || 0) + 1;
+      }
+      return out;
+    }
     var adj = ctx.adj[n.id] || {};
     for (var id in adj) {
       var kind = (ctx.byId[id] && ctx.byId[id].kind) || '?';
@@ -43,11 +50,33 @@
   // Gather neighbors split by (edge-kind, direction, neighbor-kind) so
   // we can show contextual lists like "Called from", "Uses", etc.
   // ``filter(edge, isOutgoing, neighborNode) -> boolean``
+  //
+  // Data-source contract (2026-06-12): when the node carries
+  // ``_neighbors`` — the on-demand /api/graph/node response rows
+  // ``[other_id, other_kind, other_label, edge_kind, direction]`` —
+  // the sections render from THAT response only. The ctx.edges scan
+  // (a client-side join over the full edge copy, i.e. the monolithic
+  // load the user rejected) remains solely for the simulated trace
+  // path, whose small payloads never fetch.
   function collectNeighbors(n, ctx, filter) {
     var out = [];
     var seen = {};
-    for (var i = 0; i < ctx.edges.length; i++) {
-      var e = ctx.edges[i];
+    if (n._neighbors) {
+      for (var k = 0; k < n._neighbors.length; k++) {
+        var row = n._neighbors[k];
+        var isOut2 = row[4] === 'out';
+        var pseudoEdge = { kind: row[3], type: row[3] };
+        var other2 = (ctx.byId && ctx.byId[row[0]]) ||
+          { id: row[0], kind: row[1], type: row[1], label: row[2] };
+        if (!filter(pseudoEdge, isOut2, other2)) continue;
+        if (seen[other2.id]) continue;
+        seen[other2.id] = 1;
+        out.push(other2);
+      }
+      return out;
+    }
+    for (var i2 = 0; i2 < ctx.edges.length; i2++) {
+      var e = ctx.edges[i2];
       var sId = e.source.id || e.source;
       var tId = e.target.id || e.target;
       var isOut = sId === n.id;

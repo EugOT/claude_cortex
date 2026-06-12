@@ -419,10 +419,32 @@ def serve_graph_node(handler, store) -> None:
         # this, only memory:/entity: ids ever resolved and the detail
         # panel stayed empty for the rest of the galaxy — nodes were
         # not browsable (observed 2026-06-12).
-        if record is None:
-            from mcp_server.server.http_standalone_graph import get_node_record
+        from mcp_server.server.http_standalone_graph import (
+            get_node_neighbors,
+            get_node_record,
+        )
 
+        if record is None:
             record = get_node_record(node_id)
+
+        # Neighborhood ON DEMAND — the panel's relational sections
+        # (symbols defined here, imports, callers) render from THIS
+        # response, never from a client-side join over the full edge
+        # copy (the monolithic-load report, 2026-06-12). Paged via
+        # ?n_offset / ?n_limit; complete across continuation.
+        from urllib.parse import parse_qs, urlparse
+
+        qs = parse_qs(urlparse(handler.path).query)
+
+        def _qint(name: str, default: int) -> int:
+            try:
+                return int(qs[name][0])
+            except (KeyError, IndexError, ValueError):
+                return default
+
+        nb = get_node_neighbors(
+            node_id, offset=_qint("n_offset", 0), limit=_qint("n_limit", 500)
+        )
 
         send_json_ok(
             handler,
@@ -431,6 +453,9 @@ def serve_graph_node(handler, store) -> None:
                 "kind": kind or "unknown",
                 "found": record is not None,
                 "record": record or {},
+                "neighbors": nb["neighbors"],
+                "neighbor_total": nb["total"],
+                "neighbor_next_offset": nb["next_offset"],
             },
         )
     except Exception as e:
