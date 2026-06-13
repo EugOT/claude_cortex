@@ -69,9 +69,12 @@ def build_response(
     # Normalize internal curation action vocab → schema-canonical enum.
     # try_curation returns "create"/"link" (present-tense ops); the public
     # schema documents past-tense outcomes (stored / merged / rejected).
-    schema_action = {"create": "stored", "link": "stored", "merge": "merged"}.get(
-        action, action
-    )
+    schema_action = {
+        "create": "stored",
+        "link": "stored",
+        "merge": "merged",
+        "supersede": "superseded",
+    }.get(action, action)
     result = {
         "stored": True,
         "memory_id": mem_id,

@@ -64,7 +64,9 @@ CREATE TABLE IF NOT EXISTS memories (
     hippocampal_dependency REAL DEFAULT 1.0,
     is_benchmark BOOLEAN DEFAULT FALSE,
     agent_context TEXT DEFAULT '',
-    is_global BOOLEAN DEFAULT FALSE
+    is_global BOOLEAN DEFAULT FALSE,
+    supersedes_id   INTEGER REFERENCES memories(id) ON DELETE SET NULL,
+    superseded_by_id INTEGER REFERENCES memories(id) ON DELETE SET NULL
 );
 """
 
@@ -77,7 +79,12 @@ CREATE TABLE IF NOT EXISTS entities (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_accessed   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     heat            REAL DEFAULT 1.0,
-    archived        BOOLEAN DEFAULT FALSE
+    archived        BOOLEAN DEFAULT FALSE,
+    -- Provenance: 'ast_symbol' (code symbol from codebase ingestion — exempt
+    -- from label-fuzzy dedup, graphify #1205) vs 'text_concept' (extracted from
+    -- memory content — eligible for fuzzy dedup). Consumed by core.entity_dedup.
+    origin          TEXT NOT NULL DEFAULT 'text_concept'
+                    CHECK (origin IN ('ast_symbol', 'text_concept'))
 );
 """
 
@@ -566,6 +573,13 @@ CREATE INDEX IF NOT EXISTS idx_rel_pair_type
     ON relationships (source_entity_id, target_entity_id, relationship_type);
 CREATE INDEX IF NOT EXISTS idx_memories_agent_context
     ON memories (agent_context);
+-- Supersession chain walks (borrow-from-supermemory item 1). Partial so the
+-- index covers only the sparse subset of memories that participate in a
+-- version chain; on a store with no edges these are empty and cost nothing.
+CREATE INDEX IF NOT EXISTS idx_memories_superseded_by
+    ON memories (superseded_by_id) WHERE superseded_by_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_memories_supersedes
+    ON memories (supersedes_id) WHERE supersedes_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_workflow_graph_layout_version
     ON workflow_graph_layout (layout_version);
 CREATE INDEX IF NOT EXISTS idx_workflow_graph_layout_kind
@@ -964,7 +978,14 @@ BEGIN
            c.source
     FROM confidence_weighted cw
     JOIN candidates c ON c.id = cw.id
-    ORDER BY cw.final_score DESC
+    -- Supersession head-of-chain demotion (borrow-from-supermemory item 1):
+    -- a memory that has been superseded (superseded_by_id IS NOT NULL) ranks
+    -- below every current version, then by fused score within each tier.
+    -- Boolean sorts FALSE < TRUE, so current (NULL -> FALSE) leads. This is a
+    -- tier sort, not a tuned penalty -- no invented constant. Benchmark-neutral:
+    -- fixtures never set the edge, so the first key is constant FALSE and the
+    -- order collapses to the prior ORDER BY cw.final_score DESC.
+    ORDER BY (c.superseded_by_id IS NOT NULL), cw.final_score DESC
     LIMIT p_max_results * 3;
 END;
 $$ LANGUAGE plpgsql STABLE;
@@ -1305,6 +1326,31 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_memories_is_global
     ON memories (is_global) WHERE is_global = TRUE;
 
+-- Migration: add explicit supersession edges (borrow-from-supermemory item 1).
+-- supersedes_id points at the older fact this row replaces; superseded_by_id
+-- points at the newer fact that replaced this row (head-of-chain has it NULL).
+-- Additive to the reconsolidation model, not a replacement. Self-referential
+-- FK with ON DELETE SET NULL so a hard-deleted version leaves no dangling
+-- pointer. Both nullable, default NULL, so every existing and benchmark row
+-- is unchanged -- benchmark-neutral by construction.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'memories' AND column_name = 'supersedes_id'
+    ) THEN
+        ALTER TABLE memories ADD COLUMN supersedes_id INTEGER
+            REFERENCES memories(id) ON DELETE SET NULL;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'memories' AND column_name = 'superseded_by_id'
+    ) THEN
+        ALTER TABLE memories ADD COLUMN superseded_by_id INTEGER
+            REFERENCES memories(id) ON DELETE SET NULL;
+    END IF;
+END $$;
+
 -- Migration: add stage_entered_at for real-time cascade tracking
 DO $$
 BEGIN
@@ -1442,6 +1488,27 @@ CREATE TABLE IF NOT EXISTS ingest_progress (
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='prospective_memories' AND column_name='created_by')
     THEN ALTER TABLE prospective_memories ADD COLUMN created_by TEXT NOT NULL DEFAULT '';
+    END IF;
+END $$;
+
+-- Migration: entity origin provenance (ast_symbol vs text_concept). Fuzzy
+-- entity dedup (core.entity_dedup) must merge only text-extracted concepts;
+-- AST-extracted code symbols (class/function/module names, dotted module paths)
+-- share long prefixes and must never be label-fuzzy-merged (graphify #1205).
+-- Backfill: rows whose type is a code-symbol kind, or whose name is a slash
+-- path or a dotted module path (>= 2 dots, mirrors entity_dedup_filters.
+-- is_structural_identifier), are ast_symbol; everything else stays text_concept.
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='entities' AND column_name='origin')
+    THEN
+        ALTER TABLE entities ADD COLUMN origin TEXT NOT NULL DEFAULT 'text_concept'
+            CHECK (origin IN ('ast_symbol', 'text_concept'));
+        UPDATE entities SET origin = 'ast_symbol'
+        WHERE LOWER(type) IN ('function','method','class','struct','module',
+                              'file','interface','trait','protocol','enum',
+                              'type','constant','variable')
+           OR name LIKE '%/%'
+           OR (length(name) - length(replace(name, '.', ''))) >= 2;
     END IF;
 END $$;
 """

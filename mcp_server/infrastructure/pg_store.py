@@ -460,7 +460,7 @@ class PgMemoryStore(
                 schema_match_score, schema_id,
                 hippocampal_dependency, is_benchmark, agent_context,
                 is_global, stage_entered_at,
-                arousal, dominant_emotion
+                arousal, dominant_emotion, supersedes_id
             ) VALUES (
                 %(content)s, %(embedding)s, %(tags)s::jsonb, %(source)s, %(domain)s,
                 %(directory_context)s, %(created_at)s, %(last_accessed)s,
@@ -472,7 +472,7 @@ class PgMemoryStore(
                 %(schema_match_score)s, %(schema_id)s,
                 %(hippocampal_dependency)s, %(is_benchmark)s, %(agent_context)s,
                 %(is_global)s, %(stage_entered_at)s,
-                %(arousal)s, %(dominant_emotion)s
+                %(arousal)s, %(dominant_emotion)s, %(supersedes_id)s
             ) RETURNING id""",
             {
                 "content": data["content"],
@@ -504,10 +504,24 @@ class PgMemoryStore(
                 "stage_entered_at": data.get("stage_entered_at") or raw_created or now,
                 "arousal": data.get("arousal", 0.0),
                 "dominant_emotion": data.get("dominant_emotion", "neutral"),
+                "supersedes_id": data.get("supersedes_id"),
             },
         ).fetchone()
         self._conn.commit()
         return row["id"]
+
+    def set_superseded_by(self, old_id: int, new_id: int) -> None:
+        """Mark ``old_id`` as superseded by ``new_id`` (back-pointer edge).
+
+        The forward edge (new.supersedes_id = old) is set at insert time;
+        this closes the chain by stamping the old row's superseded_by_id.
+        Idempotent — re-running with the same args is a no-op overwrite.
+        """
+        self._execute(
+            "UPDATE memories SET superseded_by_id = %s WHERE id = %s",
+            (new_id, old_id),
+        )
+        self._conn.commit()
 
     def get_memory(self, memory_id: int) -> dict[str, Any] | None:
         row = self._execute(

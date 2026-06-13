@@ -349,6 +349,15 @@ def try_curation(
             overlap = curation.compute_textual_overlap(content, cand["content"]) > 0.5
             action = curation.decide_curation_action(sim, overlap)
             if action == "merge":
+                # A near-duplicate that CONTRADICTS the existing fact is a
+                # knowledge update, not a duplicate. Retain both rows and
+                # record an explicit supersession edge instead of folding
+                # the old content away (merge is destructive → would lose
+                # "what did X say before?"). Contradiction signal is the
+                # existing committed heuristic (negation mismatch / action
+                # divergence) — no new constants introduced here.
+                if curation.detect_contradictions(content, [cand]):
+                    return "supersede", cand_id
                 _do_merge(cand, cand_id, content, tags, heat, store, emb_engine)
                 return "merge", cand_id
             if action == "link":
@@ -390,6 +399,7 @@ def _build_insert_record(
     sep: float,
     interf: float,
     created_at: str | None = None,
+    supersedes_id: int | None = None,
 ) -> dict[str, Any]:
     """Build the memory record dict for insertion."""
     domain = domain.lower().strip() if domain else ""
@@ -423,6 +433,8 @@ def _build_insert_record(
     if created_at:
         record["created_at"] = created_at
         record["stage_entered_at"] = created_at
+    if supersedes_id is not None:
+        record["supersedes_id"] = supersedes_id
     return record
 
 
@@ -513,11 +525,18 @@ def insert_and_post_process(
         sep,
         interf,
         created_at=created_at,
+        supersedes_id=merged_id if action == "supersede" else None,
     )
     record["agent_context"] = agent_context
     record["is_global"] = is_global
     mem_id = store.insert_memory(record)
     _link_if_needed(action, merged_id, mem_id, store)
+    if action == "supersede" and merged_id is not None:
+        # Close the supersession chain: forward edge (new.supersedes_id)
+        # is in the record above; this stamps the old row's back-pointer
+        # so recall_memories() demotes it as a stale version.
+        if hasattr(store, "set_superseded_by"):
+            store.set_superseded_by(merged_id, mem_id)
     tids, tagged, slot = _run_post_store(
         mem_id,
         content,

@@ -299,3 +299,72 @@ class TestRememberReturnsDict:
         )
         assert isinstance(result, dict)
         assert not isinstance(result, str)
+
+
+class _CurationFakeEngine:
+    """Minimal embedding engine: fixed high similarity, real encode noop."""
+
+    def similarity(self, _a, _b) -> float:
+        return 0.95
+
+    def encode(self, _text):
+        return [0.0]
+
+
+class _CurationFakeStore:
+    """Fake store exposing only what try_curation touches."""
+
+    def __init__(self, cand: dict) -> None:
+        self._cand = cand
+        self.merged = False
+
+    def search_vectors(self, _embedding, top_k=3, min_heat=0.0):
+        return [(self._cand["id"], 0.05)]
+
+    def get_memory(self, mem_id):
+        return self._cand if mem_id == self._cand["id"] else None
+
+    def update_memory_compression(self, *_a, **_k):
+        self.merged = True
+
+    def update_memory_heat(self, *_a, **_k):
+        pass
+
+
+class TestTryCurationSupersede:
+    """Phase 2 write-path: contradiction routes merge → supersede."""
+
+    def _run(self, new_content: str, existing_content: str):
+        from mcp_server.handlers.remember_helpers import try_curation
+
+        cand = {"id": 42, "content": existing_content, "embedding": [0.1]}
+        store = _CurationFakeStore(cand)
+        action, mid = try_curation(
+            content=new_content,
+            embedding=[0.1],
+            force=False,
+            store=store,
+            emb_engine=_CurationFakeEngine(),
+            tags=[],
+            heat=0.5,
+        )
+        return action, mid, store
+
+    def test_contradiction_supersedes_instead_of_merging(self):
+        # New content carries a negation the existing one lacks → contradiction.
+        action, mid, store = self._run(
+            new_content="we no longer use postgres for the memory store",
+            existing_content="we use postgres for the memory store",
+        )
+        assert action == "supersede"
+        assert mid == 42
+        assert store.merged is False, "supersede must NOT destroy the old row"
+
+    def test_near_duplicate_without_contradiction_still_merges(self):
+        action, mid, store = self._run(
+            new_content="we use postgres for the memory store backend",
+            existing_content="we use postgres for the memory store",
+        )
+        assert action == "merge"
+        assert mid == 42
+        assert store.merged is True
