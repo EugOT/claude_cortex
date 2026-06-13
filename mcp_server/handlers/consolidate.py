@@ -15,6 +15,7 @@ from mcp_server.handlers.consolidation.cascade import run_cascade_advancement
 from mcp_server.handlers.consolidation.cls import run_cls_cycle
 from mcp_server.handlers.consolidation.compression import run_compression_cycle
 from mcp_server.handlers.consolidation.decay import run_decay_cycle
+from mcp_server.handlers.consolidation.entity_merge import run_entity_merge_cycle
 from mcp_server.handlers.consolidation.homeostatic import run_homeostatic_cycle
 from mcp_server.handlers.consolidation.memify import run_memify_cycle
 from mcp_server.handlers.consolidation.plasticity import run_plasticity_cycle
@@ -285,6 +286,7 @@ def _run_cycles(
         stats["decay"] = _timed(run_decay_cycle, store, settings, None)
         stats["plasticity"] = _timed(run_plasticity_cycle, store)
         stats["pruning"] = _timed(run_pruning_cycle, store)
+        stats["entity_merge"] = _timed(run_entity_merge_cycle, store)
 
     if args.get("compress", True):
         stats["compression"] = _timed(

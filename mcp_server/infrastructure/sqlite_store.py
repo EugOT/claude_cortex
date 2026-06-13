@@ -26,6 +26,9 @@ from mcp_server.infrastructure.sqlite_schema import (
 )
 from mcp_server.infrastructure.sqlite_store_auxiliary import SqliteAuxiliaryMixin
 from mcp_server.infrastructure.sqlite_store_entities import SqliteEntityMixin
+from mcp_server.infrastructure.sqlite_store_entity_merge import (
+    SqliteEntityMergeMixin,
+)
 from mcp_server.infrastructure.sqlite_store_queries import SqliteQueryMixin
 from mcp_server.infrastructure.sqlite_store_relationships import (
     SqliteRelationshipMixin,
@@ -43,6 +46,7 @@ def _now_iso() -> str:
 
 class SqliteMemoryStore(
     SqliteEntityMixin,
+    SqliteEntityMergeMixin,
     SqliteRelationshipMixin,
     SqliteQueryMixin,
     SqliteRuleMixin,

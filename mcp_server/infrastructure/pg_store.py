@@ -33,6 +33,7 @@ from psycopg_pool import ConnectionPool
 from mcp_server.infrastructure.pg_schema import get_all_ddl
 from mcp_server.infrastructure.pg_store_auxiliary import PgAuxiliaryMixin
 from mcp_server.infrastructure.pg_store_entities import PgEntityMixin
+from mcp_server.infrastructure.pg_store_entity_merge import PgEntityMergeMixin
 from mcp_server.infrastructure.pg_store_queries import PgQueryMixin
 from mcp_server.infrastructure.pg_store_relationships import PgRelationshipMixin
 from mcp_server.infrastructure.pg_store_rules import PgRuleMixin
@@ -105,6 +106,7 @@ def _now_iso() -> str:
 
 class PgMemoryStore(
     PgEntityMixin,
+    PgEntityMergeMixin,
     PgRelationshipMixin,
     PgQueryMixin,
     PgRuleMixin,
