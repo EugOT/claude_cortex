@@ -9,14 +9,14 @@ class TestRegistry:
     def test_has_all_tier1_tools(self):
         tools = asyncio.run(mcp.list_tools())
         tool_names = {t.name for t in tools}
+        # Visualization tools (get_methodology_graph, open_visualization,
+        # query_workflow_graph) were extracted to the cortex-viz MCP.
         expected = [
             "query_methodology",
             "detect_domain",
             "rebuild_profiles",
             "list_domains",
             "record_session_end",
-            "get_methodology_graph",
-            "open_visualization",
             "explore_features",
         ]
         for name in expected:

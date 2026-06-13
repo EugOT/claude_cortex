@@ -39,8 +39,10 @@ class TestMain:
         assert "rebuild_profiles" in tool_names
         assert "list_domains" in tool_names
         assert "record_session_end" in tool_names
-        assert "get_methodology_graph" in tool_names
-        assert "open_visualization" in tool_names
+        # get_methodology_graph / open_visualization / query_workflow_graph
+        # were extracted to the cortex-viz MCP.
+        assert "get_methodology_graph" not in tool_names
+        assert "open_visualization" not in tool_names
         assert "explore_features" in tool_names
         assert "remember" in tool_names
         assert "recall" in tool_names
@@ -63,16 +65,16 @@ class TestMain:
         assert "wiki_verify" in tool_names
         assert "unified_search" in tool_names
         assert "change_impact" in tool_names
-        # Gap 1 — typed subgraph query over the workflow graph.
-        assert "query_workflow_graph" in tool_names
+        # query_workflow_graph extracted to cortex-viz MCP.
+        assert "query_workflow_graph" not in tool_names
         # Verification campaign — read/write ratio telemetry (Popper C6).
         assert "get_telemetry" in tool_names
         # ADR-2244 Phase 3.2 — page rename with redirect stub.
         assert "wiki_rename" in tool_names
-        # 49 tools after the 2026-05-18 wiki-autonomy commit added the
-        # autonomous-curation surface (a new MCP tool registered via
-        # the consolidate cycle / curate_wiki refactor). Bumped from 48.
-        assert len(tool_names) == 49
+        # 46 tools after the cortex-viz extraction removed 3 visualization
+        # tools (get_methodology_graph, open_visualization,
+        # query_workflow_graph) from the prior 49.
+        assert len(tool_names) == 46
 
     def test_mcp_server_name_and_version(self):
         assert mcp.name == "methodology-agent"
@@ -84,21 +86,20 @@ class TestMain:
 
 
 class TestShutdown:
-    def test_shutdown_calls_close_all_and_shutdown_server(self):
+    def test_shutdown_calls_close_all(self):
+        # HTTP viz-server shutdown moved to cortex-viz; _shutdown now only
+        # closes the MCP client pool.
         with (
             patch("mcp_server.__main__.close_all") as mock_close,
-            patch("mcp_server.__main__.shutdown_server") as mock_shutdown,
             pytest.raises(SystemExit) as exc_info,
         ):
             _shutdown()
         mock_close.assert_called_once()
-        mock_shutdown.assert_called_once()
         assert exc_info.value.code == 0
 
     def test_shutdown_with_signal_args(self):
         with (
             patch("mcp_server.__main__.close_all"),
-            patch("mcp_server.__main__.shutdown_server"),
             pytest.raises(SystemExit),
         ):
             _shutdown(sig=signal.SIGTERM, frame=None)
@@ -106,7 +107,6 @@ class TestShutdown:
     def test_shutdown_exits_with_zero(self):
         with (
             patch("mcp_server.__main__.close_all"),
-            patch("mcp_server.__main__.shutdown_server"),
             pytest.raises(SystemExit) as exc_info,
         ):
             _shutdown()

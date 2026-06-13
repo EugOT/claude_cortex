@@ -24,8 +24,6 @@ from mcp_server import (
     tool_registry_wiki,
 )
 from mcp_server.infrastructure.mcp_client_pool import close_all
-from mcp_server.server.http_server import shutdown_server
-from mcp_server.server.http_viz_server import shutdown_unified_viz_server
 
 # ── Server Instance ────────────────────────────────────────────────────────
 
@@ -55,8 +53,6 @@ tool_registry_ingest.register(mcp)
 
 def _shutdown(sig=None, frame=None) -> None:
     close_all()
-    shutdown_server()
-    shutdown_unified_viz_server()
     sys.exit(0)
 
 
