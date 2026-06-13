@@ -386,6 +386,21 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
     if not project_path:
         return {"ingested": False, "reason": "project_path is required"}
 
+    # A plugin-cache copy is NOT a project. Indexing them produced 8
+    # duplicate symbol universes (versions 3.18.3–3.19.5 of Cortex
+    # itself) whose graphs outlived their deleted source dirs and
+    # polluted the galaxy + impact queries (user report 2026-06-13).
+    _resolved = str(Path(project_path).expanduser().resolve())
+    if "/plugins/cache/" in _resolved or "/.claude/plugins/" in _resolved:
+        return {
+            "ingested": False,
+            "reason": (
+                "refused: plugin-cache copy, not a project — "
+                "index the source repository instead"
+            ),
+            "project_path": _resolved,
+        }
+
     output_dir = args.get("output_dir") or _default_output_dir(project_path)
     language = args.get("language", "auto") or "auto"
     force_reindex = bool(args.get("force_reindex", False))
