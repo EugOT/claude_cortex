@@ -6,10 +6,45 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [3.19.6] - 2026-06-12
+## [3.20.0] - 2026-06-13
+
+Consolidated release. Supersedes the never-tagged 3.19.6 prep commit
+(`c51d895e`): its launcher self-heal, SSE-only galaxy delivery, and wiki
+drift fix are retained under **Fixed** below, joined by the feature batch
+that landed afterward.
+
+### Added
+
+- **Codebase graph intelligence.** Leiden community detection, centrality
+  and god-node analysis, and native tree-sitter symbol extraction across
+  7 languages — no `automatised-pipeline` dependency required for the
+  symbol graph.
+- **Explicit supersession edges for knowledge updates.** A memory that
+  updates prior knowledge now records a typed supersession edge to what it
+  replaces; recall tier-sorts the superseding memory above the superseded
+  one instead of returning both as peers.
+- **MinHash entity-dedup engine.** Near-duplicate entities are collapsed
+  via MinHash similarity, with an AST-symbol origin flag distinguishing
+  code-derived entities; a mutating consolidate-time entity-merge cycle
+  applies the dedup during maintenance.
+- **`include_related` recall mode.** An inline relation-walk that returns a
+  memory's graph neighbours in a single recall call rather than requiring a
+  follow-up `navigate_memory`.
+- **Connection-rooted scoping** via `CORTEX_ROOT_AGENT_TOPIC` — roots
+  recall/scoping at a configured agent topic.
+- **Visualization: node-click orchestrator and uncapped galaxy.** Every
+  node kind is clickable with an orchestrated detail fetch; the galaxy node
+  cap is removed; causal-chain and working-directory resolution fixed.
+  Canvas hit-testing is O(1)-amortized via a uniform-grid spatial hash.
 
 ### Fixed
 
+- **Ingestion no longer indexes plugin-cache copies** of a repo (duplicate
+  graphs from `~/.claude` plugin mirrors).
+- **`ENTITY_DEDUP` registered in the full ablation study** so the new
+  dedup mechanism is lesion-testable.
+- **CI restored to green** — `ruff format`/lint compliance and the I2
+  canonical-writer invariant updated for the heat-writer line shift.
 - **MCP server failed to connect forever after an interrupted first
   bootstrap.** An interrupted `pip install --target deps/` (e.g. the MCP
   client's startup timeout killing the first dependency install) left
