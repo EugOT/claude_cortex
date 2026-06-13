@@ -27,6 +27,16 @@ benchmarks/spell_alteration/*.pdf
 !docs/arxiv-thermodynamic/main.pdf
 !docs/arxiv-context-assembly/main.pdf
 
+# LaTeX build artifacts (regenerated every compile; main.pdf whitelisted
+# above, main.bbl kept tracked for arXiv submission which requires it)
+docs/arxiv-*/*.aux
+docs/arxiv-*/*.log
+docs/arxiv-*/*.out
+docs/arxiv-*/*.toc
+docs/arxiv-*/*.fls
+docs/arxiv-*/*.fdb_latexmk
+docs/arxiv-*/*.synctex.gz
+
 # Runtime telemetry
 traces/
 
