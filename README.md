@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/tests-3000+_passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/citations-45_papers-orange.svg" alt="Citations">
-  <img src="https://img.shields.io/badge/version-3.19.1-brightgreen.svg" alt="Version 3.19.1">
+  <img src="https://img.shields.io/badge/version-3.20.0-brightgreen.svg" alt="Version 3.20.0">
   <a href="https://glama.ai/mcp/servers/cdeust/Cortex"><img src="https://glama.ai/mcp/servers/cdeust/Cortex/badges/score.svg" alt="Glama score: security A, license A"></a>
 </p>
 
@@ -93,6 +93,8 @@ docker run -it \
 ---
 
 ## What's new
+
+**v3.20.0 — graph intelligence + memory knowledge-updates.** The codebase graph gains Leiden community detection, centrality and god-node analysis, and native tree-sitter symbol extraction across 7 languages — no `automatised-pipeline` dependency required. Memory learns to handle *knowledge updates*: a memory that supersedes prior knowledge records an explicit supersession edge so recall ranks the newest version above what it replaces; a MinHash entity-dedup engine (with AST-symbol origin flagging) collapses near-duplicate entities during a consolidate-time merge cycle; and a new `include_related` recall mode returns a memory's graph neighbours in one call. The visualizer adds a node-click orchestrator over an uncapped galaxy with O(1)-amortized canvas hit-testing. Supersedes the never-tagged 3.19.6 (its launcher self-heal for corrupt dependency installs and SSE-only galaxy delivery are included).
 
 **v3.19.1 — ingest stdio pipe deadlock fix.** `ingest_codebase` could hang forever (hours at 0% CPU): a pooled MCP client bound to a closed per-call event loop was reused with a dead reader task, so once the analyzer's response exceeded the 64KB OS pipe buffer both sides slept indefinitely — the upstream cause of "graph shows only the global domain" reports. The client now detects a dead or foreign event loop and reconnects, and a new `CORTEX_MCP_CALL_TIMEOUT_S` (default 600s) makes a wedged call fail loudly in minutes with a diagnostic naming the cause.
 
