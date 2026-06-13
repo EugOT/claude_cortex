@@ -90,7 +90,10 @@ CREATE TABLE IF NOT EXISTS entities (
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     last_accessed   TEXT NOT NULL DEFAULT (datetime('now')),
     heat            REAL DEFAULT 1.0,
-    archived        INTEGER DEFAULT 0
+    archived        INTEGER DEFAULT 0,
+    -- Provenance mirror of the PG schema: 'ast_symbol' vs 'text_concept'.
+    -- Consumed by core.entity_dedup to exempt code symbols from fuzzy dedup.
+    origin          TEXT NOT NULL DEFAULT 'text_concept'
 );
 """
 

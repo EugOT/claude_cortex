@@ -211,11 +211,19 @@ def _get_or_create_entity(
     entity_type: str,
     domain: str,
 ) -> int:
-    """Find existing entity by name or create a new one. Returns entity ID."""
+    """Find existing entity by name or create a new one. Returns entity ID.
+
+    All entities created here come from codebase AST analysis (symbols, imports,
+    files, classes), so they are tagged origin='ast_symbol' — exempting them
+    from fuzzy entity dedup (core.entity_dedup), which is correct for code
+    symbols whose identity is structural, not a fuzzy label (graphify #1205).
+    """
     existing = store.get_entity_by_name(name)
     if existing:
         return existing["id"]
-    return store.insert_entity({"name": name, "type": entity_type, "domain": domain})
+    return store.insert_entity(
+        {"name": name, "type": entity_type, "domain": domain, "origin": "ast_symbol"}
+    )
 
 
 def _persist_symbol_entities(

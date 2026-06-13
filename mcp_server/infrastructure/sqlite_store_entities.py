@@ -39,13 +39,17 @@ class SqliteEntityMixin:
         return len(entity_ids)
 
     def insert_entity(self, data: dict[str, Any]) -> int:
+        origin = data.get("origin", "text_concept")
+        if origin not in ("ast_symbol", "text_concept"):
+            origin = "text_concept"
         cur = self._conn.execute(
-            "INSERT INTO entities (name, type, domain, created_at, last_accessed, heat) "
-            "VALUES (?, ?, ?, COALESCE(?, datetime('now')), datetime('now'), ?)",
+            "INSERT INTO entities (name, type, domain, origin, created_at, last_accessed, heat) "
+            "VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'), ?)",
             (
                 data["name"],
                 data["type"],
                 data.get("domain", ""),
+                origin,
                 data.get("created_at"),
                 data.get("heat", 1.0),
             ),

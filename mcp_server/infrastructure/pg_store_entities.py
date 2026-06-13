@@ -59,19 +59,31 @@ class PgEntityMixin:
         from mcp_server.shared.entity_canonical import canonicalize_entity_name
 
         canonical = canonicalize_entity_name(data["name"])
+        origin = data.get("origin", "text_concept")
+        if origin not in ("ast_symbol", "text_concept"):
+            origin = "text_concept"
         existing = self._execute(
-            "SELECT id FROM entities WHERE LOWER(name) = LOWER(%s) LIMIT 1",
+            "SELECT id, origin FROM entities WHERE LOWER(name) = LOWER(%s) LIMIT 1",
             (canonical,),
         ).fetchone()
         if existing:
+            # ast_symbol is the safe superset: if any ingestion path says this
+            # name is a code symbol, keep it exempt from fuzzy dedup forever.
+            if origin == "ast_symbol" and existing.get("origin") != "ast_symbol":
+                self._execute(
+                    "UPDATE entities SET origin = 'ast_symbol' WHERE id = %s",
+                    (existing["id"],),
+                )
+                self._conn.commit()
             return existing["id"]
         row = self._execute(
-            "INSERT INTO entities (name, type, domain, created_at, last_accessed, heat) "
-            "VALUES (%s, %s, %s, COALESCE(%s, NOW()), NOW(), %s) RETURNING id",
+            "INSERT INTO entities (name, type, domain, origin, created_at, last_accessed, heat) "
+            "VALUES (%s, %s, %s, %s, COALESCE(%s, NOW()), NOW(), %s) RETURNING id",
             (
                 canonical,
                 data["type"],
                 data.get("domain", ""),
+                origin,
                 data.get("created_at"),
                 data.get("heat", 1.0),
             ),
