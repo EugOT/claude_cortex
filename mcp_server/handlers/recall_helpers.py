@@ -364,3 +364,89 @@ def build_enhancements(query: str, intent: str, tier: str, settings: Any) -> dic
         "knowledge_update_boost": intent == QueryIntent.KNOWLEDGE_UPDATE,
         "strategic_ordering": settings.STRATEGIC_ORDERING_ENABLED,
     }
+
+
+# ── Inline relation-walk (borrow-from-supermemory item 3) ──────────────────
+# A cheap mid-tier enrichment that sits between flat recall and the heavy
+# 3-phase context assembler (PageRank/HippoRAG): for each recalled memory,
+# inline a ONE-HOP walk over (a) the supersession version chain (item 1) and
+# (b) the entity relationship graph. Opt-in via recall(include_related=True);
+# OFF in every benchmark loader, so it never touches benchmarked scores.
+#
+# max_entities / max_neighbors are response-budget fanout caps (cf.
+# core/response_budget.py), NOT algorithmic constants — they shape payload
+# size only, are tunable, and are benchmark-irrelevant. _GIST_CHARS likewise
+# bounds the inlined neighbor preview.
+_GIST_CHARS = 160
+
+
+def _version_neighbors(memory_id: int, store: MemoryStore) -> list[dict[str, Any]]:
+    """Supersession-chain neighbors of a memory (item-1 edges), if any."""
+    row = store.get_memory(memory_id)
+    if not row:
+        return []
+    out: list[dict[str, Any]] = []
+    for edge, key in (("supersedes", "supersedes_id"), ("superseded_by", "superseded_by_id")):
+        nid = row.get(key)
+        if not nid:
+            continue
+        neighbor = store.get_memory(int(nid))
+        if neighbor:
+            out.append(
+                {
+                    "memory_id": int(nid),
+                    "edge": edge,
+                    "gist": str(neighbor.get("content", ""))[:_GIST_CHARS],
+                }
+            )
+    return out
+
+
+def _entity_neighbors(
+    memory_id: int, store: MemoryStore, max_entities: int, max_neighbors: int
+) -> list[dict[str, Any]]:
+    """One-hop entity relationship neighbors for a memory's top entities."""
+    entities = store.get_entities_for_memory(memory_id)[:max_entities]
+    out: list[dict[str, Any]] = []
+    for ent in entities:
+        rels = store.get_relationships_for_entity(
+            ent["id"], direction="outgoing", limit=max_neighbors
+        )
+        neighbors = [
+            {
+                "name": r.get("target_name"),
+                "relationship_type": r.get("relationship_type"),
+                "weight": r.get("weight"),
+            }
+            for r in rels
+        ]
+        if neighbors:
+            out.append({"entity": ent.get("name"), "neighbors": neighbors})
+    return out
+
+
+def inline_related_neighbors(
+    results: list[dict[str, Any]],
+    store: MemoryStore,
+    *,
+    max_entities: int = 3,
+    max_neighbors: int = 5,
+) -> None:
+    """Attach a one-hop relation walk to each recalled memory, in place.
+
+    Adds ``related = {"versions": [...], "entities": [...]}`` to every result
+    dict. ``versions`` reuses the item-1 supersession edges (the fact this
+    row replaced and the one that replaced it); ``entities`` is a weight-
+    ranked one-hop walk over the entity graph. Bounded fanout keeps this
+    distinct from — and cheaper than — the full context assembler.
+    """
+    for mem in results:
+        mid = mem.get("memory_id") or mem.get("id")
+        if mid is None:
+            continue
+        mem["related"] = {
+            "versions": _version_neighbors(int(mid), store),
+            "entities": _entity_neighbors(
+                int(mid), store, max_entities, max_neighbors
+            ),
+        }

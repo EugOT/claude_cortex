@@ -23,6 +23,7 @@ from mcp_server.handlers.recall_helpers import (
     filter_by_tags,
     filter_low_signal,
     inject_triggered_memories,
+    inline_related_neighbors,
 )
 from mcp_server.infrastructure.embedding_engine import get_embedding_engine
 from mcp_server.infrastructure.memory_config import (
@@ -187,6 +188,18 @@ schema = {
                     "drowned by tool-output captures even for queries about "
                     "design decisions. Set true for debugging / replay "
                     "tooling that needs the raw memory feed."
+                ),
+                "default": False,
+            },
+            "include_related": {
+                "type": "boolean",
+                "description": (
+                    "When true, inline a one-hop relation walk per recalled "
+                    "memory: ``related.versions`` (supersession-chain neighbors "
+                    "— the fact this row replaced and the one that replaced it) "
+                    "and ``related.entities`` (directly related entities via the "
+                    "knowledge graph). A cheap mid-tier enrichment between flat "
+                    "recall and the full context assembler. Default false."
                 ),
                 "default": False,
             },
@@ -386,6 +399,7 @@ async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
     max_results = args.get("max_results", 10)
     min_heat = args.get("min_heat", 0.05)
     include_low_signal = bool(args.get("include_low_signal", False))
+    include_related = bool(args.get("include_related", False))
     tags_any: list[str] = list(args.get("tags_any") or [])
     tags_all: list[str] = list(args.get("tags_all") or [])
     settings = get_memory_settings()
@@ -437,6 +451,13 @@ async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
     # Biological basis: retrieval = hippocampal replay (McClelland 1995)
     # Each recall increments replay_count, driving stage advancement
     _track_recall_replay(results, store)
+
+    # Inline relation-walk (item 3): opt-in one-hop neighbors per surfaced
+    # memory. Runs on the capped result set only, after final ordering, so
+    # the fanout is bounded by max_results and stays well under the full
+    # context assembler. Off by default — flat recall is unchanged.
+    if include_related:
+        inline_related_neighbors(results, store)
 
     intent_info = classify_query_intent(query)
     intent = intent_info.get("intent", QueryIntent.GENERAL)
