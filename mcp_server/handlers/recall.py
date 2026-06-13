@@ -25,7 +25,10 @@ from mcp_server.handlers.recall_helpers import (
     inject_triggered_memories,
 )
 from mcp_server.infrastructure.embedding_engine import get_embedding_engine
-from mcp_server.infrastructure.memory_config import get_memory_settings
+from mcp_server.infrastructure.memory_config import (
+    get_memory_settings,
+    root_agent_topic,
+)
 from mcp_server.infrastructure.memory_store import MemoryStore, get_shared_store
 
 schema = {
@@ -373,6 +376,13 @@ async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
     query = args["query"]
     domain, directory = args.get("domain"), args.get("directory")
     agent_topic = args.get("agent_topic")
+    # Connection-rooted scoping: when the server is launched with
+    # CORTEX_ROOT_AGENT_TOPIC, force that scope regardless of what the
+    # caller passed (or omitted). Defense at the handler boundary covers
+    # every caller, not just the schema-stripped tool surface.
+    _root = root_agent_topic()
+    if _root is not None:
+        agent_topic = _root
     max_results = args.get("max_results", 10)
     min_heat = args.get("min_heat", 0.05)
     include_low_signal = bool(args.get("include_low_signal", False))

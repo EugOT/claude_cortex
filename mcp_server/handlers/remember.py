@@ -24,7 +24,10 @@ from mcp_server.handlers.remember_response import build_merge_response
 from mcp_server.infrastructure import wiki_store
 from mcp_server.infrastructure.config import WIKI_ROOT
 from mcp_server.infrastructure.embedding_engine import get_embedding_engine
-from mcp_server.infrastructure.memory_config import get_memory_settings
+from mcp_server.infrastructure.memory_config import (
+    get_memory_settings,
+    root_agent_topic,
+)
 from mcp_server.infrastructure.memory_store import MemoryStore, get_shared_store
 from mcp_server.infrastructure.profile_store import load_profiles
 
@@ -271,6 +274,14 @@ async def _handler_impl(args: dict[str, Any] | None = None) -> dict[str, Any]:
     args["content"] = harden_content(args["content"])
     if not args["content"]:
         return {"stored": False, "action": "rejected", "reason": "no_content"}
+
+    # Connection-rooted scoping: a server launched with
+    # CORTEX_ROOT_AGENT_TOPIC forces that scope on every write, so the
+    # model cannot store into (or omit) another agent's scope. Mirrors
+    # the recall-side force; covers all callers, not just the tool surface.
+    _root = root_agent_topic()
+    if _root is not None:
+        args["agent_topic"] = _root
 
     (
         content,

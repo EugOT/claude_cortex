@@ -270,3 +270,21 @@ class MemorySettings(BaseSettings):
 def get_memory_settings() -> MemorySettings:
     """Singleton memory settings instance."""
     return MemorySettings()
+
+
+def root_agent_topic() -> str | None:
+    """Launch-time capability scope for connection-rooted isolation.
+
+    When ``CORTEX_ROOT_AGENT_TOPIC`` is set in the environment, the server
+    FORCES this ``agent_topic`` on every recall/remember and strips the
+    ``agent_topic`` argument from the registered tool schemas. This is
+    capability-style scoping (cf. supermemory's ``x-sm-project`` header):
+    the model cannot target — or accidentally omit — another scope, because
+    the parameter is not exposed to it at all.
+
+    Read once at process start (single-process FastMCP stdio server), so a
+    plain env read with no caching layer is sufficient. Empty/unset → None,
+    meaning no rooting (the ``agent_topic`` parameter behaves as before).
+    """
+    val = os.environ.get("CORTEX_ROOT_AGENT_TOPIC", "").strip()
+    return val or None

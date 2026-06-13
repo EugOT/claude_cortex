@@ -18,6 +18,7 @@ from mcp_server.handlers import (
     remember,
     unified_search,
 )
+from mcp_server.infrastructure.memory_config import root_agent_topic
 from mcp_server.tool_error_handler import safe_handler
 from mcp_server.handlers._tool_meta import tool_kwargs
 
@@ -36,6 +37,37 @@ def register(mcp: FastMCP) -> None:
 
 
 def _register_remember(mcp: FastMCP) -> None:
+    # Connection-rooted scoping: when CORTEX_ROOT_AGENT_TOPIC is set the
+    # agent_topic parameter is omitted from the registered signature
+    # (FastMCP derives the input schema from the signature), so the model
+    # never sees it. The handler forces the root topic server-side.
+    if root_agent_topic() is not None:
+
+        @mcp.tool(name="remember", **tool_kwargs(remember.schema))
+        async def tool_remember_rooted(
+            content: str,
+            tags: list[str] | None = None,
+            directory: str | None = None,
+            domain: str | None = None,
+            source: str | None = None,
+            force: bool = False,
+        ) -> dict:
+            """Store a memory through the predictive coding write gate."""
+            return await safe_handler(
+                remember.handler,
+                {
+                    "content": content,
+                    "tags": tags or [],
+                    "directory": directory or "",
+                    "domain": domain or "",
+                    "source": source or "user",
+                    "force": force,
+                },
+                tool_name="remember",
+            )
+
+        return
+
     @mcp.tool(
         name="remember",
         **tool_kwargs(remember.schema),
@@ -66,6 +98,33 @@ def _register_remember(mcp: FastMCP) -> None:
 
 
 def _register_recall(mcp: FastMCP) -> None:
+    # Connection-rooted scoping (see _register_remember): omit agent_topic
+    # from the schema when rooted; the handler forces the root scope.
+    if root_agent_topic() is not None:
+
+        @mcp.tool(name="recall", **tool_kwargs(recall.schema))
+        async def tool_recall_rooted(
+            query: str,
+            domain: str | None = None,
+            directory: str | None = None,
+            max_results: int = 10,
+            min_heat: float = 0.05,
+        ) -> dict:
+            """Retrieve memories using multi-signal fusion."""
+            return await safe_handler(
+                recall.handler,
+                {
+                    "query": query,
+                    "domain": domain,
+                    "directory": directory,
+                    "max_results": max_results,
+                    "min_heat": min_heat,
+                },
+                tool_name="recall",
+            )
+
+        return
+
     @mcp.tool(
         name="recall",
         **tool_kwargs(recall.schema),
