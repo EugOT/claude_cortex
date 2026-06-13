@@ -187,35 +187,23 @@
     var d3 = window.d3;
     var wfg = window.JUG._wfg;
     var nodes = (data.nodes || []).map(function (n) { return Object.assign({}, n); });
-
-    // ── Static server-layout mode ──
-    // The slim wire ships server-computed positions ([-1,1] world
-    // coordinates: DrL bake for the baseline, deterministic rays for
-    // L6 symbols). When the majority of nodes carry them, the client
-    // DRAWS — it does not simulate: no force physics, no client-side
-    // re-seeding, no edge-class drops; every node and edge is in the
-    // scene (a hard cap is a truncation of the record). Payloads
-    // without server positions (trace.v1 views, small legacy graphs)
-    // keep the simulation path unchanged.
-    function _srvPos(n) {
-      return typeof n.x === 'number' && isFinite(n.x) &&
-             typeof n.y === 'number' && isFinite(n.y);
-    }
-    var _positioned = 0;
-    for (var _si = 0; _si < nodes.length; _si++) {
-      if (_srvPos(nodes[_si])) _positioned++;
-    }
-    var STATIC = nodes.length > 0 && _positioned * 2 > nodes.length;
-
-    // For very large SIMULATED graphs skip the simulation-visible
-    // edges — d3.forceLink on tens of thousands of pairs freezes the
-    // main thread. Static mode has no link force, so it keeps EVERY
-    // edge; the `calls` drop NEVER applies there — a call graph
-    // without calls is a different (wrong) graph.
-    var HEAVY = !STATIC && nodes.length > 8000;
+    // For very large graphs (>15k nodes) skip the simulation-visible
+    // edges entirely — symbol→file/symbol→symbol edges number in the
+    // tens of thousands and d3.forceLink on that many pairs freezes
+    // the main thread. The slot layout already encodes containment
+    // geometrically, so the visual edge of every symbol→file pair is
+    // redundant. Keep only structural edges (domain hubs, tools,
+    // files ↔ tools, discussions ↔ files, memories) for rendering.
+    var HEAVY = nodes.length > 8000;
     var _nidSet = {};
     for (var _ni = 0; _ni < nodes.length; _ni++) _nidSet[nodes[_ni].id] = 1;
-    var EXTREME = !STATIC && nodes.length > 25000;
+    // Keep AST edges in the simulation — they carry real semantic
+    // meaning (symbol contained in file, symbol calls another symbol,
+    // file imports symbol, method belongs to class). Layout should
+    // REFLECT this connectivity, not randomize it. Only drop the
+    // really dense symbol↔symbol edges (`calls`) under extreme load
+    // to keep tick-rate manageable.
+    var EXTREME = nodes.length > 25000;
     var renderedEdges;
     if (EXTREME) {
       renderedEdges = (data.edges || []).filter(function (e) {
@@ -239,72 +227,21 @@
     var width  = container.clientWidth  || window.innerWidth;
     var height = container.clientHeight || window.innerHeight;
 
-    // Static mode: map server world coordinates onto the pixel
-    // viewport ONCE (bbox fit with padding, aspect preserved). The
-    // mapping is stored on ctx so append() can place later-streamed
-    // nodes in the same frame. Nodes without server coords (rare
-    // stragglers) go on a deterministic hash ring just outside the
-    // galaxy — visible, never hidden.
-    var world = null;
-    if (STATIC) {
-      var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      for (var _bi = 0; _bi < nodes.length; _bi++) {
-        var bn = nodes[_bi];
-        if (!_srvPos(bn)) continue;
-        if (bn.x < minX) minX = bn.x;
-        if (bn.x > maxX) maxX = bn.x;
-        if (bn.y < minY) minY = bn.y;
-        if (bn.y > maxY) maxY = bn.y;
-      }
-      var pad = 40;
-      var spanW = Math.max(maxX - minX, 1e-6);
-      var spanH = Math.max(maxY - minY, 1e-6);
-      var wk = Math.min((width - 2 * pad) / spanW, (height - 2 * pad) / spanH);
-      world = {
-        k: wk,
-        ox: width / 2 - ((minX + maxX) / 2) * wk,
-        oy: height / 2 - ((minY + maxY) / 2) * wk,
-      };
-      var ringR = Math.max(width, height) * 0.48;
-      for (var _mi = 0; _mi < nodes.length; _mi++) {
-        var mn = nodes[_mi];
-        if (_srvPos(mn)) {
-          mn.x = world.ox + mn.x * world.k;
-          mn.y = world.oy + mn.y * world.k;
-        } else {
-          var hh = 0;
-          var ms = String(mn.id || _mi);
-          for (var hc = 0; hc < ms.length; hc++) {
-            hh = ((hh << 5) - hh + ms.charCodeAt(hc)) | 0;
-          }
-          var th = (Math.abs(hh) % 1000) / 1000 * Math.PI * 2;
-          mn.x = width / 2 + ringR * Math.cos(th);
-          mn.y = height / 2 + ringR * Math.sin(th);
-        }
-      }
-    }
-
     // Topology prep uses the FULL edge set (parent-file map needs
     // `defined_in` edges) but the simulation only sees the rendered set.
     var ctx = prepareTopology(nodes, data.edges || [], width, height);
     ctx.edges = edges;                // simulation edges (possibly filtered)
     ctx.KIND_RADIUS = KIND_RADIUS;
     ctx.KIND_COLOR  = KIND_COLOR;
-    if (STATIC) {
-      ctx._world = world;
-      // The slot/shell geometry describes the SIMULATED layout — in
-      // static mode positions come from the server, so the shells
-      // would draw rings unrelated to where nodes actually are.
-      ctx.shells = null;
-      ctx.sideShells = [];
-    }
-    // SIMULATED path only: seed symbols along the outward ray from the
-    // domain hub through their parent file. In static mode the server
-    // already positioned every symbol — overwriting those coordinates
-    // here was exactly the bug that made the wire positions dead
-    // weight (2026-06-12).
+    // HEAVY: pin symbols at their slot positions so d3 treats them as
+    // immovable anchors (skip charge, skip link, skip collide for
+    // pinned nodes). The layout is already deterministic via slotOf;
+    // simulating 10k+ symbols adds no visual value, only CPU cost.
+    // Seed symbols ALONG THE OUTWARD RAY from the domain hub through
+    // their parent file, at a random distance past the file. This is
+    // the starting configuration that lets symbols flow naturally
+    // into the inter-domain gap space rather than orbiting the hub.
     for (var pi = 0; pi < nodes.length; pi++) {
-      if (STATIC) break;
       var pn = nodes[pi];
       if (pn.kind !== 'symbol') continue;
       var dId = ctx.domainOf[pn.id] || 'domain:__global__';
@@ -341,33 +278,21 @@
     // Other force constants unchanged — slots from computeSlots carry
     // the positioning burden; physics just needs time to converge.
     var slotK    = HEAVY ? 1.2  : 0.85;
-    var chargeEn = !STATIC;
+    var chargeEn = true;
     var collideI = HEAVY ? 2    : 3;
     var alphaDK  = HEAVY ? 0.018 : 0.022;
     var velDecay = 0.78;
 
-    // Static mode: a FORCELESS, stopped simulation. The renderers'
-    // event wiring (sim.on('tick', draw), drag alphaTarget/restart)
-    // keeps working — d3 ticks still apply fx/fy for drags and fire
-    // draw — but with zero forces nothing moves and idle CPU is zero.
-    // Positions are the server's; the client only draws them.
-    var sim;
-    if (STATIC) {
-      sim = d3.forceSimulation(nodes)
-        .alpha(0).alphaDecay(alphaDK).velocityDecay(velDecay)
-        .stop();
-    } else {
-      sim = d3.forceSimulation(nodes)
-        .alpha(1.0).alphaDecay(alphaDK).velocityDecay(velDecay)
-        .force('link', d3.forceLink(edges).id(function (n) { return n.id; })
-          .distance(linkDistance).strength(linkStrength))
-        .force('slot',        slotForce(ctx, slotK))
-        .force('interdomain', interDomainRepelForce(ctx, 0.08))
-        .force('symmulti', symbolMultiCenterForce(ctx))
-        .force('collide', d3.forceCollide()
-          .radius(function (n) { return collisionRadius(n, ctx); })
-          .strength(0.92).iterations(collideI));
-    }
+    var sim = d3.forceSimulation(nodes)
+      .alpha(1.0).alphaDecay(alphaDK).velocityDecay(velDecay)
+      .force('link', d3.forceLink(edges).id(function (n) { return n.id; })
+        .distance(linkDistance).strength(linkStrength))
+      .force('slot',        slotForce(ctx, slotK))
+      .force('interdomain', interDomainRepelForce(ctx, 0.08))
+      .force('symmulti', symbolMultiCenterForce(ctx))
+      .force('collide', d3.forceCollide()
+        .radius(function (n) { return collisionRadius(n, ctx); })
+        .strength(0.92).iterations(collideI));
     if (chargeEn) {
       // Local charge (distanceMax 180) so symbol-symbol repulsion
       // doesn't create long-range feedback with the multi-centroid
@@ -432,20 +357,6 @@
         var n = newNodes[i];
         if (!n || n.id == null || ctx.byId[n.id]) continue;
         var n2 = Object.assign({}, n);
-        // Static mode: the server already positioned this node in
-        // [-1,1] world coordinates — map through the SAME viewport
-        // transform mount() used and skip the anchor-jitter seeding.
-        if (ctx._world &&
-            typeof n2.x === 'number' && isFinite(n2.x) &&
-            typeof n2.y === 'number' && isFinite(n2.y)) {
-          n2.x = ctx._world.ox + n2.x * ctx._world.k;
-          n2.y = ctx._world.oy + n2.y * ctx._world.k;
-          ctx.domainOf[n2.id] = n2.domain_id || 'domain:__global__';
-          nodes.push(n2);
-          ctx.byId[n2.id] = n2;
-          addedN++;
-          continue;
-        }
         var didCandidates = [
           n2.domain_id,
           n2.domain && ctx.byId[n2.domain] && ctx.byId[n2.domain].kind === 'domain' ? n2.domain : null,
@@ -503,25 +414,8 @@
         addedE++;
       }
       if (addedN || addedE) {
-        // Static mode: no physics to reheat — new nodes are already
-        // positioned; they become visible/clickable when the canvas
-        // base layer re-renders. Debounced so a streaming burst costs
-        // one re-render per quiet period, not one per batch.
-        if (ctx._world) {
-          if (renderer && typeof renderer.refreshBase === 'function') {
-            if (append._baseTimer) clearTimeout(append._baseTimer);
-            append._baseTimer = setTimeout(function () {
-              append._baseTimer = null;
-              renderer.refreshBase();
-            }, 300);
-          }
-          return { addedNodes: addedN, addedEdges: addedE,
-                   totalNodes: nodes.length, totalEdges: edges.length };
-        }
         sim.nodes(nodes);
-        // Static mode has no link force — positions are server-owned.
-        var _lf = sim.force('link');
-        if (_lf) _lf.links(edges);
+        sim.force('link').links(edges);
         // ── Reheat throttling ──
         // The bridge drains at 60 rAF/sec during streaming. Calling
         // sim.alpha(0.15).restart() per drain pegged alpha at 0.15

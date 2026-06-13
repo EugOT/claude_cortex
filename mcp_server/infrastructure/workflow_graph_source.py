@@ -255,7 +255,7 @@ class WorkflowGraphSource:
         return _jsonl.load_mcp_usage(_domain_from_project_dir)
 
     # ── 12. Entities + memory-entity links (PG) ───────────────────────
-    def load_entities(self, pg_store, min_heat: float = 0.05) -> list[dict[str, Any]]:
+    def load_entities(self, pg_store, min_heat: float = 0.0) -> list[dict[str, Any]]:
         """Knowledge-graph entities projected into workflow-graph ENTITY
         nodes. See ``workflow_graph_source_pg.load_entities``."""
         return _pg.load_entities(pg_store, min_heat=min_heat)

@@ -661,6 +661,24 @@ def _build_interleaved(
     # the whole corpus warms up progressively without a big-bang. A
     # non-zero memory_limit still works as an explicit hottest-N subset.
     _mem_cap = memory_limit if memory_limit and memory_limit > 0 else 0
+    # MEMORY→ENTITY links, ingested PER CHUNK while the chunk's memory
+    # nodes are still in the builder (the uncapped path discards them
+    # right after, and ingest_about_entity skips absent endpoints).
+    # Restored 2026-06-13 (user direction: no restraints): the previous
+    # build skipped this whole table, so entity panels listed none of
+    # their memories. The old hairball/CPU concerns no longer apply —
+    # the SSE wire carries ZERO edges (nodes only), and edge cost is
+    # spread across the chunk loop instead of one 110k-row burst.
+    _links_by_mem: dict[int, list[int]] = {}
+    for _lnk in source.load_memory_entity_edges(store):
+        _mid = _lnk.get("memory_id")
+        _eid = _lnk.get("entity_id")
+        if _mid is not None and _eid is not None:
+            _links_by_mem.setdefault(_mid, []).append(_eid)
+    if on_source_loaded is not None:
+        on_source_loaded(
+            "memory_entity_edges", sum(len(v) for v in _links_by_mem.values())
+        )
     for chunk in source.iter_memories_chunked(
         store, min_heat=min_memory_heat, chunk_size=1000, limit=_mem_cap
     ):
@@ -670,6 +688,13 @@ def _build_interleaved(
         prev_e = len(builder._edges)  # noqa: SLF001
         for ev in chunk:
             builder._ingest_memory(ev)  # noqa: SLF001
+        # ABOUT_ENTITY edges for THIS chunk's memories — endpoints are
+        # live right now (entities since Phase 1c, memories just above).
+        for ev in chunk:
+            for _eid in _links_by_mem.get(ev.get("id"), ()):
+                ingest_about_entity(
+                    builder, {"memory_id": ev.get("id"), "entity_id": _eid}
+                )
         memories_total += len(chunk)
         _emit_delta("memories", prev_n, prev_e)
         # ── Bounded retention vs unbounded discard ──
@@ -708,14 +733,8 @@ def _build_interleaved(
         if on_source_loaded is not None:
             on_source_loaded("memories", memories_total)
 
-    # memory_entity_edges (110k MEMORY→ENTITY links) are SKIPPED from the
-    # base galaxy build. Constructing 110k pydantic WorkflowEdge objects +
-    # de-duping them was the dominant CPU cost (~50-60 s, one core pegged),
-    # and they render as a dense hairball that adds no structural value —
-    # see commit "skip memory_entity_edges phase — 110K green cloud was
-    # covering galaxy". They remain reachable via on-demand drill
-    # (/api/graph/chain) and recall. source: measured 2026-05-31.
-    _ = ingest_about_entity  # kept imported for on-demand drill paths
+    # memory_entity_edges are now ingested inside the chunk loop above
+    # (per-chunk, while endpoints are live) — see _links_by_mem.
 
     # ── Phase 4: AST symbols (deferred by default in streaming mode) ──
     if stage == "full" and not defer_native_ast:
@@ -753,11 +772,12 @@ def _build_interleaved(
     discussion_count = sum(1 for n in nodes if n.kind == "discussion")
     symbol_count = sum(1 for n in nodes if n.kind == "symbol")
     entity_node_count = sum(1 for n in nodes if n.kind == "entity")
-    # Retained memory dicts join AFTER validate_graph: their only
-    # edges are memory→domain in_domain links whose domain endpoint is
-    # in the validated structural set and whose memory endpoint is in
-    # the retained set — consistent by construction (each batch was
-    # ingested by the same builder before the slim-dict capture).
+    # Retained memory dicts join AFTER validate_graph: their edges are
+    # memory→domain in_domain links plus memory→entity about_entity
+    # links whose non-memory endpoint is in the validated structural
+    # set and whose memory endpoint is in the retained set — consistent
+    # by construction (each batch was ingested by the same builder
+    # before the slim-dict capture).
     node_dicts = [_node_to_dict(n) for n in nodes] + retained_memory_nodes
     edge_dicts = [_edge_to_dict(e) for e in edges] + retained_memory_edges
     return {

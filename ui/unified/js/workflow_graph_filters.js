@@ -109,12 +109,23 @@
       sel.addEventListener('change', function () {
         var val = sel.value || 'all';
         state.wfgFilter = val;
-        // Every level, L0–L6, arrives over the live SSE stream
-        // (/api/graph/events — graph_event_stream.js), so a selection
-        // that reveals symbols just applies the visual filter against
-        // the already-loaded/streaming graph. If L6 is still streaming,
-        // appendGraphDelta keeps adding matching nodes and the bridge
-        // re-renders, so the filter stays correct as they arrive.
+        // ── On-demand L6 symbol load (2026-06-10) ──
+        // L6 symbol phases are NOT auto-loaded (the inline phase loader
+        // in unified-viz.html defers them — the full ~107k-node sim is
+        // unusable in-browser; the L0–L5 view is ~11.8k nodes). Any
+        // selection that reveals symbols pulls the deferred L6 phases in
+        // first, THEN applies the visual filter so the freshly-appended
+        // symbol nodes are present when the predicate runs.
+        var needsSymbols =
+          val === 'L6' ||
+          val === 'kind:symbol' ||
+          val.indexOf('edge:') === 0;
+        if (needsSymbols &&
+            window.JUG && typeof JUG.loadSymbolPhases === 'function' &&
+            JUG.hasDeferredSymbols && JUG.hasDeferredSymbols()) {
+          JUG.loadSymbolPhases().then(apply);
+          return;
+        }
         apply();
       });
     }
@@ -175,11 +186,20 @@
     }
     sel.addEventListener('change', function () {
       state.domain = sel.value || '';
-      // Every domain's symbols arrive over the live SSE stream like all
-      // other levels, so picking a domain just applies the visual filter
-      // against the already-loaded/streaming graph. Symbols arriving
-      // later via appendGraphDelta keep the filtered view correct as the
-      // bridge re-renders.
+      // ── On-demand per-domain L6 load (2026-06-10) ──
+      // L6 symbol phases are keyed per project ("L6:<project>") on the
+      // server, so selecting ONE domain can pull just that domain's
+      // symbols (affordable) rather than all ~198k. The loader does a
+      // tolerant slug match; if it can't confidently map the label to a
+      // phase it loads nothing here (the L6 filter remains the explicit
+      // all-symbols path). Apply the visual filter after the load settles
+      // so the new symbol nodes are in lastData when the predicate runs.
+      if (state.domain &&
+          window.JUG && typeof JUG.loadSymbolPhasesForDomain === 'function' &&
+          JUG.hasDeferredSymbols && JUG.hasDeferredSymbols()) {
+        JUG.loadSymbolPhasesForDomain(state.domain).then(apply);
+        return;
+      }
       apply();
     });
     if (window.JUG && JUG.on) JUG.on('state:lastData', populate);

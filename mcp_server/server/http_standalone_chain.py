@@ -39,8 +39,13 @@ def _wfg_chain(node_id: str, depth: int) -> dict:
     if not cache:
         return _not_found_payload(node_id)
 
-    nodes_raw = cache.get("nodes") or []
-    edges_raw = cache.get("edges") or []
+    # _graph_cache is shaped {"data": {nodes, edges, …}, "domain_filter"}
+    # (see http_standalone_graph._merge). Reading nodes off the wrapper
+    # returned None for every id → structural chains were always
+    # "Not found" (bug found 2026-06-13).
+    data = cache.get("data") if isinstance(cache.get("data"), dict) else cache
+    nodes_raw = data.get("nodes") or []
+    edges_raw = data.get("edges") or []
 
     id_to_node: dict[str, dict] = {n["id"]: n for n in nodes_raw if n.get("id")}
     if node_id not in id_to_node:

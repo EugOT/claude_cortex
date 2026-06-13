@@ -89,8 +89,18 @@ def _get_ui_root() -> Path:
     candidates = [
         pkg_dir / "ui",  # pip-installed layout
         pkg_dir.parent / "ui",  # plugin cache + dev checkout
-        Path.cwd() / "ui",  # last-resort when cwd is plugin root
     ]
+    try:
+        candidates.append(Path.cwd() / "ui")  # last-resort when cwd is plugin root
+    except OSError:
+        # The spawning MCP server can sit in a DELETED directory (its
+        # plugin-cache root vanishes on every plugin update while the
+        # process keeps running); the child inherits that cwd and
+        # os.getcwd() raises FileNotFoundError. The cwd candidate is a
+        # last resort only — losing it must not kill the server
+        # (observed 2026-06-13: open_visualization failed with
+        # "Expecting value: line 1 column 1" because the child died here).
+        pass
     for ui in candidates:
         if (ui / "unified-viz.html").is_file():
             return ui
@@ -158,6 +168,11 @@ def _route_unified_get(
         from mcp_server.server.http_standalone_endpoints import serve_graph_node
 
         serve_graph_node(handler, store)
+        return
+    if path_no_qs == "/api/graph/chain":
+        from mcp_server.server.http_standalone_chain import serve_graph_chain
+
+        serve_graph_chain(handler, store)
         return
     if path_no_qs == "/api/graph/progress":
         from mcp_server.server.http_standalone_endpoints import serve_graph_progress

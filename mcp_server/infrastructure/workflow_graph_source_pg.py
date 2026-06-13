@@ -262,17 +262,20 @@ def iter_memories_chunked(
         yield [_project_memory_row(r) for r in chunk]
 
 
-def load_entities(pg_store, min_heat: float = 0.05) -> list[dict[str, Any]]:
+def load_entities(pg_store, min_heat: float = 0.0) -> list[dict[str, Any]]:
     """Return knowledge-graph entity rows suitable for ENTITY-node ingest.
 
-    Uses ``get_all_entities`` with ``include_archived=False`` so archived
-    entities stay out of the graph. Each row carries ``id / name / type
-    / domain / heat`` at minimum; extra columns pass through so the
-    panel renderer can surface them.
+    UNCAPPED (user direction 2026-06-13): the graph shows the ENTIRE
+    entity population — ``min_heat=0.0`` and ``include_archived=True``
+    (the previous ``min_heat=0.05`` + archived exclusion silently
+    dropped most of the 36k-entity store from the build). Cold/archived
+    state still rides on each row (``heat`` / ``archived``) so renderers
+    can de-emphasise rather than omit. Each row carries ``id / name /
+    type / domain / heat`` at minimum.
     """
     if not hasattr(pg_store, "get_all_entities"):
         return []
-    rows = pg_store.get_all_entities(min_heat=min_heat, include_archived=False)
+    rows = pg_store.get_all_entities(min_heat=min_heat, include_archived=True)
     out: list[dict[str, Any]] = []
     for r in rows:
         if r.get("id") is None or not r.get("name"):

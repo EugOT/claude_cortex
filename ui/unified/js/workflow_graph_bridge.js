@@ -119,34 +119,6 @@
     JUG.on('state:lastData', function (ev) {
       var data = ev && ev.value;
       if (!isWorkflowGraph(data)) return;
-      // Streaming fast path: append the delta into the LIVE renderer.
-      // appendGraphDelta has always shipped the per-batch delta for
-      // exactly this purpose; destroy-and-remounting instead cost
-      // ~1–2 s per remount at 144k nodes, every 500 ms during the
-      // stream — the page was unusable while loading.
-      var delta = ev && ev.delta;
-      if (_handle && typeof _handle.append === 'function' && delta &&
-          ((delta.nodes && delta.nodes.length) ||
-           (delta.edges && delta.edges.length))) {
-        try {
-          _handle.append(delta.nodes || [], delta.edges || []);
-          _lastPayload = data;
-          return;
-        } catch (err) {
-          console.warn(LOG, 'delta append failed — falling back to full render', err);
-        }
-      }
-      // NEVER mount while the galaxy stream is still flooding: the
-      // static-vs-simulated decision is taken once at mount, and a
-      // mid-stream mount sees the coordinate-less live copies before
-      // their coordinated re-emissions arrive — it froze the renderer
-      // in 144k-node simulation mode (2026-06-13 screencast). The
-      // stream's onDone fires one final lastData emit; THAT mounts the
-      // complete, fully-positioned set exactly once.
-      if (!_handle && window.GraphEventStream && GraphEventStream.isOpen()) {
-        _pendingRender = data;
-        return;
-      }
       _pendingRender = data;
       if (_renderTimer) clearTimeout(_renderTimer);
       // 400 ms first render, 500 ms between per-project L6 appends.

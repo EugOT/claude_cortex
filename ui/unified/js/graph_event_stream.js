@@ -30,25 +30,6 @@
     return true;
   }
 
-  // ── Slim wire decode ──
-  // The server emits node tuples [id, kind, x, y] and NOTHING else —
-  // no edges, labels, colors, or metadata ride the stream (user
-  // direction 2026-06-12: the planetarium renders every dot from
-  // id+position alone; neighbors, labels and details are on-demand
-  // queries via /api/graph/node and the MCP tools).
-  function _decodeNode(a) {
-    if (!Array.isArray(a)) return a;  // already an object (tests, legacy)
-    var n = { id: a[0], kind: a[1], type: a[1] };
-    if (a[2] != null) n.x = a[2];
-    if (a[3] != null) n.y = a[3];
-    return n;
-  }
-
-  function _decodeEdge(a) {
-    if (!Array.isArray(a)) return a;
-    return { source: a[0], target: a[1], kind: a[2], type: a[2] };
-  }
-
   function _onBatchEvent(ev) {
     var data;
     try { data = JSON.parse(ev.data); } catch (e) {
@@ -56,8 +37,8 @@
       return;
     }
     if (!_ensureLastData()) return;
-    var nodes = (data.nodes || []).map(_decodeNode);
-    var edges = (data.edges || []).map(_decodeEdge);
+    var nodes = data.nodes || [];
+    var edges = data.edges || [];
     if (typeof JUG.appendGraphDelta === 'function') {
       JUG.appendGraphDelta(nodes, edges);
     }
