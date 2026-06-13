@@ -55,20 +55,21 @@ _EXTENSION_GUIDE = (
 
 def _classify_error(exc: Exception) -> tuple[str, str]:
     """Classify an exception into a user-friendly category and message."""
-    exc_lower = (type(exc).__name__ + " " + str(exc)).lower()
+    haystacks = (type(exc).__name__.lower(), str(exc).lower())
 
     if any(
-        kw in exc_lower
+        kw in haystack
         for kw in [
             'type "vector" does not exist',
             "extension",
             "pg_trgm",
         ]
+        for haystack in haystacks
     ):
         return "missing_extension", _EXTENSION_GUIDE
 
     if any(
-        kw in exc_lower
+        kw in haystack
         for kw in [
             "connection refused",
             "could not connect",
@@ -80,6 +81,7 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
             "password authentication",
             "timeout",
         ]
+        for haystack in haystacks
     ):
         return "database_not_connected", _DB_SETUP_GUIDE
 
@@ -142,6 +144,11 @@ async def safe_handler(
     On other errors: returns an error-type/message dict (no traceback).
     """
     try:
+        if tool_name:
+            from mcp_server.validation.schemas import validate_tool_args
+
+            validate_tool_args(tool_name, args)
+
         if tool_name:
             from mcp_server.handlers.admission import admit
             from mcp_server.observability import metrics

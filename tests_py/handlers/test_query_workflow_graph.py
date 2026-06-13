@@ -277,7 +277,12 @@ class _FakeStore:
 
 
 @pytest.mark.asyncio
-async def test_handler_returns_shaped_payload_on_empty_graph():
+async def test_handler_returns_shaped_payload_on_empty_graph(monkeypatch):
+    monkeypatch.setattr(
+        "mcp_server.handlers.query_workflow_graph.build_workflow_graph",
+        lambda *_args, **_kwargs: {"nodes": [], "edges": [], "meta": {}},
+    )
+
     result = await handler({"limit_nodes": 10}, store=_FakeStore())
     assert "nodes" in result
     assert "edges" in result

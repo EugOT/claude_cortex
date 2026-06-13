@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -78,6 +79,23 @@ class TestFallbackEncode:
         vec = np.frombuffer(result, dtype=np.float32)
         norm = float(np.linalg.norm(vec))
         assert abs(norm - 1.0) < 1e-5
+
+    def test_model_cache_miss_download_failure_degrades_to_hash(self):
+        engine = EmbeddingEngine(dim=32)
+        fake_sentence_transformers = SimpleNamespace(
+            SentenceTransformer=MagicMock(side_effect=OSError("offline"))
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {"sentence_transformers": fake_sentence_transformers},
+        ):
+            result = engine.encode("offline model miss")
+
+        assert result is not None
+        assert len(result) == 32 * 4
+        assert engine._unavailable is True
+        assert fake_sentence_transformers.SentenceTransformer.call_count == 2
 
 
 # ── Similarity ───────────────────────────────────────────────────────

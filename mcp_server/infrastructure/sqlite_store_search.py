@@ -121,7 +121,7 @@ class SqliteSearchMixin:
         params.append(pool)
         rows = self._conn.execute(
             f"SELECT id FROM memories WHERE {' AND '.join(conds)} "
-            f"ORDER BY heat DESC LIMIT ?",
+            f"ORDER BY heat_base DESC LIMIT ?",
             params,
         ).fetchall()
         for rank, r in enumerate(rows, 1):
@@ -155,7 +155,7 @@ class SqliteSearchMixin:
         domain: str | None,
         directory: str | None,
     ) -> tuple[list[str], list[Any]]:
-        conds = ["heat >= ?", "NOT is_stale"]
+        conds = ["heat_base >= ?", "NOT is_stale"]
         params: list[Any] = [min_heat]
         if domain:
             conds.append("(domain = ? OR is_global = 1)")
@@ -196,7 +196,7 @@ class SqliteSearchMixin:
         top_ids = sorted(scores, key=scores.get, reverse=True)[: max_results * 3]  # type: ignore[arg-type]
         placeholders = ",".join("?" * len(top_ids))
         rows = self._conn.execute(
-            f"SELECT * FROM memories WHERE id IN ({placeholders})",
+            f"SELECT *, heat_base AS heat FROM memories WHERE id IN ({placeholders})",
             top_ids,
         ).fetchall()
         row_map = {r["id"]: r for r in rows}

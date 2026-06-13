@@ -208,7 +208,17 @@ class EmbeddingEngine:
                 logger.info("Downloading embedding model: %s", self._model_name)
                 from sentence_transformers import SentenceTransformer
 
-                self._model = SentenceTransformer(self._model_name, device=device)
+                try:
+                    self._model = SentenceTransformer(self._model_name, device=device)
+                except Exception as exc:
+                    logger.warning(
+                        "Embedding model %s unavailable after cache miss; "
+                        "using hash-based fallback embeddings: %s",
+                        self._model_name,
+                        exc,
+                    )
+                    self._unavailable = True
+                    return
             finally:
                 if had_offline is None:
                     os.environ.pop("HF_HUB_OFFLINE", None)

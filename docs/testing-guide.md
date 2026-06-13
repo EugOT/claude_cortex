@@ -4,7 +4,7 @@
 
 The test suite validates all layers of the Clean Architecture, from pure shared utilities through core domain logic, infrastructure I/O, handler composition, server protocol handling, and session lifecycle hooks.
 
-**Framework:** pytest 8.0+ with pytest-cov for coverage reporting and pytest-asyncio for async tests
+**Framework:** pytest 8.0+ with pytest-cov for coverage reporting, pytest-asyncio for async tests, and mutmut for mutation testing
 
 **Test count:** 3,280 tests passing in the latest Python 3.12 CI coverage run; 9 skipped.
 
@@ -14,8 +14,18 @@ The test suite validates all layers of the Clean Architecture, from pure shared 
 # Full suite
 pixi run test
 
+# Layered suite entrypoints
+pixi run test-unit
+pixi run test-functional
+pixi run test-integration
+pixi run test-e2e
+
 # With coverage
 pixi run test-cov
+
+# Mutation testing for Cortex boundary/safety contracts
+pixi run mutation
+pixi run mutation-stats
 
 # HTML coverage report
 pixi run -- python -m pytest --cov=mcp_server --cov-report=html
@@ -27,7 +37,8 @@ pixi run -- python -m pytest tests_py/core/            # Domain logic
 pixi run -- python -m pytest tests_py/infrastructure/  # I/O layer
 pixi run -- python -m pytest tests_py/handlers/        # Composition roots
 pixi run -- python -m pytest tests_py/server/          # MCP protocol
-pixi run -- python -m pytest tests_py/transport/       # stdio framing
+pixi run -- python -m pytest tests_py/integration/     # Cross-layer lifecycles
+pixi run -- python -m pytest tests_py/e2e/             # FastMCP Cortex surface
 pixi run -- python -m pytest tests_py/hooks/           # Lifecycle hooks
 
 # Single file
@@ -160,8 +171,11 @@ tests_py/
   server/
     test_mcp_router.py                  # JSON-RPC routing
     test_http_server.py                 # HTTP visualization server
-  transport/
-    test_stdio.py                       # stdio transport
+  integration/
+    test_cold_start.py                  # Cold-start session behavior
+    test_memory_lifecycle.py            # Store/recall/checkpoint lifecycles
+  e2e/
+    test_cortex_mcp_surface.py          # FastMCP tool-boundary scenarios
   hooks/
     test_session_lifecycle.py           # SessionEnd hook
     test_session_start.py               # SessionStart hook
@@ -257,6 +271,42 @@ class TestDetectDomainHandler:
         result = _run(handler({"cwd": "/tmp/test"}))
         assert result["domain"] == "test"
 ```
+
+### Cortex E2E Tests
+
+E2E tests exercise the registered FastMCP surface from `mcp_server.__main__`
+with `mcp.call_tool(...)`. They should prove user-visible scenarios across the
+tool boundary rather than duplicating handler internals.
+
+```python
+def test_remember_recall_round_trip():
+    remember = _call_tool("remember", {"content": "lesson", "force": True})
+    assert remember["stored"] is True
+
+    recall = _call_tool("recall", {"query": "lesson", "min_heat": 0.0})
+    assert recall["count"] >= 1
+```
+
+The e2e suite inherits the global test isolation guard from
+`tests_py/conftest.py`: it refuses populated non-test PostgreSQL databases and
+falls back to a per-run SQLite store when PostgreSQL is unavailable.
+
+### Mutation Testing
+
+Mutation testing uses mutmut and is intentionally not part of default `verify`
+because it is slower than normal pytest runs and keeps state under `mutants/`.
+The current mutation target is the Cortex boundary/safety layer:
+
+```bash
+pixi run mutation
+pixi run mutation-stats
+```
+
+Configuration lives in `[tool.mutmut]` in `pyproject.toml`. The selected
+`source_paths` cover the safe handler and lightweight argument validation, and
+`pytest_add_cli_args_test_selection` points mutmut at the e2e, validation, and
+FastMCP handler-contract suites. Expand this matrix when adding a new
+externally visible Cortex scenario or safety envelope.
 
 ## Coverage Targets
 

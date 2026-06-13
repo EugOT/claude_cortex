@@ -124,12 +124,13 @@ The full standard lives in
 ## Testing
 
 ```bash
-pixi run test                                      # full suite (3,000+ tests)
-pixi run -- python -m pytest tests_py/shared          # pure utilities
-pixi run -- python -m pytest tests_py/infrastructure  # I/O layer
-pixi run -- python -m pytest -k locomo                # subset
-pixi run -- python -m pytest -x --ff                  # stop on first fail, run failures first
-pixi run typecheck                                 # visible baseline, currently non-blocking in CI
+pixi run test             # full pytest suite
+pixi run test-unit        # shared/core/errors/validation
+pixi run test-functional  # infrastructure/handlers/hooks/server/scripts/invariants
+pixi run test-integration # cross-layer lifecycle tests
+pixi run test-e2e         # Cortex FastMCP surface scenarios
+pixi run mutation         # mutmut boundary/safety mutation pass
+pixi run typecheck        # visible baseline, currently non-blocking in CI
 ```
 
 Tests run against a local PostgreSQL instance. CI provisions a fresh DB

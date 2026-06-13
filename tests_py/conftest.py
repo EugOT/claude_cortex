@@ -92,6 +92,23 @@ def _pg_available() -> bool:
 _guard_against_populated_db()
 _USE_PG = _pg_available()
 
+
+def pytest_collection_modifyitems(config, items):
+    """Skip direct-PostgreSQL tests when the harness is in SQLite fallback mode."""
+    if _USE_PG:
+        return
+
+    pg_only_files = (
+        "tests_py/infrastructure/test_pg_",
+        "tests_py/invariants/test_I10_pool_capacity.py",
+    )
+    skip_pg = pytest.mark.skip(reason="requires a reachable PostgreSQL test DB")
+    for item in items:
+        nodeid = item.nodeid.replace("\\", "/")
+        if any(path in nodeid for path in pg_only_files):
+            item.add_marker(skip_pg)
+
+
 # When PG isn't available, force SQLite backend with a temp dir
 if not _USE_PG:
     _SQLITE_TEST_DIR = tempfile.mkdtemp(prefix="cortex_test_")

@@ -176,16 +176,16 @@ def _build_tags(rel_path: str, analysis: Any) -> list[str]:
 def _set_memory_metadata(store: MemoryStore, memory_id: int) -> None:
     """Mark memory as semantic with boosted heat and importance.
 
-    Phase 5: batch pool. A3: writes heat_base + refreshes heat_base_set_at.
+    Phase 5: batch pool. A3 heat writes route through the canonical writer.
     """
     try:
         with store.acquire_batch() as conn:
             conn.execute(
                 "UPDATE memories SET store_type = 'semantic', "
-                "heat_base = 0.7, heat_base_set_at = NOW(), "
                 "importance = 0.5 WHERE id = %s",
                 (memory_id,),
             )
+        store.bump_heat_raw(memory_id, 0.7)
     except Exception:
         pass
 

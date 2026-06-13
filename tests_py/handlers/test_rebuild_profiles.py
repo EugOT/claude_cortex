@@ -7,53 +7,51 @@ from unittest.mock import patch
 from mcp_server.handlers.rebuild_profiles import handler
 
 
+def _run_with_empty_sources(args):
+    with (
+        patch("mcp_server.handlers.rebuild_profiles.load_profiles", return_value={}),
+        patch(
+            "mcp_server.handlers.rebuild_profiles.discover_all_memories",
+            return_value=[],
+        ),
+        patch(
+            "mcp_server.handlers.rebuild_profiles.discover_conversations",
+            return_value=[],
+        ),
+        patch("mcp_server.handlers.rebuild_profiles.group_by_project", return_value={}),
+        patch("mcp_server.handlers.rebuild_profiles.load_brain_index", return_value={}),
+        patch(
+            "mcp_server.handlers.rebuild_profiles.build_domain_profiles",
+            return_value={"domains": {}},
+        ),
+        patch("mcp_server.handlers.rebuild_profiles.save_profiles"),
+    ):
+        return asyncio.run(handler(args))
+
+
 class TestRebuildProfilesHandler:
     def test_returns_domains_array_with_force(self):
-        result = asyncio.run(handler({"force": True}))
+        result = _run_with_empty_sources({"force": True})
         assert result is not None
         assert "domains" in result
         assert isinstance(result["domains"], list)
 
     def test_includes_total_sessions_and_memories(self):
-        result = asyncio.run(handler({"force": True}))
+        result = _run_with_empty_sources({"force": True})
         assert "totalSessions" in result
         assert "totalMemories" in result
         assert isinstance(result["totalSessions"], (int, float))
         assert isinstance(result["totalMemories"], (int, float))
 
     def test_includes_duration_metric(self):
-        result = asyncio.run(handler({"force": True}))
+        result = _run_with_empty_sources({"force": True})
         assert "duration" in result
         assert isinstance(result["duration"], (int, float))
         assert result["duration"] >= 0
 
     def test_default_args_is_none(self):
         """handler(None) should work same as handler({})."""
-        with (
-            patch(
-                "mcp_server.handlers.rebuild_profiles.load_profiles", return_value={}
-            ),
-            patch(
-                "mcp_server.handlers.rebuild_profiles.discover_all_memories",
-                return_value=[],
-            ),
-            patch(
-                "mcp_server.handlers.rebuild_profiles.discover_conversations",
-                return_value=[],
-            ),
-            patch(
-                "mcp_server.handlers.rebuild_profiles.group_by_project", return_value={}
-            ),
-            patch(
-                "mcp_server.handlers.rebuild_profiles.load_brain_index", return_value={}
-            ),
-            patch(
-                "mcp_server.handlers.rebuild_profiles.build_domain_profiles",
-                return_value={"domains": {}},
-            ),
-            patch("mcp_server.handlers.rebuild_profiles.save_profiles"),
-        ):
-            result = asyncio.run(handler(None))
+        result = _run_with_empty_sources(None)
         assert "domains" in result
 
 

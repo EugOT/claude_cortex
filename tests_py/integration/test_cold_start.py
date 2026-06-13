@@ -17,20 +17,17 @@ import pytest
 
 def _pg_reachable() -> bool:
     """Check if PostgreSQL is reachable on the test DATABASE_URL."""
+    if os.environ.get("CORTEX_MEMORY_STORE_BACKEND") == "sqlite":
+        return False
     try:
-        from scripts.setup_db import _pg_is_running
+        import psycopg
 
         db_url = os.environ.get(
             "DATABASE_URL", "postgresql://localhost:5432/cortex_test"
         )
-        # Extract host and port from DATABASE_URL
-        # Format: postgresql://[user[:pass]@]host[:port]/dbname
-        from urllib.parse import urlparse
-
-        parsed = urlparse(db_url)
-        host = parsed.hostname or "localhost"
-        port = str(parsed.port or 5432)
-        return _pg_is_running(host, port)
+        with psycopg.connect(db_url, autocommit=True, connect_timeout=3) as conn:
+            conn.execute("SELECT 1")
+        return True
     except Exception:
         return False
 
@@ -64,6 +61,9 @@ class TestSessionStartHook:
 
     def test_normal_session_with_memories(self):
         """When DB has memories, hook should inject memory context."""
+        if not _pg_reachable():
+            pytest.skip("SessionStart hook reads PostgreSQL directly")
+
         from mcp_server.handlers.remember import handler as remember
         import asyncio
 

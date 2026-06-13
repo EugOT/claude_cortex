@@ -71,7 +71,8 @@ def _scan_heat_writers() -> set[tuple[str, int]]:
 
     offenders: set[tuple[str, int]] = set()
     for py in _MCP_ROOT.rglob("*.py"):
-        if "worktree" in str(py):
+        rel_path = py.relative_to(_MCP_ROOT)
+        if "worktree" in rel_path.parts:
             continue
         try:
             src = py.read_text(encoding="utf-8")
@@ -84,7 +85,7 @@ def _scan_heat_writers() -> set[tuple[str, int]]:
             up = line.upper().replace(" AS M", "").replace(" AS W", "")
             # Single-line: UPDATE memories ... SET heat_base = ...
             if "UPDATE MEMORIES" in up and heat_base_assign.search(line):
-                rel = str(py.relative_to(_MCP_ROOT)).replace("\\", "/")
+                rel = str(rel_path).replace("\\", "/")
                 offenders.add((rel, i))
                 continue
             # Multi-line: a SET heat_base = line whose UPDATE memories clause
@@ -92,7 +93,7 @@ def _scan_heat_writers() -> set[tuple[str, int]]:
             if heat_base_assign.search(line) and "MEMORIES" not in up:
                 window = " ".join(lines[max(0, i - 6) : i]).upper()
                 if "UPDATE MEMORIES" in window or '"MEMORIES"' in window:
-                    rel = str(py.relative_to(_MCP_ROOT)).replace("\\", "/")
+                    rel = str(rel_path).replace("\\", "/")
                     offenders.add((rel, i))
     return offenders
 
@@ -139,7 +140,8 @@ def test_I2_no_legacy_heat_column_writes() -> None:
     """
     offenders: set[tuple[str, int]] = set()
     for py in _MCP_ROOT.rglob("*.py"):
-        if "worktree" in str(py):
+        rel_path = py.relative_to(_MCP_ROOT)
+        if "worktree" in rel_path.parts:
             continue
         try:
             src = py.read_text(encoding="utf-8")
@@ -155,7 +157,7 @@ def test_I2_no_legacy_heat_column_writes() -> None:
                 or "SET HEAT =" in up
                 or "SET HEAT," in up
             ):
-                rel = str(py.relative_to(_MCP_ROOT)).replace("\\", "/")
+                rel = str(rel_path).replace("\\", "/")
                 offenders.add((rel, i))
 
     assert not offenders, (
