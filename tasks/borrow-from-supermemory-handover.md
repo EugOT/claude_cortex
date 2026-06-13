@@ -60,11 +60,14 @@ Acceptance for every item = EXTERNAL signal (a passing test or a benchmark delta
 **Cortex change:** add `include_related: bool` to `recall` (`tool_registry_memory.py` + `handlers/recall.py`); when true, for each hit do one hop over the entity `relationships` table (pg_schema.py:93-107) and inline direct neighbors. Reuse supersession edges from item 1 for the "version" axis.
 **Acceptance:** unit test — `recall(..., include_related=True)` returns neighbors inline; latency stays < full assembler. Measure both.
 
-## 4 — Viz spatial-hash hit-testing
+## 4 — Viz spatial-hash hit-testing ✅ DONE 2026-06-13
 **Problem:** Cortex graph hit-test is O(N) reverse-iteration (`ui/unified/js/workflow_graph_render_canvas.js:87-94`); slow on the 10-node-kind / AST-symbol graph.
 **supermemory pattern:** 200px grid spatial hash, 3×3 neighborhood query.
 **Cortex change:** add a grid hash in the canvas renderer, rebuilt on settle/drag only (supermemory rebuilds on position-hash change). Document-vs-memory → AABB vs circle test analog for Cortex node kinds.
 **Acceptance:** hit-test correctness test + measured frame-time improvement on a >5k-node graph.
+
+**Shipped:** `ui/unified/js/spatial_hash.js` (uniform-grid `SpatialHash`, cell=200 > max node radius 34 so 3×3 is provably exhaustive — Ericson 2005 Ch.7). Wired into `workflow_graph_render_canvas.js` `findNode`: grid in the steady state (settled/static), linear reverse-scan fallback while positions move; rebuilt on sim `'end'` + invalidated on `'tick'`; topmost-wins preserved via max-index tiebreak. Script tag added to `unified-viz.html` before the renderer.
+**Acceptance met:** `tests_js/spatial_hash.test.js` (node:test) — 20k random queries spatial≡linear (incl. overlap tiebreak + radius boundary); frame-time on 6000 nodes (>5k) = **11.2× speedup** (8.19µs → 0.73µs/query). `node --test tests_js/spatial_hash.test.js` green.
 
 ---
 

@@ -471,6 +471,7 @@
 <script src="/js/workflow_graph_panel.js?v=117ece5"></script>
 <script src="/js/workflow_graph_panel_helpers.js?v=117ece5"></script>
 <script src="/js/workflow_graph_panel_renderers.js?v=117ece5"></script>
+<script src="/js/spatial_hash.js?v=117ece5"></script>
 <script src="/js/workflow_graph_render_svg.js?v=117ece5"></script>
 <script src="/js/workflow_graph_render_canvas.js?v=117ece5"></script>
 <script src="/js/workflow_graph_tilemap.js?v=117ece5"></script>
@@ -496,82 +497,195 @@
 <!-- Trace view: a live, domain-split execution-trace
      (domain -> session -> chain -> file) fetched per level on demand. -->
 <script src="/js/trace.js"></script>
-<!-- Galaxy (GRAPH tab) live SSE delivery — 2026-06-12.
-     The polling/paginating phase loader that used to live here was the
-     "in-between interface": it polled /api/graph/progress and pulled
-     /api/graph/phase pages. It is GONE. The graph now arrives over ONE
-     real-time connection — the EventSource on /api/graph/events
-     (graph_event_stream.js), the same live stream the build worker
-     feeds batch by batch (skeleton → baseline sources → every L6
-     symbol batch → done).
+<!-- Galaxy (GRAPH tab) phase-driven loader — restored 2026-06-10.
+     df691fd replaced GRAPH with TRACE and removed the galaxy loaders
+     (phase_loader.js / graph_snapshot.js / the SSE startup); the GRAPH
+     tab was restored 2026-06-10 but its loader was not, so nothing ever
+     called JUG.appendGraphDelta for view==='graph' and the canvas stayed
+     blank with Domains/Memories/Discussions = 0.
 
-     Lifecycle: subscribing lazily kicks the build server-side
-     (serve_graph_events → ensure_build_started); on a warm process the
-     stream replays the completed build's event buffer from index 0 and
-     terminates with ``done``. Either way the client logic is identical:
-     each ``batch`` event goes through JUG.appendGraphDelta (O(batch),
-     dedup by id), state:lastData fires, and workflow_graph_bridge
-     renders the growing L0–L6 galaxy. Reconnects resume via
-     Last-Event-ID. The stream starts when the user is on the Graph tab
-     and stays open until the server says ``done`` — there is no
-     L5/L6 partition and no on-demand symbol pull: the whole galaxy
-     streams in, every level alike. -->
-<script src="/js/graph_event_stream.js?v=117ece5"></script>
+     This restores the JSON phase loader inline (no separate file, no
+     dependency on the CXGB /api/graph.bin route — which currently
+     404s-to-HTML — nor on graph_snapshot.js which no longer exists).
+     It polls /api/graph/progress and, as each phase flips ready, fetches
+     /api/graph/phase?name=<key> ONCE and appends its nodes+edges via
+     JUG.appendGraphDelta. appendGraphDelta dedups by id, fires
+     state:lastData, and the workflow_graph_bridge renders the L1-L6
+     galaxy. Only runs while the user is on the Graph tab. -->
 <script>
 (function () {
+  // Poll cadence + first-kick delay. Sourced from the prior working
+  // loader (commit f21e255 ui/unified-viz.html): 400 ms between polls
+  // while building, 200 ms first kick. Override via querystring
+  // ?graph_poll_ms=<n> for debugging; no magic constant baked in.
+  var qp = new URLSearchParams(window.location.search || '');
+  var POLL_MS = parseInt(qp.get('graph_poll_ms'), 10);
+  if (!isFinite(POLL_MS) || POLL_MS < 50) POLL_MS = 400;  // source: f21e255 loader
+  var FIRST_KICK_MS = 200;                                  // source: f21e255 loader
+
+  var applied = {};   // phaseKey -> true once appended
+  var inflight = {};  // phaseKey -> true while fetching
+  var deferred = {};  // L6 phaseKey -> true: ready on the server, NOT auto-loaded
+
+  // ── L5/L6 auto-load partition (2026-06-10) ──
+  // Auto-load through L5 (domains, setup, tools, files, discussions,
+  // memories — ~11.8k nodes at the snapshot scale); defer ALL L6 symbol
+  // phases to explicit demand. The full 107k-node sim (≈94k of it L6 AST
+  // symbols) is unusable in-browser; the old usable view was ~29k. This
+  // split is STRUCTURAL — it follows the server's phase taxonomy
+  // (http_standalone_graph.py: fixed L0–L5 + dynamic "L6:<project>" +
+  // "L6_CROSS"), not a tuned node-count threshold.
+  function _isL6(key) {
+    return key === 'L6' || key === 'L6_CROSS' || key.indexOf('L6:') === 0;
+  }
+
   function _activeViewIsGraph() {
     return window.JUG && JUG.state && JUG.state.activeView === 'graph';
   }
 
-  // Honest UI hint while batches stream in. Reuses the existing
-  // status-text element; no new chrome. polling.js overwrites it on
-  // its next stats tick once the stream is done.
-  function _status(msg) {
+  // Honest UI hint while symbols stream in. Reuses the existing
+  // status-text element; no new chrome. Cleared by polling.js on its
+  // next /api/graph/progress tick, or explicitly when the load settles.
+  function _symbolHint(msg) {
     var el = document.getElementById('status-text');
     if (el && msg) el.textContent = msg;
   }
 
-  var started = false;
-  function startStream() {
-    if (started || !window.GraphEventStream) return;
-    started = true;
-    // The workflow-graph renderer owns the galaxy from the FIRST byte.
-    // Without this, every stream batch that lands before the bridge's
-    // debounced first render triggers the LEGACY force-graph rebuild
-    // (graph.js _scheduleRebuild) on the growing node set — at replay
-    // speed that is a 140k-node rebuild per frame, the main thread
-    // saturates, and the loading screen never leaves (observed
-    // 2026-06-12).
-    JUG.__wfgActive = true;
-    GraphEventStream.start({
-      onProgress: function (s) {
-        _status('streaming ' + (s.label || 'graph') + ' · ' +
-          s.nodes + ' nodes / ' + s.edges + ' edges');
-      },
-      onDone: function (s) {
-        _status('galaxy loaded · ' + s.nodes + ' nodes in ' +
-          Math.round(s.elapsed_ms / 1000) + 's');
-        // Stream complete: every node now carries its server position
-        // (coordinate backfill included). Fire ONE final render so the
-        // bridge mounts the static galaxy exactly once.
-        if (JUG.state.lastData && typeof JUG.emit === 'function') {
-          JUG.emit('state:lastData', { value: JUG.state.lastData, delta: null });
+  function _seedLastData() {
+    if (window.JUG && !JUG.state.lastData) {
+      JUG.state.lastData = {
+        nodes: [], edges: [], links: [],
+        meta: { schema: 'workflow_graph.v1', source: 'phase-loader' },
+      };
+    }
+  }
+
+  function applyPhase(key) {
+    if (applied[key] || inflight[key]) return Promise.resolve();
+    inflight[key] = true;
+    return fetch('/api/graph/phase?name=' + encodeURIComponent(key))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (p) {
+        if (!p || !p.ready) return;
+        if (typeof JUG.appendGraphDelta === 'function') {
+          _seedLastData();
+          JUG.appendGraphDelta(p.nodes || [], p.edges || []);
+          console.log('[phase] applied', key,
+            '+' + ((p.nodes || []).length) + 'N',
+            '+' + ((p.edges || []).length) + 'E');
         }
-      },
+        applied[key] = true;
+      })
+      .catch(function (err) { console.warn('[phase] ' + key + ' failed:', err && err.message); })
+      .then(function () { inflight[key] = false; });
+  }
+
+  function poll() {
+    // Only do galaxy-build work while the user is on the Graph tab —
+    // Knowledge / Board / Wiki / Trace users don't pay the cost.
+    if (!_activeViewIsGraph()) { setTimeout(poll, 1500); return; }
+    fetch('/api/graph/progress')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (p) {
+        if (!p) { setTimeout(poll, 1200); return; }
+        // The server inserts phase keys in DAG order, so iterating the
+        // dict applies them in publish order. appendGraphDelta dedups,
+        // so re-seeing a ready phase is a no-op.
+        //
+        // PARTITION: auto-apply ONLY non-L6 phases (L0–L5). A ready L6
+        // phase is recorded in ``deferred`` instead of loaded, so the
+        // galaxy settles at the ~11.8k-node L5 scale until the user
+        // explicitly pulls symbols in (filter select or domain select →
+        // JUG.loadSymbolPhases* below).
+        var keys = Object.keys(p.phases || {});
+        var seq = Promise.resolve();
+        keys.forEach(function (k) {
+          if (!p.phases[k]) return;          // not ready on the server yet
+          if (_isL6(k)) {
+            if (!applied[k]) deferred[k] = true;  // available, on demand only
+            return;
+          }
+          if (!applied[k]) {
+            seq = seq.then(function () { return applyPhase(k); });
+          }
+        });
+        if (p.full_ready) {
+          // "Drained" once every NON-L6 phase is applied — L6 phases are
+          // intentionally left deferred, so they do not block teardown.
+          var nonL6Done = keys.every(function (k) {
+            return _isL6(k) || applied[k] || !p.phases[k];
+          });
+          if (nonL6Done) return;  // stop polling — L0–L5 loaded, L6 on demand
+        }
+        setTimeout(poll, POLL_MS);
+      })
+      .catch(function () { setTimeout(poll, 1200); });
+  }
+
+  // ── On-demand L6 symbol loading ──
+  // The filter/domain handlers call these when the user explicitly asks
+  // for symbols. Both pull from ``deferred`` (phases the poller saw ready
+  // but did not auto-apply), apply them via the same applyPhase path, and
+  // resolve once every targeted phase is in. Re-entrant-safe: applyPhase
+  // guards on ``applied``/``inflight`` and appendGraphDelta dedups by id.
+
+  function _loadDeferred(predicate, hint) {
+    var targets = Object.keys(deferred).filter(function (k) {
+      return !applied[k] && predicate(k);
+    });
+    if (!targets.length) return Promise.resolve(0);
+    _symbolHint(hint || 'loading symbols…');
+    var seq = Promise.resolve();
+    targets.forEach(function (k) {
+      seq = seq.then(function () { return applyPhase(k); });
+    });
+    return seq.then(function () {
+      _symbolHint('symbols loaded · ' + targets.length + ' phase(s)');
+      return targets.length;
     });
   }
 
+  // Load ALL deferred L6 phases (filter select: L6 / kind:symbol / edge:*).
+  function _loadAllSymbolPhases() {
+    return _loadDeferred(function () { return true; },
+      'loading symbols… (this is the heavy AST layer)');
+  }
+
+  // Load only the deferred L6 phase(s) whose project key matches a domain
+  // label (domain select). Phase keys are "L6:<project-dir-name>"; domain
+  // labels are slugs ("cortex"). The two are produced by different slug
+  // paths server-side, so an EXACT match is not guaranteed — we do a
+  // tolerant case-insensitive slug-substring match in either direction.
+  // If nothing matches confidently, load nothing here (the filter trigger
+  // remains the full-symbol path) rather than guess wrong.
+  function _loadDomainSymbolPhases(domainLabel) {
+    var slug = String(domainLabel || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    if (!slug) return Promise.resolve(0);
+    return _loadDeferred(function (k) {
+      if (k.indexOf('L6:') !== 0) return false;  // skip L6_CROSS for per-domain
+      var pslug = k.slice(3).toLowerCase().replace(/[^a-z0-9]+/g, '');
+      return pslug.indexOf(slug) !== -1 || slug.indexOf(pslug) !== -1;
+    }, 'loading ' + domainLabel + ' symbols…');
+  }
+
+  // Report whether any L6 phase is deferred (used by the legend note).
+  function _hasDeferredSymbols() {
+    return Object.keys(deferred).some(function (k) { return !applied[k]; });
+  }
+
   if (window.JUG) {
-    // Start as soon as the user is (or lands) on the Graph tab. Once
-    // started the stream stays open until the server's ``done`` — the
-    // galaxy keeps growing even if the user browses other tabs.
-    if (_activeViewIsGraph()) startStream();
+    JUG.loadSymbolPhases = _loadAllSymbolPhases;
+    JUG.loadSymbolPhasesForDomain = _loadDomainSymbolPhases;
+    JUG.hasDeferredSymbols = _hasDeferredSymbols;
+    setTimeout(poll, FIRST_KICK_MS);
+    // Kick immediately when the user switches TO the graph tab, in case
+    // they landed on Trace/Knowledge first.
     JUG.on('state:activeView', function (ev) {
-      if (ev && ev.value === 'graph') startStream();
+      if (ev && ev.value === 'graph') setTimeout(poll, 0);
     });
-    console.log('[stream] galaxy SSE delivery registered');
+    console.log('[phase] galaxy phase-loader registered');
   } else {
-    console.warn('[stream] JUG missing — galaxy stream disabled');
+    console.warn('[phase] JUG missing — galaxy loader disabled');
   }
 })();
 </script>

@@ -13,208 +13,6 @@
     var transform = d3.zoomIdentity;
     var hoverId = null, selectedId = null;
 
-    // ── Static-scene fast path ──
-    // In static server-layout mode (ctx._world set by mount()) node
-    // positions NEVER change, so the naive painter — 271k edge strokes
-    // + 144k arcs on EVERY zoom/hover event (~0.5 s/frame, measured
-    // 2026-06-12: the galaxy rendered but could not be zoomed or
-    // clicked) — is replaced by:
-    //   * an offscreen BASE layer rendered once per transform-settle;
-    //     zoom/pan blit the image with the relative transform (~1 ms),
-    //     re-rendering crisply ~150 ms after the gesture pauses;
-    //   * a uniform spatial GRID for O(1) hit-testing instead of a
-    //     linear scan per mousemove;
-    //   * a per-node EDGE index so hover/selection overlays draw only
-    //     the focused node's edges, not the full edge set.
-    // Display-level LOD only: viewport culling decides what is drawn
-    // for the current view — every node and edge stays in the scene,
-    // the counts, and the hit index.
-    var STATIC = !!(ctx && ctx._world);
-    var base = null, baseT = null, baseTimer = null;
-    var grid = null, GRID_CELL = 24;     // px; ≥ 2× max node radius
-
-    function buildStaticIndexes() {
-      grid = {};
-      for (var i = 0; i < ctx.nodes.length; i++) {
-        var n = ctx.nodes[i];
-        var key = ((n.x / GRID_CELL) | 0) + ':' + ((n.y / GRID_CELL) | 0);
-        (grid[key] || (grid[key] = [])).push(n);
-      }
-    }
-
-    function gridFind(x, y) {
-      var cx = (x / GRID_CELL) | 0, cy = (y / GRID_CELL) | 0;
-      var bestN = null, bestD = Infinity;
-      for (var dx = -1; dx <= 1; dx++) {
-        for (var dy = -1; dy <= 1; dy++) {
-          var cell = grid[(cx + dx) + ':' + (cy + dy)];
-          if (!cell) continue;
-          for (var i = 0; i < cell.length; i++) {
-            var n = cell[i]; var r = wfg.nodeRadius(n) + 2;
-            var ddx = n.x - x, ddy = n.y - y;
-            var d2 = ddx * ddx + ddy * ddy;
-            if (d2 <= r * r && d2 < bestD) { bestD = d2; bestN = n; }
-          }
-        }
-      }
-      return bestN;
-    }
-
-    function renderBase() {
-      if (!base) base = document.createElement('canvas');
-      base.width = canvas.width; base.height = canvas.height;
-      var bg = base.getContext('2d');
-      bg.clearRect(0, 0, base.width, base.height);
-      bg.save();
-      bg.translate(transform.x, transform.y);
-      bg.scale(transform.k, transform.k);
-      var k = transform.k || 1;
-      // World-visible rect (+pad) for culling.
-      var pad = 60 / k;
-      var wx0 = (-transform.x) / k - pad, wy0 = (-transform.y) / k - pad;
-      var wx1 = (canvas.width - transform.x) / k + pad;
-      var wy1 = (canvas.height - transform.y) / k + pad;
-      var hideStructural = k < 0.9;
-      var STRUCT = { in_domain: 1, tool_used_file: 1, invoked_skill: 1,
-                     triggered_hook: 1, spawned_agent: 1, command_in_hub: 1 };
-      // Edges first (under the dots).
-      for (var i = 0; i < ctx.edges.length; i++) {
-        var e = ctx.edges[i];
-        if (filterKeep && !(filterKeep[e.source.id] && filterKeep[e.target.id])) continue;
-        if (hideStructural && !e._crossDomain && STRUCT[e.kind]) continue;
-        var sx = e.source.x, sy = e.source.y, tx = e.target.x, ty = e.target.y;
-        if ((sx < wx0 || sx > wx1 || sy < wy0 || sy > wy1) &&
-            (tx < wx0 || tx > wx1 || ty < wy0 || ty > wy1)) continue;
-        if (e._crossDomain) {
-          bg.strokeStyle = 'rgba(200,150,255,0.12)'; bg.lineWidth = 0.4;
-        } else {
-          bg.strokeStyle = 'rgba(120,180,200,0.04)';
-          bg.lineWidth = 0.4 + (e.weight != null ? e.weight : 0.3) * 0.5;
-        }
-        bg.beginPath(); bg.moveTo(sx, sy); bg.lineTo(tx, ty); bg.stroke();
-      }
-      // Nodes batched by fill color: one path + one fill per color
-      // (per-node beginPath/fill was the dominant cost).
-      var byColor = {};
-      for (var j = 0; j < ctx.nodes.length; j++) {
-        var n = ctx.nodes[j];
-        if (n.x < wx0 || n.x > wx1 || n.y < wy0 || n.y > wy1) continue;
-        var col = wfg.nodeColor(n);
-        var dimmed = filterKeep && !filterKeep[n.id];
-        var bucket = dimmed ? col + '|dim' : col;
-        (byColor[bucket] || (byColor[bucket] = [])).push(n);
-      }
-      for (var colKey in byColor) {
-        var list = byColor[colKey];
-        var dim = colKey.slice(-4) === '|dim';
-        bg.fillStyle = dim ? colKey.slice(0, -4) : colKey;
-        bg.globalAlpha = dim ? 0.04 : 1.0;
-        bg.beginPath();
-        for (var m = 0; m < list.length; m++) {
-          var nn = list[m]; var r = wfg.nodeRadius(nn);
-          bg.moveTo(nn.x + r, nn.y);
-          bg.arc(nn.x, nn.y, r, 0, Math.PI * 2);
-        }
-        bg.fill();
-      }
-      bg.globalAlpha = 1.0;
-      // Hub labels (legible-at-zoom display rule, same as legacy path).
-      if (k > 0.5) {
-        bg.fillStyle = '#E8E4D8';
-        bg.textAlign = 'center'; bg.textBaseline = 'bottom';
-        for (var q = 0; q < ctx.nodes.length; q++) {
-          var ln = ctx.nodes[q];
-          if (ln.kind !== 'domain' && ln.kind !== 'tool_hub') continue;
-          if (filterKeep && !filterKeep[ln.id]) continue;
-          if (ln.x < wx0 || ln.x > wx1 || ln.y < wy0 || ln.y > wy1) continue;
-          bg.font = (ln.kind === 'domain' ? '12px ' : '10px ') + "'Inter Tight', system-ui, sans-serif";
-          bg.fillText(wfg.labelOf(ln), ln.x, ln.y - wfg.nodeRadius(ln) - 3);
-        }
-      }
-      bg.restore();
-      baseT = { k: transform.k, x: transform.x, y: transform.y };
-    }
-
-    var _labelFetched = {};
-    function fetchHubLabels() {
-      var pending = [];
-      for (var i = 0; i < ctx.nodes.length; i++) {
-        var n = ctx.nodes[i];
-        if ((n.kind === 'domain' || n.kind === 'tool_hub') &&
-            !n.label && !_labelFetched[n.id]) {
-          _labelFetched[n.id] = 1;
-          pending.push(n);
-        }
-      }
-      if (!pending.length) return;
-      var left = pending.length;
-      pending.forEach(function (n) {
-        fetch('/api/graph/node?id=' + encodeURIComponent(n.id) + '&n_limit=1')
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (p) {
-            if (p && p.record && p.record.label) n.label = p.record.label;
-          })
-          .catch(function () {})
-          .then(function () {
-            left--;
-            if (left === 0 && baseT) { renderBase(); draw(); }
-          });
-      });
-    }
-
-    function scheduleBaseRerender() {
-      if (baseTimer) clearTimeout(baseTimer);
-      // Re-render crisply once the gesture pauses. 150 ms: long enough
-      // that a wheel stream doesn't re-render per tick, short enough
-      // to feel immediate; interaction tradeoff, no external source.
-      baseTimer = setTimeout(function () { baseTimer = null; renderBase(); draw(); }, 150);
-    }
-
-    function drawStaticOverlay() {
-      var focusId = hoverId || selectedId;
-      if (!focusId) return;
-      var fn = ctx.byId[focusId];
-      if (!fn) return;
-      g.save();
-      g.translate(transform.x, transform.y);
-      g.scale(transform.k, transform.k);
-      // Edges exist ONLY here: drawn for the selected node from its
-      // on-demand /api/graph/node neighborhood (rows [other_id, kind,
-      // label, edge_kind, direction]), positions resolved against the
-      // dots already on screen. The stream carries no edges at all.
-      g.strokeStyle = 'rgba(240,210,100,0.85)';
-      g.lineWidth = 1.4 / (transform.k || 1);
-      var rows = fn._neighbors || [];
-      for (var i = 0; i < rows.length; i++) {
-        var other = ctx.byId[rows[i][0]];
-        if (!other || other.x == null) continue;
-        g.beginPath(); g.moveTo(fn.x, fn.y);
-        g.lineTo(other.x, other.y); g.stroke();
-      }
-      var r = wfg.nodeRadius(fn);
-      g.fillStyle = wfg.nodeColor(fn);
-      g.beginPath(); g.arc(fn.x, fn.y, r, 0, Math.PI * 2); g.fill();
-      g.lineWidth = 2 / (transform.k || 1); g.strokeStyle = '#F0D870';
-      g.beginPath(); g.arc(fn.x, fn.y, r + 1, 0, Math.PI * 2); g.stroke();
-      g.restore();
-    }
-
-    function drawStatic() {
-      if (!baseT) { buildStaticIndexes(); renderBase(); fetchHubLabels(); }
-      g.clearRect(0, 0, canvas.width, canvas.height);
-      if (transform.k === baseT.k && transform.x === baseT.x && transform.y === baseT.y) {
-        g.drawImage(base, 0, 0);
-      } else {
-        var r = transform.k / baseT.k;
-        g.setTransform(r, 0, 0, r,
-          transform.x - r * baseT.x, transform.y - r * baseT.y);
-        g.drawImage(base, 0, 0);
-        g.setTransform(1, 0, 0, 1, 0, 0);
-        scheduleBaseRerender();
-      }
-      drawStaticOverlay();
-    }
-
     var sel = d3.select(canvas);
     sel.call(d3.zoom().scaleExtent([0.15, 6]).on('zoom', function (ev) {
       transform = ev.transform; draw();
@@ -238,9 +36,6 @@
         if (!ev.subject) return;
         if (!ev.active) sim.alphaTarget(0);
         if (ev.subject.kind !== 'domain') { ev.subject.fx = null; ev.subject.fy = null; }
-        // Static: the dragged node's dot is baked into the base layer
-        // at its old position — re-render so it lands where dropped.
-        if (STATIC && baseT) { buildStaticIndexes(); renderBase(); draw(); }
       }));
 
     canvas.addEventListener('mousemove', function (ev) {
@@ -271,49 +66,56 @@
       var n = findNode(p[0], p[1]);
       if (n) {
         selectedId = n.id;
-        // Static: first paint shows JUST the node (empty neighbor set,
-        // never a client-side join); the on-demand call below fills
-        // the relational sections when it returns.
-        if (STATIC && !n._neighbors) n._neighbors = [];
         panel.show(n, ctx);
-        if (STATIC) {
-          // ONE panel, fed by ONE on-demand call: the slim wire only
-          // carries render fields, so the full record is fetched on
-          // click and merged into the node, then the SAME panel
-          // refreshes. graph:selectNode is NOT emitted here — it
-          // opened detail_panel.js on top of this panel (two stacked
-          // panels, user report 2026-06-12).
-          fetch('/api/graph/node?id=' + encodeURIComponent(n.id))
-            .then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (p) {
-              if (p && p.found && selectedId === n.id) {
-                Object.assign(n, p.record);
-                // Server-provided neighborhood: the panel's relational
-                // sections render from this, never from a client-side
-                // join over the full edge copy.
-                n._neighbors = p.neighbors || [];
-                n._neighborTotal = p.neighbor_total || n._neighbors.length;
-                panel.show(n, ctx);
-              }
-            })
-            .catch(function () {});
-        } else if (window.JUG && typeof JUG.emit === 'function') {
-          // Trace view (simulated path) keeps the global selection
-          // event — trace.js expands the clicked node's children.
+        // Emit the selection on the global bus so view controllers react
+        // — the Trace view (trace.js) expands the clicked node's children
+        // and detail_panel.js enriches it. Without this, a real canvas
+        // click only showed the panel and never expanded the graph.
+        if (window.JUG && typeof JUG.emit === 'function') {
           try { JUG.emit('graph:selectNode', n); } catch (_e) {}
         }
       } else {
         selectedId = null;
         panel.hide();
-        if (!STATIC && window.JUG && typeof JUG.emit === 'function') {
+        if (window.JUG && typeof JUG.emit === 'function') {
           try { JUG.emit('graph:deselectNode'); } catch (_e) {}
         }
       }
       draw();
     });
 
+    // Spatial hash for O(1)-amortized hit-testing. It is only valid while node
+    // positions are static, so we (re)build it when the simulation settles or a
+    // drag ends, and invalidate it on every tick. While positions move (active
+    // sim, mid-drag) findNode falls back to the linear reverse scan — correct,
+    // just O(N) for that transient window. The steady state — settled graph,
+    // user hovering/clicking — is the hot path and runs off the grid.
+    var SpatialHash = wfg.SpatialHash;
+    var spatial = SpatialHash ? new SpatialHash(200) : null;
+    var spatialReady = false;
+    function rebuildSpatial() {
+      if (!spatial) return;
+      spatial.build(ctx.nodes);
+      spatialReady = true;
+    }
+    function invalidateSpatial() { spatialReady = false; }
+
     function findNode(x, y) {
-      if (STATIC && grid) return gridFind(x, y);
+      if (spatial && spatialReady) {
+        // 3x3 neighborhood candidates; precise circle test + topmost-wins
+        // (highest index = drawn last = on top), matching the linear scan.
+        var cand = spatial.queryNeighborhood(x, y);
+        var best = null, bestIdx = -1;
+        for (var c = 0; c < cand.length; c++) {
+          var idx = cand[c]; var cn = ctx.nodes[idx];
+          var cr = wfg.nodeRadius(cn) + 2;
+          var cdx = cn.x - x, cdy = cn.y - y;
+          if (cdx * cdx + cdy * cdy <= cr * cr && idx > bestIdx) {
+            best = cn; bestIdx = idx;
+          }
+        }
+        return best;
+      }
       for (var i = ctx.nodes.length - 1; i >= 0; i--) {
         var n = ctx.nodes[i]; var r = wfg.nodeRadius(n) + 2;
         var dx = n.x - x, dy = n.y - y;
@@ -438,7 +240,6 @@
     }
 
     function draw() {
-      if (STATIC) { drawStatic(); return; }
       g.save();
       g.clearRect(0, 0, canvas.width, canvas.height);
       g.translate(transform.x, transform.y); g.scale(transform.k, transform.k);
@@ -449,7 +250,12 @@
       drawNodes(focusId, adj);
       g.restore();
     }
-    sim.on('tick', draw);
+    // While the sim ticks, positions move every frame → the grid goes stale.
+    sim.on('tick', function () { invalidateSpatial(); draw(); });
+    // d3-force fires 'end' when alpha drops below alphaMin (settle, and after a
+    // drag's alphaTarget(0) coast-down). Rebuild the grid then. Source: d3-force
+    // simulation.on, "end" event (d3 v7).
+    sim.on('end', rebuildSpatial);
 
     function fitToContent() {
       var pad = 60;
@@ -461,26 +267,22 @@
       transform = d3.zoomIdentity.translate(tx, ty).scale(k);
       sel.call(d3.zoom().transform, transform);
       draw();
+      // Static-draw graphs (sim stopped, no 'end' event) still need a grid;
+      // build once here. For an active sim this build is stale immediately but
+      // the next tick invalidates it and 'end' rebuilds — no correctness risk.
+      rebuildSpatial();
     }
     setTimeout(fitToContent, 80);
 
     var filterKeep = null;    // null = show all; map of id → bool otherwise
     function applyFilter(pred, fctx) {
-      if (typeof pred !== 'function') {
-        filterKeep = null;
-        if (STATIC && baseT) renderBase();
-        draw();
-        return;
-      }
+      if (typeof pred !== 'function') { filterKeep = null; draw(); return; }
       filterKeep = {};
       for (var i = 0; i < fctx.nodes.length; i++) {
         var n = fctx.nodes[i];
         try { if (pred(n, fctx)) filterKeep[n.id] = true; }
         catch (_) { filterKeep[n.id] = true; }
       }
-      // Static: the filter changes what the base layer shows — one
-      // full re-render, then blits stay cheap.
-      if (STATIC && baseT) renderBase();
       draw();
     }
     // Patch drawEdges + drawNodes via closure: filterKeep gates visibility.
@@ -548,16 +350,6 @@
       selectId: function (id) { var n = ctx.byId[id]; if (n) { selectedId = id; panel.show(n, ctx); draw(); } },
       fit: fitToContent,
       applyFilter: applyFilter,
-      // Static mode: rebuild hit-grid + edge index + base layer after
-      // the mount's append() pushed new nodes (they are invisible and
-      // unclickable until the base re-renders).
-      refreshBase: function () {
-        if (!STATIC) return;
-        buildStaticIndexes();
-        renderBase();
-        draw();
-        fetchHubLabels();
-      },
     };
   }
 
