@@ -25,6 +25,7 @@ def plan_full_ablation_study(
     """
     exclude = exclude or set()
     order = [
+        Mechanism.ENTITY_DEDUP,
         Mechanism.MOOD_CONGRUENT_RERANK,
         Mechanism.EMOTIONAL_RETRIEVAL,
         Mechanism.EMOTIONAL_DECAY,
