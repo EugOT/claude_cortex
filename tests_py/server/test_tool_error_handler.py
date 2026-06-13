@@ -5,7 +5,15 @@ from __future__ import annotations
 import pytest
 
 from mcp_server.observability import metrics
-from mcp_server.tool_error_handler import _classify_error, safe_handler
+from mcp_server.tool_error_handler import (
+    _classify_error,
+    _error_response,
+    _hint_for_error,
+    _run_inline,
+    _run_tool_with_admission,
+    _validate_args,
+    safe_handler,
+)
 
 
 class OperationalErrorLike(Exception):
@@ -81,3 +89,109 @@ async def test_safe_handler_error_increments_error_counter():
     )
     rendered = metrics.render()
     assert 'cortex_tool_calls_total{status="error",tool="memory_stats"} 1' in rendered
+
+
+@pytest.mark.asyncio
+async def test_safe_handler_dispatches_validated_args_with_defaults():
+    async def handler(args):
+        return args
+
+    result = await safe_handler(handler, {}, tool_name="rebuild_profiles")
+
+    assert result == {"force": False}
+
+
+@pytest.mark.asyncio
+async def test_safe_handler_validation_error_has_no_database_hint():
+    metrics.reset()
+
+    async def handler(args):
+        return {"unreachable": True}
+
+    result = await safe_handler(handler, {}, tool_name="remember")
+
+    assert result["error"] == "ValidationError"
+    assert result["hint"] is None
+    assert result["details"] == {"tool": "remember", "field": "content"}
+    rendered = metrics.render()
+    assert 'cortex_tool_calls_total{status="error",tool="remember"} 1' in rendered
+
+
+@pytest.mark.asyncio
+async def test_safe_handler_without_tool_name_forwards_inline_args():
+    async def handler(args):
+        return {"got": args}
+
+    result = await safe_handler(handler, {"inline": "payload"})
+
+    assert result == {"got": {"inline": "payload"}}
+
+
+def test_validate_args_forwards_original_payload():
+    result = _validate_args("remember", {"content": "ok", "force": True})
+
+    assert result["content"] == "ok"
+    assert result["force"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_tool_with_admission_records_exact_metric_contract():
+    metrics.reset()
+
+    async def handler(args):
+        assert args == {"value": 7}
+        return {"value": args["value"]}
+
+    result = await _run_tool_with_admission("memory_stats", handler, {"value": 7})
+
+    assert result == {"value": 7}
+    rendered = metrics.render()
+    assert 'cortex_tool_duration_seconds_count{tool="memory_stats"} 1' in rendered
+    assert 'cortex_tool_calls_total{status="ok",tool="memory_stats"} 1' in rendered
+    assert "XX" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_run_inline_forwards_args():
+    async def handler(args):
+        return {"got": args}
+
+    result = await _run_inline(handler, {"inline": True})
+
+    assert result == {"got": {"inline": True}}
+
+
+def test_error_response_preserves_message_key_and_details():
+    exc = ValueError("plain failure")
+
+    response = _error_response(exc)
+
+    assert response["error"] == "ValueError"
+    assert response["message"] == "plain failure"
+    assert "MESSAGE" not in response
+    assert "XXmessageXX" not in response
+    assert "details" not in response
+
+
+def test_error_response_includes_validation_details():
+    from mcp_server.errors import ValidationError
+
+    response = _error_response(ValidationError("bad arg", {"field": "content"}))
+
+    assert response["details"] == {"field": "content"}
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    ["missing_extension", "database_not_connected", "ValidationError"],
+)
+def test_hint_for_user_correctable_errors_is_none(error_type: str):
+    assert _hint_for_error(error_type) is None
+
+
+def test_hint_for_unknown_errors_keeps_database_guidance_text():
+    assert (
+        _hint_for_error("ValueError")
+        == "If this persists, check that PostgreSQL is running "
+        "and DATABASE_URL is set correctly."
+    )

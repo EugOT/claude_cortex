@@ -66,6 +66,7 @@ class TestValidateToolArgs:
             )
         assert exc_info.value.details["tool"] == "record_session_end"
         assert exc_info.value.details["field"] == "duration"
+        assert exc_info.value.details["expected"] == "number"
         assert exc_info.value.details["got"] == "bool"
 
     def test_raises_for_boolean_type_mismatch(self):
@@ -109,6 +110,16 @@ class TestValidateToolArgs:
         assert exc_info.value.details["index"] == 0
         assert exc_info.value.details["maxLength"] == 80
 
+    def test_rejects_array_item_type_with_tool_details(self):
+        with pytest.raises(ValidationError, match="tags\\[0\\]") as exc_info:
+            validate_tool_args("remember", {"content": "ok", "tags": [123]})
+
+        assert exc_info.value.details["tool"] == "remember"
+        assert exc_info.value.details["field"] == "tags"
+        assert exc_info.value.details["index"] == 0
+        assert exc_info.value.details["expected"] == "string"
+        assert exc_info.value.details["got"] == "int"
+
     def test_applies_default_values(self):
         result = validate_tool_args("rebuild_profiles", {})
         assert result["force"] is False
@@ -130,15 +141,15 @@ class TestValidateToolArgs:
         result = validate_tool_args("list_domains", {})
         assert result == {}
 
-    def test_only_includes_known_properties(self):
+    def test_preserves_unknown_properties_for_tool_wrapper_compatibility(self):
         result = validate_tool_args(
             "rebuild_profiles",
             {
                 "domain": "web",
                 "force": True,
-                "extra_field": "should not appear",
+                "extra_field": "preserved",
             },
         )
         assert result["domain"] == "web"
         assert result["force"] is True
-        assert "extra_field" not in result
+        assert result["extra_field"] == "preserved"

@@ -132,14 +132,14 @@ LANG_TAG_PREFIX = "lang:"
 DEFAULT_MAX_FILES = 0
 DEFAULT_MAX_FILE_SIZE_KB = 100
 
-_store: MemoryStore | None = None
+_store: Any | None = None
 
 
 def _log(msg: str) -> None:
     print(f"[codebase-analyze] {msg}", file=sys.stderr)
 
 
-def _get_store() -> MemoryStore:
+def _get_store() -> Any:
     global _store
     if _store is None:
         s = get_memory_settings()
@@ -173,7 +173,7 @@ def _build_tags(rel_path: str, analysis: Any) -> list[str]:
     return tags
 
 
-def _set_memory_metadata(store: MemoryStore, memory_id: int) -> None:
+def _set_memory_metadata(store: Any, memory_id: int) -> None:
     """Mark memory as semantic with boosted heat and importance.
 
     Phase 5: batch pool. A3 heat writes route through the canonical writer.
@@ -185,7 +185,8 @@ def _set_memory_metadata(store: MemoryStore, memory_id: int) -> None:
                 "importance = 0.5 WHERE id = %s",
                 (memory_id,),
             )
-        store.bump_heat_raw(memory_id, 0.7)
+        settings = get_memory_settings()
+        store.bump_heat_raw(memory_id, settings.CODEBASE_ANALYZE_HEAT_BOOST)
     except Exception:
         pass
 

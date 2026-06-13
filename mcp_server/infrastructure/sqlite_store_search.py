@@ -343,7 +343,7 @@ class SqliteSearchMixin:
             name = entity["name"]
             mem_rows = self._conn.execute(
                 "SELECT id FROM memories WHERE content LIKE ? "
-                "AND heat >= ? AND NOT is_stale LIMIT 20",
+                "AND heat_base >= ? AND NOT is_stale LIMIT 20",
                 (f"%{name}%", min_heat),
             ).fetchall()
             for mr in mem_rows:

@@ -93,19 +93,28 @@ _guard_against_populated_db()
 _USE_PG = _pg_available()
 
 
+_LIVE_PG_ONLY_FILES = (
+    "tests_py/infrastructure/test_pg_pool.py",
+    "tests_py/infrastructure/test_pg_recall_scoring_debias.py",
+    "tests_py/infrastructure/test_pg_user_mood.py",
+    "tests_py/invariants/test_I10_pool_capacity.py",
+)
+
+
+def _requires_live_pg(nodeid: str) -> bool:
+    """True for tests that instantiate PgMemoryStore or require live PG pools."""
+    normalized = nodeid.replace("\\", "/")
+    return any(path in normalized for path in _LIVE_PG_ONLY_FILES)
+
+
 def pytest_collection_modifyitems(config, items):
     """Skip direct-PostgreSQL tests when the harness is in SQLite fallback mode."""
     if _USE_PG:
         return
 
-    pg_only_files = (
-        "tests_py/infrastructure/test_pg_",
-        "tests_py/invariants/test_I10_pool_capacity.py",
-    )
     skip_pg = pytest.mark.skip(reason="requires a reachable PostgreSQL test DB")
     for item in items:
-        nodeid = item.nodeid.replace("\\", "/")
-        if any(path in nodeid for path in pg_only_files):
+        if _requires_live_pg(item.nodeid):
             item.add_marker(skip_pg)
 
 

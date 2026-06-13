@@ -72,5 +72,6 @@ class TestContentEnvelopeRemember:
         # Caller needs to know the envelope to split upstream. The bound
         # surfaces through ``ValidationError.details["maxLength"]``.
         assert exc_info.value.details is not None
+        assert exc_info.value.details.get("tool") == "remember"
         assert exc_info.value.details.get("maxLength") == 10_000
         assert exc_info.value.details.get("field") == "content"

@@ -25,7 +25,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from collections import OrderedDict
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -176,64 +176,17 @@ class EmbeddingEngine:
         if self._model is not None or self._unavailable:
             return
         try:
-            import os
-
-            # Collect cache-miss exception types: OSError covers old HF versions;
-            # LocalEntryNotFoundError covers newer huggingface_hub (>=0.22) where
-            # HF_HUB_OFFLINE=1 raises a non-OSError on cache miss.
-            _cache_miss: tuple[type[Exception], ...] = (OSError,)
-            try:
-                from huggingface_hub.errors import LocalEntryNotFoundError
-
-                _cache_miss = (OSError, LocalEntryNotFoundError)
-            except ImportError:
-                pass
-
-            # Set offline mode BEFORE importing sentence_transformers to prevent
-            # unauthenticated HF Hub requests. The import itself initializes
-            # huggingface_hub which checks this env var at module load time.
-            had_offline = os.environ.get("HF_HUB_OFFLINE")
-            os.environ["HF_HUB_OFFLINE"] = "1"
+            had_offline = self._set_hf_offline()
             device = self._resolve_device()
             try:
-                from sentence_transformers import SentenceTransformer
-
-                self._model = SentenceTransformer(self._model_name, device=device)
-            except _cache_miss:
-                # Model not in local cache — need to download it once
-                if had_offline is None:
-                    del os.environ["HF_HUB_OFFLINE"]
-                else:
-                    os.environ["HF_HUB_OFFLINE"] = had_offline
-                logger.info("Downloading embedding model: %s", self._model_name)
-                from sentence_transformers import SentenceTransformer
-
                 try:
-                    self._model = SentenceTransformer(self._model_name, device=device)
-                except Exception as exc:
-                    logger.warning(
-                        "Embedding model %s unavailable after cache miss; "
-                        "using hash-based fallback embeddings: %s",
-                        self._model_name,
-                        exc,
-                    )
-                    self._unavailable = True
-                    return
+                    self._model = self._load_model(device)
+                except self._cache_miss_exceptions():
+                    self._download_model(device, had_offline)
             finally:
-                if had_offline is None:
-                    os.environ.pop("HF_HUB_OFFLINE", None)
-                else:
-                    os.environ["HF_HUB_OFFLINE"] = had_offline
-
-            actual_dim = self._model.get_sentence_embedding_dimension()
-            if actual_dim != self._dim:
-                self._dim = actual_dim
-            logger.info(
-                "Loaded embedding model: %s (%dD, device=%s)",
-                self._model_name,
-                self._dim,
-                device,
-            )
+                self._restore_hf_offline(had_offline)
+            if self._model is not None:
+                self._finalize_model(device)
         except ImportError:
             logger.warning(
                 "sentence-transformers not installed; using hash-based fallback embeddings. "
@@ -241,6 +194,69 @@ class EmbeddingEngine:
             )
             self._unavailable = True
             self._trigger_background_install()
+
+    @staticmethod
+    def _cache_miss_exceptions() -> tuple[type[Exception], ...]:
+        try:
+            from huggingface_hub.errors import LocalEntryNotFoundError
+
+            return (OSError, LocalEntryNotFoundError)
+        except ImportError:
+            return (OSError,)
+
+    @staticmethod
+    def _set_hf_offline() -> str | None:
+        import os
+
+        had_offline = os.environ.get("HF_HUB_OFFLINE")
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        return had_offline
+
+    @staticmethod
+    def _restore_hf_offline(had_offline: str | None) -> None:
+        import os
+
+        if had_offline is None:
+            os.environ.pop("HF_HUB_OFFLINE", None)
+        else:
+            os.environ["HF_HUB_OFFLINE"] = had_offline
+
+    def _with_hf_offline_env(self, func: Callable[[], Any]) -> Any:
+        had_offline = self._set_hf_offline()
+        try:
+            return func()
+        finally:
+            self._restore_hf_offline(had_offline)
+
+    def _load_model(self, device: str) -> Any:
+        from sentence_transformers import SentenceTransformer
+
+        return SentenceTransformer(self._model_name, device=device)
+
+    def _download_model(self, device: str, had_offline: str | None) -> None:
+        self._restore_hf_offline(had_offline)
+        logger.info("Downloading embedding model: %s", self._model_name)
+        try:
+            self._model = self._load_model(device)
+        except Exception as exc:
+            logger.warning(
+                "Embedding model %s unavailable after cache miss; "
+                "using hash-based fallback embeddings: %s",
+                self._model_name,
+                exc,
+            )
+            self._unavailable = True
+
+    def _finalize_model(self, device: str) -> None:
+        actual_dim = self._model.get_sentence_embedding_dimension()
+        if actual_dim != self._dim:
+            self._dim = actual_dim
+        logger.info(
+            "Loaded embedding model: %s (%dD, device=%s)",
+            self._model_name,
+            self._dim,
+            device,
+        )
 
     def _trigger_background_install(self) -> None:
         """Install sentence-transformers in the background.

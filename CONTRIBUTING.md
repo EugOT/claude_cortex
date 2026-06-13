@@ -126,7 +126,7 @@ The full standard lives in
 ```bash
 pixi run test             # full pytest suite
 pixi run test-unit        # shared/core/errors/validation
-pixi run test-functional  # infrastructure/handlers/hooks/server/scripts/invariants
+pixi run test-functional  # infrastructure/handlers/hooks/server/scripts/invariants + tests_py/observability
 pixi run test-integration # cross-layer lifecycle tests
 pixi run test-e2e         # Cortex FastMCP surface scenarios
 pixi run mutation         # mutmut boundary/safety mutation pass

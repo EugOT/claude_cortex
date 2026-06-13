@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 from mcp_server.infrastructure.embedding_engine import (
     EmbeddingEngine,
@@ -79,23 +77,6 @@ class TestFallbackEncode:
         vec = np.frombuffer(result, dtype=np.float32)
         norm = float(np.linalg.norm(vec))
         assert abs(norm - 1.0) < 1e-5
-
-    def test_model_cache_miss_download_failure_degrades_to_hash(self):
-        engine = EmbeddingEngine(dim=32)
-        fake_sentence_transformers = SimpleNamespace(
-            SentenceTransformer=MagicMock(side_effect=OSError("offline"))
-        )
-
-        with patch.dict(
-            "sys.modules",
-            {"sentence_transformers": fake_sentence_transformers},
-        ):
-            result = engine.encode("offline model miss")
-
-        assert result is not None
-        assert len(result) == 32 * 4
-        assert engine._unavailable is True
-        assert fake_sentence_transformers.SentenceTransformer.call_count == 2
 
 
 # ── Similarity ───────────────────────────────────────────────────────
@@ -271,77 +252,6 @@ class TestDeviceResolution:
             engine._resolve_device()
             engine._resolve_device()
             mock.assert_called_once()
-
-
-# ── GPU fallback ─────────────────────────────────────────────────────
-
-
-class TestGPUFallback:
-    def test_runtime_error_on_gpu_triggers_cpu_fallback(self):
-        engine = EmbeddingEngine(dim=32, device="mps")
-        engine._unavailable = False
-        mock_model = MagicMock()
-        # First call raises RuntimeError (GPU failure), second succeeds (after CPU reload)
-        mock_model.encode.side_effect = [
-            RuntimeError("MPS backend error"),
-            np.random.randn(32).astype(np.float32),
-        ]
-        mock_model.get_sentence_embedding_dimension.return_value = 32
-        engine._model = mock_model
-
-        # Patch _ensure_model to simulate successful CPU reload
-        def fake_ensure():
-            engine._model = mock_model
-
-        engine._ensure_model = fake_ensure
-        result = engine.encode("test")
-        assert result is not None
-        assert engine._device == "cpu"
-
-    def test_runtime_error_on_cpu_reraises(self):
-        engine = EmbeddingEngine(dim=32, device="cpu")
-        engine._device = "cpu"
-        engine._unavailable = False
-        mock_model = MagicMock()
-        mock_model.encode.side_effect = RuntimeError("genuine bug")
-        engine._model = mock_model
-
-        with pytest.raises(RuntimeError, match="genuine bug"):
-            engine._encode_vec("test")
-
-    def test_double_failure_falls_back_to_hash(self):
-        engine = EmbeddingEngine(dim=32, device="cuda")
-        engine._unavailable = False
-        mock_model = MagicMock()
-        mock_model.encode.side_effect = RuntimeError("GPU OOM")
-        engine._model = mock_model
-
-        # _fallback_to_cpu will fail to load → _unavailable = True
-        def fake_ensure():
-            engine._unavailable = True
-            engine._model = None
-
-        engine._ensure_model = fake_ensure
-        result = engine.encode("test")
-        # Should get hash fallback, not crash
-        assert result is not None
-        assert len(result) == 32 * 4
-
-    def test_cpu_retry_failure_degrades_to_hash(self):
-        engine = EmbeddingEngine(dim=32, device="mps")
-        engine._unavailable = False
-        mock_model = MagicMock()
-        # Both GPU and CPU retry fail on this input
-        mock_model.encode.side_effect = RuntimeError("bad input")
-        mock_model.get_sentence_embedding_dimension.return_value = 32
-        engine._model = mock_model
-
-        def fake_ensure():
-            engine._model = mock_model  # model loads fine, input is bad
-
-        engine._ensure_model = fake_ensure
-        result = engine.encode("test")
-        assert result is not None  # hash fallback, not crash
 
 
 # ── Singleton ────────────────────────────────────────────────────────

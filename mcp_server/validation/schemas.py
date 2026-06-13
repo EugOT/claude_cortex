@@ -284,9 +284,10 @@ def _check_field_type(
 
 
 def validate_tool_args(tool_name: str, args: dict[str, Any] | None) -> dict[str, Any]:
-    """Validate and sanitize tool arguments against the schema.
+    """Validate tool arguments against the schema.
 
-    Returns validated arguments with defaults applied.
+    Returns arguments with defaults applied while preserving schema-unknown
+    keys for forward-compatible tool wrappers.
     Raises ValidationError for missing required fields or type mismatches.
     Unknown tool names pass through unchanged.
     """
@@ -295,7 +296,7 @@ def validate_tool_args(tool_name: str, args: dict[str, Any] | None) -> dict[str,
         return args if args is not None else {}
 
     safe_args = args if args is not None else {}
-    result: dict[str, Any] = {}
+    result: dict[str, Any] = dict(safe_args)
 
     for field in schema["required"]:
         if safe_args.get(field) is None:

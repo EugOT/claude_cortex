@@ -28,7 +28,7 @@ Usage in tool registries:
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, Coroutine
+from typing import Any, Awaitable, Callable
 
 _DB_SETUP_GUIDE = (
     "Cortex could not connect to PostgreSQL. "
@@ -89,9 +89,9 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
 
 
 def _run_coroutine_on_thread(
-    handler_fn: Callable[..., Coroutine[Any, Any, dict]],
+    handler_fn: Callable[..., Awaitable[dict[str, Any] | None]],
     args: dict[str, Any],
-) -> dict:
+) -> dict[str, Any] | None:
     """Run an async handler's coroutine on a fresh event loop in a worker thread.
 
     Used by ``safe_handler`` under ``asyncio.to_thread`` to give real
@@ -112,8 +112,78 @@ def _run_coroutine_on_thread(
             pass
 
 
+def _validate_args(tool_name: str | None, args: dict[str, Any]) -> dict[str, Any]:
+    if not tool_name:
+        return args
+    from mcp_server.validation.schemas import validate_tool_args
+
+    return validate_tool_args(tool_name, args)
+
+
+async def _run_tool_with_admission(
+    tool_name: str,
+    handler_fn: Callable[..., Awaitable[dict[str, Any] | None]],
+    args: dict[str, Any],
+) -> dict[str, Any] | None:
+    from mcp_server.handlers.admission import admit
+    from mcp_server.observability import metrics
+
+    async with admit(tool_name):
+        with metrics.Timer("cortex_tool_duration_seconds", {"tool": tool_name}):
+            result = await asyncio.to_thread(_run_coroutine_on_thread, handler_fn, args)
+    metrics.inc_counter("cortex_tool_calls_total", {"tool": tool_name, "status": "ok"})
+    return result
+
+
+async def _run_inline(
+    handler_fn: Callable[..., Awaitable[dict[str, Any] | None]],
+    args: dict[str, Any],
+) -> dict[str, Any] | None:
+    return await handler_fn(args)
+
+
+def _normalize_result(result: dict[str, Any] | None) -> dict[str, Any]:
+    return {} if result is None else result
+
+
+def _record_error_metrics(tool_name: str | None) -> None:
+    if not tool_name:
+        return
+    try:
+        from mcp_server.observability import metrics
+
+        metrics.inc_counter(
+            "cortex_tool_calls_total",
+            {"tool": tool_name, "status": "error"},
+        )
+    except Exception:
+        pass
+
+
+def _error_response(exc: Exception) -> dict[str, Any]:
+    error_type, message = _classify_error(exc)
+    response: dict[str, Any] = {
+        "error": error_type,
+        "message": message,
+        "hint": _hint_for_error(error_type),
+    }
+    details = getattr(exc, "details", None)
+    if details:
+        response["details"] = details
+    return response
+
+
+def _hint_for_error(error_type: str) -> str | None:
+    if error_type in ("missing_extension", "database_not_connected", "ValidationError"):
+        return None
+    return (
+        "If this persists, check that PostgreSQL is running "
+        "and DATABASE_URL is set correctly."
+    )
+
+
 async def safe_handler(
-    handler_fn: Callable[..., Coroutine[Any, Any, dict]],
+    handler_fn: Callable[..., Awaitable[dict[str, Any] | None]],
     args: dict[str, Any],
     tool_name: str | None = None,
 ) -> dict[str, Any]:
@@ -144,55 +214,16 @@ async def safe_handler(
     On other errors: returns an error-type/message dict (no traceback).
     """
     try:
+        call_args = _validate_args(tool_name, args)
         if tool_name:
-            from mcp_server.validation.schemas import validate_tool_args
-
-            validate_tool_args(tool_name, args)
-
-        if tool_name:
-            from mcp_server.handlers.admission import admit
-            from mcp_server.observability import metrics
-
-            async with admit(tool_name):
-                with metrics.Timer(
-                    "cortex_tool_duration_seconds",
-                    {"tool": tool_name},
-                ):
-                    result = await asyncio.to_thread(
-                        _run_coroutine_on_thread, handler_fn, args
-                    )
-            metrics.inc_counter(
-                "cortex_tool_calls_total",
-                {"tool": tool_name, "status": "ok"},
-            )
+            result = await _run_tool_with_admission(tool_name, handler_fn, call_args)
         else:
-            result = await handler_fn(args)
+            result = await _run_inline(handler_fn, call_args)
         # Defensive: every handler must already return a dict per its
         # ``output_schema``. If a handler regresses to None we surface
         # an empty dict so FastMCP's structured-content validator does
         # not reject the response.
-        if result is None:
-            return {}
-        return result
+        return _normalize_result(result)
     except Exception as exc:
-        error_type, message = _classify_error(exc)
-        if tool_name:
-            try:
-                from mcp_server.observability import metrics
-
-                metrics.inc_counter(
-                    "cortex_tool_calls_total",
-                    {"tool": tool_name, "status": "error"},
-                )
-            except Exception:
-                pass
-        return {
-            "error": error_type,
-            "message": message,
-            "hint": (
-                "If this persists, check that PostgreSQL is running "
-                "and DATABASE_URL is set correctly."
-            )
-            if error_type not in ("missing_extension", "database_not_connected")
-            else None,
-        }
+        _record_error_metrics(tool_name)
+        return _error_response(exc)

@@ -60,6 +60,81 @@ def _call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, 
     return result.structured_content
 
 
+def _remember_memory(content: str, directory: str) -> dict[str, Any]:
+    result = _call_tool(
+        "remember",
+        {
+            "content": content,
+            "tags": ["e2e", "cortex-surface", "scenario-matrix"],
+            "directory": directory,
+            "domain": "cortex-e2e",
+            "source": "user",
+            "force": True,
+        },
+    )
+    assert result["stored"] is True
+    assert result["action"] in {"stored", "merged"}
+    assert "memory_id" in result
+    return result
+
+
+def _assert_memory_stats() -> None:
+    stats = _call_tool("memory_stats")
+    assert stats["total_memories"] >= 1
+    assert isinstance(stats["has_vector_search"], bool)
+
+
+def _recall_and_assert(query: str, domain: str) -> dict[str, Any]:
+    result = _call_tool(
+        "recall",
+        {
+            "query": query,
+            "domain": domain,
+            "max_results": 5,
+            "min_heat": 0.0,
+        },
+    )
+    assert result["count"] >= 1
+    assert any(
+        "FastMCP surface tests" in memory["content"] for memory in result["memories"]
+    )
+    return result
+
+
+def _save_checkpoint(directory: str, session_id: str) -> dict[str, Any]:
+    result = _call_tool(
+        "checkpoint",
+        {
+            "action": "save",
+            "directory": directory,
+            "current_task": "Prove the Cortex MCP surface has e2e coverage",
+            "files_being_edited": ["tests_py/e2e/test_cortex_mcp_surface.py"],
+            "key_decisions": ["Exercise registered tools through FastMCP.call_tool"],
+            "next_steps": ["Run mutation testing on the safety wrapper"],
+            "session_id": session_id,
+        },
+    )
+    assert result["status"] == "saved"
+    assert result["checkpoint_id"]
+    return result
+
+
+def _restore_checkpoint(directory: str, session_id: str) -> dict[str, Any]:
+    result = _call_tool(
+        "checkpoint",
+        {
+            "action": "restore",
+            "directory": directory,
+            "session_id": session_id,
+        },
+    )
+    assert result["status"] == "restored"
+    assert result["checkpoint"] is True
+    assert "Cortex MCP surface" in result["formatted"]
+    assert "test_cortex_mcp_surface.py" in result["formatted"]
+    return result
+
+
 @pytest.fixture(autouse=True)
 def _deterministic_embeddings(monkeypatch):
     engine = _DeterministicEmbeddingEngine()
@@ -120,72 +195,18 @@ class TestCortexMcpSurface:
         assert "Traceback" not in serialized
         assert "File " not in serialized
 
-    def test_remember_recall_stats_and_checkpoint_round_trip(self):
+    def test_remember_recall_stats_and_checkpoint_round_trip(self, tmp_path):
         content = (
             "Cortex e2e sentinel: FastMCP surface tests must cover remember, "
             "recall, stats, and checkpoint restore as one user scenario."
         )
+        directory = str(tmp_path / "cortex-e2e")
+        session_id = "cortex-e2e-surface"
 
-        remember = _call_tool(
-            "remember",
-            {
-                "content": content,
-                "tags": ["e2e", "cortex-surface", "scenario-matrix"],
-                "directory": "/tmp/cortex-e2e",
-                "domain": "cortex-e2e",
-                "source": "user",
-                "force": True,
-            },
+        _remember_memory(content, directory)
+        _assert_memory_stats()
+        _recall_and_assert(
+            "FastMCP surface scenario-matrix checkpoint restore", "cortex-e2e"
         )
-        assert remember["stored"] is True
-        assert remember["action"] in {"stored", "merged"}
-        assert "memory_id" in remember
-
-        stats = _call_tool("memory_stats")
-        assert stats["total_memories"] >= 1
-        assert isinstance(stats["has_vector_search"], bool)
-
-        recall = _call_tool(
-            "recall",
-            {
-                "query": "FastMCP surface scenario-matrix checkpoint restore",
-                "domain": "cortex-e2e",
-                "max_results": 5,
-                "min_heat": 0.0,
-            },
-        )
-        assert recall["count"] >= 1
-        assert any(
-            "FastMCP surface tests" in memory["content"]
-            for memory in recall["memories"]
-        )
-
-        save = _call_tool(
-            "checkpoint",
-            {
-                "action": "save",
-                "directory": "/tmp/cortex-e2e",
-                "current_task": "Prove the Cortex MCP surface has e2e coverage",
-                "files_being_edited": ["tests_py/e2e/test_cortex_mcp_surface.py"],
-                "key_decisions": [
-                    "Exercise registered tools through FastMCP.call_tool"
-                ],
-                "next_steps": ["Run mutation testing on the safety wrapper"],
-                "session_id": "cortex-e2e-surface",
-            },
-        )
-        assert save["status"] == "saved"
-        assert save["checkpoint_id"]
-
-        restore = _call_tool(
-            "checkpoint",
-            {
-                "action": "restore",
-                "directory": "/tmp/cortex-e2e",
-                "session_id": "cortex-e2e-surface",
-            },
-        )
-        assert restore["status"] == "restored"
-        assert restore["checkpoint"] is True
-        assert "Cortex MCP surface" in restore["formatted"]
-        assert "test_cortex_mcp_surface.py" in restore["formatted"]
+        _save_checkpoint(directory, session_id)
+        _restore_checkpoint(directory, session_id)
