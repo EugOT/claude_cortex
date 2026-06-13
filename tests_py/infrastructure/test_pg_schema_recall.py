@@ -11,7 +11,11 @@ The legacy ``RECALL_MEMORIES_FN`` has been deleted.
 
 from __future__ import annotations
 
-from mcp_server.infrastructure.pg_schema import RECALL_MEMORIES_LAZY_FN
+from mcp_server.infrastructure.pg_schema import (
+    MEMORIES_DDL,
+    MIGRATIONS_DDL,
+    RECALL_MEMORIES_LAZY_FN,
+)
 
 
 def test_recall_memories_returns_source_column() -> None:
@@ -66,3 +70,32 @@ def test_recall_memories_returns_known_columns() -> None:
     )
     for col in required:
         assert col in RECALL_MEMORIES_LAZY_FN, f"missing column in RETURNS TABLE: {col}"
+
+
+def test_memories_ddl_declares_supersession_columns() -> None:
+    """Item 1: explicit supersession edges are columns on the base table
+    (fresh installs) — both nullable, self-referential FK."""
+    assert "supersedes_id" in MEMORIES_DDL
+    assert "superseded_by_id" in MEMORIES_DDL
+    assert "REFERENCES memories(id) ON DELETE SET NULL" in MEMORIES_DDL
+
+
+def test_migration_adds_supersession_columns_idempotently() -> None:
+    """Existing DBs gain the columns via an idempotent information_schema-
+    guarded DO block (same pattern as agent_context / is_global)."""
+    for col in ("supersedes_id", "superseded_by_id"):
+        assert (
+            f"column_name = '{col}'" in MIGRATIONS_DDL
+        ), f"migration must guard-check {col}"
+        assert (
+            f"ALTER TABLE memories ADD COLUMN {col} INTEGER" in MIGRATIONS_DDL
+        ), f"migration must add {col}"
+
+
+def test_recall_demotes_superseded_versions() -> None:
+    """Head-of-chain demotion is a constant-free tier sort: superseded
+    versions (superseded_by_id IS NOT NULL) rank below current ones."""
+    assert (
+        "ORDER BY (c.superseded_by_id IS NOT NULL), cw.final_score DESC"
+        in RECALL_MEMORIES_LAZY_FN
+    ), "final SELECT must tier-sort current versions above superseded ones"
