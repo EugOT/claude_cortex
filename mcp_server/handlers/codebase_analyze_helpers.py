@@ -362,6 +362,41 @@ def persist_inheritance_edge(
     return count
 
 
+def persist_god_node_tags(
+    store: MemoryStore,
+    god_nodes: list[str],
+) -> None:
+    """Tag codebase memories for files flagged as architectural god nodes.
+
+    God nodes are degree-centrality outliers (see codebase_communities.
+    detect_god_nodes). Tagging them lets the graph viz and recall surface
+    architectural hotspots. Phase 5: batch pool.
+    """
+    import json
+
+    if not god_nodes:
+        return
+    with store.acquire_batch() as conn:
+        for file_path in god_nodes:
+            try:
+                rows = conn.execute(
+                    "SELECT id, tags FROM memories "
+                    "WHERE agent_context = 'codebase' AND NOT is_stale "
+                    "AND content LIKE %s",
+                    (f"%{file_path}%",),
+                ).fetchall()
+                for row in rows:
+                    tags = _parse_tags(row["tags"])
+                    if "god-node" not in tags:
+                        tags.append("god-node")
+                        conn.execute(
+                            "UPDATE memories SET tags = %s WHERE id = %s",
+                            (json.dumps(tags), row["id"]),
+                        )
+            except Exception:
+                pass
+
+
 def persist_community_tags(
     store: MemoryStore,
     communities: dict[str, int],

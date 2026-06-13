@@ -5,7 +5,7 @@ Takes parsed FileAnalysis objects and produces resolved edges:
 - Function → function call edges
 - Class → method containment edges
 - Class → parent inheritance edges
-- Community assignments via Louvain
+- Community assignments via Leiden (Louvain fallback)
 
 Pure business logic — no I/O.
 """
@@ -14,7 +14,16 @@ from __future__ import annotations
 
 from pathlib import PurePosixPath
 
+# Community detection & centrality live in codebase_communities.py
+# (300-line limit + SRP); re-exported so existing callers keep working.
+from mcp_server.core.codebase_communities import (
+    compute_centrality,
+    detect_communities,
+    detect_god_nodes,
+)
 from mcp_server.core.codebase_parser import FileAnalysis
+
+__all__ = ["compute_centrality", "detect_communities", "detect_god_nodes"]
 
 # ── Import resolution ─────────────────────────────────────────────────────
 
@@ -227,53 +236,6 @@ def build_resolved_call_edges(
                 seen_pair.add(key)
                 edges.append((analysis.path, caller_qname, target_file, target_qname))
     return edges
-
-
-# ── Community detection ───────────────────────────────────────────────────
-
-
-def _build_dependency_graph(
-    file_edges: list[tuple[str, str]],
-    call_edges: list[tuple[str, str, str]],
-) -> object:
-    """Build a networkx graph from file and call edges."""
-    import networkx as nx
-
-    g = nx.Graph()
-    for src, tgt in file_edges:
-        g.add_edge(src, tgt, weight=1.0)
-    for src, _, tgt in call_edges:
-        if g.has_edge(src, tgt):
-            g[src][tgt]["weight"] += 0.5
-        else:
-            g.add_edge(src, tgt, weight=0.5)
-    return g
-
-
-def detect_communities(
-    file_edges: list[tuple[str, str]],
-    call_edges: list[tuple[str, str, str]],
-) -> dict[str, int]:
-    """Detect functional communities using Louvain on import+call graph.
-
-    Returns:
-        Map of file_path → community_id.
-    """
-    try:
-        import networkx as nx
-    except ImportError:
-        return {}
-
-    g = _build_dependency_graph(file_edges, call_edges)
-    if g.number_of_nodes() < 2:
-        return {n: 0 for n in g.nodes()}
-
-    communities = nx.community.louvain_communities(g, weight="weight", seed=42)
-    result: dict[str, int] = {}
-    for idx, community in enumerate(communities):
-        for node in community:
-            result[node] = idx
-    return result
 
 
 # ── Impact analysis ───────────────────────────────────────────────────────

@@ -58,6 +58,11 @@ codebase = [
     # of `builtins.Parser`. Migration to the new API is tracked separately.
     "tree-sitter-language-pack>=0.24.0,<1.7",
     "networkx>=3.0",
+    # Leiden community detection (Traag et al. 2019) — strict improvement
+    # over Louvain. igraph supplies the graph backend leidenalg runs on.
+    # detect_communities falls back to networkx Louvain when absent.
+    "leidenalg>=0.10",
+    "igraph>=0.11",
 ]
 # CPU-only graph viz path: precomputed igraph layout + Datashader tile
 # rendering + Apache Arrow streaming for client-side hit-test. Enables

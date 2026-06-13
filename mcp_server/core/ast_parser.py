@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 from typing import TYPE_CHECKING
 
+from mcp_server.core.ast_extractor_registry import build_extra_extractors
 from mcp_server.core.codebase_parser import (
     FileAnalysis,
     ImportInfo,
@@ -28,7 +29,21 @@ if TYPE_CHECKING:
     from tree_sitter import Node
 
 # Languages supported by our AST queries
-AST_SUPPORTED = {"python", "typescript", "javascript", "go", "rust", "swift"}
+AST_SUPPORTED = {
+    "python",
+    "typescript",
+    "javascript",
+    "go",
+    "rust",
+    "swift",
+    "java",
+    "kotlin",
+    "c",
+    "cpp",
+    "csharp",
+    "ruby",
+    "php",
+}
 
 
 def is_available() -> bool:
@@ -232,4 +247,5 @@ _EXTRACTORS = {
     "go": _extract_go,
     "swift": _extract_swift,
     "rust": _extract_rust,
+    **build_extra_extractors(),
 }

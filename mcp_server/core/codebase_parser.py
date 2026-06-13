@@ -69,8 +69,12 @@ EXT_TO_LANG: dict[str, str] = {
     ".cs": "csharp",
     ".c": "c",
     ".cpp": "cpp",
+    ".cc": "cpp",
+    ".cxx": "cpp",
+    ".hpp": "cpp",
     ".h": "c",
     ".m": "objc",
+    ".php": "php",
 }
 
 

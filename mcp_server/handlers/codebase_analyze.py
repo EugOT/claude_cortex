@@ -348,7 +348,9 @@ def _run_graph_analysis(
 ) -> dict[str, int]:
     """Run cross-file resolution, type references, and communities."""
     from mcp_server.core.codebase_graph import (
+        compute_centrality,
         detect_communities,
+        detect_god_nodes,
         extract_inheritance,
         resolve_all_imports,
     )
@@ -356,6 +358,7 @@ def _run_graph_analysis(
     from mcp_server.handlers.codebase_analyze_helpers import (
         persist_community_tags,
         persist_file_edge,
+        persist_god_node_tags,
         persist_inheritance_edge,
     )
 
@@ -364,10 +367,12 @@ def _run_graph_analysis(
     all_file_edges = list(set(import_edges + type_ref_edges))
     inherit_edges = extract_inheritance(analyses)
     communities = detect_communities(all_file_edges, [])
+    god_nodes = detect_god_nodes(compute_centrality(all_file_edges, []))
 
     file_rels = persist_file_edge(store, all_file_edges, domain)
     inherit_rels = persist_inheritance_edge(store, inherit_edges, domain)
     persist_community_tags(store, communities)
+    persist_god_node_tags(store, god_nodes)
 
     return {
         "import_edges": len(import_edges),
@@ -375,6 +380,7 @@ def _run_graph_analysis(
         "total_file_edges": len(all_file_edges),
         "inheritance_edges": len(inherit_edges),
         "communities": len(set(communities.values())) if communities else 0,
+        "god_nodes": god_nodes,
         "file_edges_stored": file_rels,
         "inherit_edges_stored": inherit_rels,
     }
