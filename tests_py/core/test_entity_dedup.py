@@ -146,7 +146,9 @@ class TestAffixSandwichGuard:
 class TestSharedPrefixGuard:
     def test_predicate_blocks_dominant_prefix_with_different_tails(self):
         # Long shared prefix, dissimilar remainders → masked difference.
-        assert shared_prefix_masks_difference("mcp server core engram", "mcp server core replay")
+        assert shared_prefix_masks_difference(
+            "mcp server core engram", "mcp server core replay"
+        )
 
     def test_predicate_allows_similar_tails(self):
         # Shared prefix but near-identical tails → not masked.

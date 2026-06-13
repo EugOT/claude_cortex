@@ -125,12 +125,7 @@ def osa_distance(s1: str, s2: str) -> int:
                 prev[j] + 1,  # deletion
                 prev[j - 1] + cost,  # substitution
             )
-            if (
-                i > 1
-                and j > 1
-                and s1[i - 1] == s2[j - 2]
-                and s1[i - 2] == s2[j - 1]
-            ):
+            if i > 1 and j > 1 and s1[i - 1] == s2[j - 2] and s1[i - 2] == s2[j - 1]:
                 cur[j] = min(cur[j], prev2[j - 2] + 1)  # adjacent transposition
         prev2, prev = prev, cur
     return prev[len2]

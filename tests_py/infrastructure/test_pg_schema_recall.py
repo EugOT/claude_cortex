@@ -84,12 +84,12 @@ def test_migration_adds_supersession_columns_idempotently() -> None:
     """Existing DBs gain the columns via an idempotent information_schema-
     guarded DO block (same pattern as agent_context / is_global)."""
     for col in ("supersedes_id", "superseded_by_id"):
-        assert (
-            f"column_name = '{col}'" in MIGRATIONS_DDL
-        ), f"migration must guard-check {col}"
-        assert (
-            f"ALTER TABLE memories ADD COLUMN {col} INTEGER" in MIGRATIONS_DDL
-        ), f"migration must add {col}"
+        assert f"column_name = '{col}'" in MIGRATIONS_DDL, (
+            f"migration must guard-check {col}"
+        )
+        assert f"ALTER TABLE memories ADD COLUMN {col} INTEGER" in MIGRATIONS_DDL, (
+            f"migration must add {col}"
+        )
 
 
 def test_recall_demotes_superseded_versions() -> None:

@@ -113,9 +113,7 @@ def extract_csharp_definitions(root: Node, source: bytes) -> list[SymbolDef]:
     return defs
 
 
-def _walk_csharp(
-    node: Node, source: bytes, defs: list[SymbolDef], parent: str
-) -> None:
+def _walk_csharp(node: Node, source: bytes, defs: list[SymbolDef], parent: str) -> None:
     """Recursively extract C# definitions, qualifying methods by type."""
     if node.type in _CSHARP_TYPE_KINDS:
         name = node.child_by_field_name("name")

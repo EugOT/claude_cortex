@@ -30,6 +30,7 @@ the A2 path. Either way a maintainer must look: exit 0 on PASS (fired==0),
 
 Run: Cortex/.venv/bin/python3 benchmarks/supersession_gate/guard_atomic_upperbound.py
 """
+
 from __future__ import annotations
 
 import sys
@@ -38,52 +39,83 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
-import numpy as np
+import numpy as np  # noqa: E402
 
-from mcp_server.core import curation
-from mcp_server.infrastructure.embedding_engine import EmbeddingEngine
+from mcp_server.core import curation  # noqa: E402
+from mcp_server.infrastructure.embedding_engine import EmbeddingEngine  # noqa: E402
 
 MERGE_THRESHOLD = curation.MERGE_THRESHOLD  # 0.85
 OVERLAP_MIN = 0.5
 
 # (qi, question, old_fact, new_fact) — atomic facts, A2 extractor output.
 PAIRS = [
-    (0, "5K personal best",
-     "My personal best time in the charity 5K run is 27:12.",
-     "My personal best time in the charity 5K run is 25:50."),
-    (1, "Korean restaurants tried",
-     "I have tried three Korean restaurants in my city.",
-     "I have tried four Korean restaurants in my city."),
-    (2, "Rachel relocation",
-     "Rachel recently moved to Chicago.",
-     "Rachel just moved back to the suburbs again."),
-    (3, "Wells Fargo pre-approval",
-     "I got pre-approved for $350,000 from Wells Fargo.",
-     "I got pre-approved for $400,000 from Wells Fargo."),
-    (4, "Yoga frequency",
-     "I have been doing yoga twice a week.",
-     "I attend yoga classes three times a week."),
-    (5, "Mom grocery list method",
-     "My mom is still stuck on her old paper grocery list.",
-     "My mom is using the same grocery list app as me now."),
-    (6, "Ocean sculpture hours",
-     "I have spent around 5-6 hours on my abstract ocean sculpture.",
-     "I have already put 10-12 hours into my abstract ocean sculpture."),
-    (7, "Bikes owned",
-     "I currently have three bikes.",
-     "I currently have four bikes."),
-    (8, "Cocktail class day",
-     "I have a cocktail-making class on Thursday.",
-     "I have a cocktail-making class on Fridays."),
-    (9, "Recent family trip",
-     "My recent family trip was to Hawaii.",
-     "We just went to Paris as a family last month."),
-    (10, "Old sneaker storage",
-     "I have been keeping my old sneakers under my bed for storage.",
-     "I am storing my old sneakers in a shoe rack now."),
-    (11, "Short stories written",
-     "I have written four short stories since I started writing regularly.",
-     "I have completed seven short stories since I started writing regularly."),
+    (
+        0,
+        "5K personal best",
+        "My personal best time in the charity 5K run is 27:12.",
+        "My personal best time in the charity 5K run is 25:50.",
+    ),
+    (
+        1,
+        "Korean restaurants tried",
+        "I have tried three Korean restaurants in my city.",
+        "I have tried four Korean restaurants in my city.",
+    ),
+    (
+        2,
+        "Rachel relocation",
+        "Rachel recently moved to Chicago.",
+        "Rachel just moved back to the suburbs again.",
+    ),
+    (
+        3,
+        "Wells Fargo pre-approval",
+        "I got pre-approved for $350,000 from Wells Fargo.",
+        "I got pre-approved for $400,000 from Wells Fargo.",
+    ),
+    (
+        4,
+        "Yoga frequency",
+        "I have been doing yoga twice a week.",
+        "I attend yoga classes three times a week.",
+    ),
+    (
+        5,
+        "Mom grocery list method",
+        "My mom is still stuck on her old paper grocery list.",
+        "My mom is using the same grocery list app as me now.",
+    ),
+    (
+        6,
+        "Ocean sculpture hours",
+        "I have spent around 5-6 hours on my abstract ocean sculpture.",
+        "I have already put 10-12 hours into my abstract ocean sculpture.",
+    ),
+    (7, "Bikes owned", "I currently have three bikes.", "I currently have four bikes."),
+    (
+        8,
+        "Cocktail class day",
+        "I have a cocktail-making class on Thursday.",
+        "I have a cocktail-making class on Fridays.",
+    ),
+    (
+        9,
+        "Recent family trip",
+        "My recent family trip was to Hawaii.",
+        "We just went to Paris as a family last month.",
+    ),
+    (
+        10,
+        "Old sneaker storage",
+        "I have been keeping my old sneakers under my bed for storage.",
+        "I am storing my old sneakers in a shoe rack now.",
+    ),
+    (
+        11,
+        "Short stories written",
+        "I have written four short stories since I started writing regularly.",
+        "I have completed seven short stories since I started writing regularly.",
+    ),
 ]
 
 
@@ -114,7 +146,9 @@ def main() -> int:
         gate = s_ok and j_ok and c_ok
         if gate:
             fired += 1
-        print(f"{qi:>2} {topic:<26} {sim:>6.3f} {jacc:>6.3f} {str(c_ok):>7} {str(gate):>6}")
+        print(
+            f"{qi:>2} {topic:<26} {sim:>6.3f} {jacc:>6.3f} {str(c_ok):>7} {str(gate):>6}"
+        )
     print("-" * 78)
     n = len(PAIRS)
     print(f"sim>=0.85                 : {sim_pass}/{n}")
@@ -126,7 +160,9 @@ def main() -> int:
     expected = 0
     ok = fired == expected
     print("-" * 78)
-    print(f"PASS criterion: fired == {expected}  (detect_contradictions blind to value swaps)")
+    print(
+        f"PASS criterion: fired == {expected}  (detect_contradictions blind to value swaps)"
+    )
     print(f"RESULT: {'PASS' if ok else 'FAIL'} (fired={fired}/{n})")
     if not ok:
         print(

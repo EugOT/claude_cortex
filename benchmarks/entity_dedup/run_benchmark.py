@@ -35,7 +35,12 @@ _FIXTURE = [
     {"id": 9, "name": "Kafka", "type": "dependency", "mention_count": 1},
     # Should NOT merge: strict suffix-extension and SKU variant.
     {"id": 10, "name": "parseConfigStage", "type": "technology", "mention_count": 1},
-    {"id": 11, "name": "parseConfigStageFile", "type": "technology", "mention_count": 1},
+    {
+        "id": 11,
+        "name": "parseConfigStageFile",
+        "type": "technology",
+        "mention_count": 1,
+    },
 ]
 
 

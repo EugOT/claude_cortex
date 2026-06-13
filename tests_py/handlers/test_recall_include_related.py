@@ -75,8 +75,12 @@ def _seed(store: PgMemoryStore) -> dict:
     )
     store.set_superseded_by(old_id, new_id)
 
-    e_deploy = store.insert_entity({"name": "deploy-alpha", "type": "concept", "domain": _DOMAIN})
-    e_server = store.insert_entity({"name": "staging-server", "type": "concept", "domain": _DOMAIN})
+    e_deploy = store.insert_entity(
+        {"name": "deploy-alpha", "type": "concept", "domain": _DOMAIN}
+    )
+    e_server = store.insert_entity(
+        {"name": "staging-server", "type": "concept", "domain": _DOMAIN}
+    )
     store.insert_memory_entity(new_id, e_deploy)
     store.insert_relationship(
         {
@@ -124,9 +128,7 @@ def test_include_related_inlines_version_and_entity_neighbors(store):
     assert any(v["edge"] == "supersedes" for v in related["versions"])
 
     # Entity axis: one hop from deploy-alpha reaches staging-server.
-    neighbor_names = {
-        n["name"] for e in related["entities"] for n in e["neighbors"]
-    }
+    neighbor_names = {n["name"] for e in related["entities"] for n in e["neighbors"]}
     assert seed["server_entity"] in neighbor_names
 
 
@@ -151,6 +153,5 @@ def test_include_related_latency_is_bounded(store):
     # <=3 entities x <=5 neighbors + <=2 version lookups per hit, no
     # whole-graph PageRank.) Add a small floor so sub-ms jitter never trips.
     assert t_related < max(t_flat * 8.0, 0.5), (
-        f"relation-walk latency {t_related:.4f}s exceeded bound "
-        f"(flat {t_flat:.4f}s)"
+        f"relation-walk latency {t_related:.4f}s exceeded bound (flat {t_flat:.4f}s)"
     )

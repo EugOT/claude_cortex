@@ -59,14 +59,18 @@ class MinHash:
     def update(self, value: bytes) -> None:
         """Fold one shingle into the sketch (keeps the per-permutation minimum)."""
         hv = np.uint64(struct.unpack("<I", hashlib.sha1(value).digest()[:4])[0])
-        permuted = np.bitwise_and((self._a * hv + self._b) % _MERSENNE_PRIME, _HASH_MASK)
+        permuted = np.bitwise_and(
+            (self._a * hv + self._b) % _MERSENNE_PRIME, _HASH_MASK
+        )
         self.hashvalues = np.minimum(self.hashvalues, permuted)
 
     def jaccard(self, other: "MinHash") -> float:
         """Estimate Jaccard similarity as the fraction of agreeing permutations."""
         if self.num_perm != other.num_perm:
             raise ValueError("MinHash.jaccard: sketches have different num_perm")
-        return float(np.count_nonzero(self.hashvalues == other.hashvalues)) / self.num_perm
+        return (
+            float(np.count_nonzero(self.hashvalues == other.hashvalues)) / self.num_perm
+        )
 
 
 def _integrate(f, lo: float, hi: float, n: int = 128) -> float:
@@ -94,11 +98,13 @@ def optimal_lsh_params(threshold: float, num_perm: int) -> tuple[int, int]:
         for r in range(1, num_perm // b + 1):
             fp = _integrate(
                 lambda s, _b=float(b), _r=float(r): 1 - (1 - s**_r) ** _b,
-                0.0, threshold,
+                0.0,
+                threshold,
             )
             fn = _integrate(
                 lambda s, _b=float(b), _r=float(r): 1 - (1 - (1 - s**_r) ** _b),
-                threshold, 1.0,
+                threshold,
+                1.0,
             )
             err = 0.5 * fp + 0.5 * fn
             if err < best_err:

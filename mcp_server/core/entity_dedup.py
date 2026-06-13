@@ -51,9 +51,7 @@ from mcp_server.shared.string_distance import jaro_winkler_similarity
 # Concept-ish types where spelling/spacing variants of one real-world entity
 # legitimately arise. Structural code symbols and file paths are exempt — their
 # identity is the symbol/path, not a fuzzy label (graphify #1205).
-FUZZY_ELIGIBLE_TYPES = frozenset(
-    {"technology", "decision", "error", "dependency"}
-)
+FUZZY_ELIGIBLE_TYPES = frozenset({"technology", "decision", "error", "dependency"})
 
 
 @dataclass(frozen=True)

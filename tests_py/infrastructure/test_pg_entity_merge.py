@@ -53,7 +53,9 @@ def _mk_entity(
     return row["id"]
 
 
-def _mk_rel(store: PgMemoryStore, src: int, tgt: int, rtype: str = "related_to") -> None:
+def _mk_rel(
+    store: PgMemoryStore, src: int, tgt: int, rtype: str = "related_to"
+) -> None:
     store._execute(
         "INSERT INTO relationships (source_entity_id, target_entity_id, "
         "relationship_type) VALUES (%s, %s, %s)",
@@ -85,12 +87,18 @@ def test_merge_rewires_memory_links(store):
 
     assert out["merged"] is True
     assert out["memory_links_moved"] == 1
-    assert _count(
-        store, "SELECT COUNT(*) c FROM memory_entities WHERE entity_id=%s", (surv,)
-    ) == 1
-    assert _count(
-        store, "SELECT COUNT(*) c FROM memory_entities WHERE entity_id=%s", (alias,)
-    ) == 0
+    assert (
+        _count(
+            store, "SELECT COUNT(*) c FROM memory_entities WHERE entity_id=%s", (surv,)
+        )
+        == 1
+    )
+    assert (
+        _count(
+            store, "SELECT COUNT(*) c FROM memory_entities WHERE entity_id=%s", (alias,)
+        )
+        == 0
+    )
     assert store.get_entity_by_id(alias)["archived"] is True
 
 
@@ -106,9 +114,12 @@ def test_merge_dedupes_shared_memory_link(store):
     out = store.merge_entities(surv, alias)
 
     assert out["merged"] is True
-    assert _count(
-        store, "SELECT COUNT(*) c FROM memory_entities WHERE entity_id=%s", (surv,)
-    ) == 1
+    assert (
+        _count(
+            store, "SELECT COUNT(*) c FROM memory_entities WHERE entity_id=%s", (surv,)
+        )
+        == 1
+    )
 
 
 def test_merge_rewires_relationships(store):
@@ -119,16 +130,22 @@ def test_merge_rewires_relationships(store):
     out = store.merge_entities(surv, alias)
 
     assert out["relationships_rewired"] == 1
-    assert _count(
-        store,
-        "SELECT COUNT(*) c FROM relationships WHERE source_entity_id=%s",
-        (surv,),
-    ) == 1
-    assert _count(
-        store,
-        "SELECT COUNT(*) c FROM relationships WHERE source_entity_id=%s",
-        (alias,),
-    ) == 0
+    assert (
+        _count(
+            store,
+            "SELECT COUNT(*) c FROM relationships WHERE source_entity_id=%s",
+            (surv,),
+        )
+        == 1
+    )
+    assert (
+        _count(
+            store,
+            "SELECT COUNT(*) c FROM relationships WHERE source_entity_id=%s",
+            (alias,),
+        )
+        == 0
+    )
 
 
 def test_merge_drops_self_loop(store):
@@ -139,11 +156,14 @@ def test_merge_drops_self_loop(store):
 
     store.merge_entities(surv, alias)
 
-    assert _count(
-        store,
-        "SELECT COUNT(*) c FROM relationships WHERE source_entity_id=target_entity_id",
-        (),
-    ) == 0
+    assert (
+        _count(
+            store,
+            "SELECT COUNT(*) c FROM relationships WHERE source_entity_id=target_entity_id",
+            (),
+        )
+        == 0
+    )
 
 
 def test_merge_absorbs_heat_bounded(store):

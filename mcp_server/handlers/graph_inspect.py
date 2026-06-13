@@ -48,10 +48,6 @@ def _ap_section(record: dict) -> dict[str, Any] | None:
     if not ap_bridge.is_enabled():
         return {"error": "automatised-pipeline disabled"}
 
-    from mcp_server.infrastructure.workflow_graph_source_ast import (
-        WorkflowGraphASTSource,
-    )
-
     src = _ast_source()
     bridge = src._bridge  # noqa: SLF001 — same pattern as trace impact
     loop_run = src._loop_owner.run  # noqa: SLF001
@@ -108,9 +104,7 @@ def _memories_section(record: dict) -> dict[str, Any]:
     if not query:
         return {"memories": [], "query": ""}
     try:
-        res = asyncio.run(
-            recall_handler({"query": query, "max_results": _MEMORY_PAGE})
-        )
+        res = asyncio.run(recall_handler({"query": query, "max_results": _MEMORY_PAGE}))
     except Exception as exc:  # noqa: BLE001 — degrade per-source
         return {"error": f"{type(exc).__name__}: {exc}", "query": query}
     mems = []
@@ -123,7 +117,11 @@ def _memories_section(record: dict) -> dict[str, Any]:
                 "score": m.get("score") or m.get("rerank_score"),
             }
         )
-    return {"memories": mems, "query": query, "total": len((res or {}).get("memories", []))}
+    return {
+        "memories": mems,
+        "query": query,
+        "total": len((res or {}).get("memories", [])),
+    }
 
 
 def inspect_node(record: dict) -> dict[str, Any]:

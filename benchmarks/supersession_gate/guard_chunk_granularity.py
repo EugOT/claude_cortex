@@ -23,6 +23,7 @@ Exit 0 on PASS, 1 on regression (any edge forms).
 
 Run: Cortex/.venv/bin/python3 benchmarks/supersession_gate/guard_chunk_granularity.py
 """
+
 from __future__ import annotations
 
 import json
@@ -32,11 +33,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
-import numpy as np
+import numpy as np  # noqa: E402
 
-from mcp_server.core import curation
-from mcp_server.core.memory_decomposer import decompose_memory
-from mcp_server.infrastructure.embedding_engine import EmbeddingEngine
+from mcp_server.core import curation  # noqa: E402
+from mcp_server.core.memory_decomposer import decompose_memory  # noqa: E402
+from mcp_server.infrastructure.embedding_engine import EmbeddingEngine  # noqa: E402
 
 DATA = REPO / "benchmarks/longmemeval/longmemeval_s.json"
 MERGE_THRESHOLD = curation.MERGE_THRESHOLD  # 0.85
@@ -44,7 +45,9 @@ OVERLAP_MIN = 0.5  # remember_helpers.py:349 — compute_textual_overlap(...) > 
 
 
 def session_text(session: list[dict]) -> str:
-    return "\n".join(f"[{t.get('role','user')}]: {t.get('content','')}" for t in session)
+    return "\n".join(
+        f"[{t.get('role', 'user')}]: {t.get('content', '')}" for t in session
+    )
 
 
 def main() -> int:
@@ -102,12 +105,18 @@ def main() -> int:
                 if sim < MERGE_THRESHOLD:
                     continue
                 sim_pass += 1
-                overlap = curation.compute_textual_overlap(chunk_texts[i], chunk_texts[j])
+                overlap = curation.compute_textual_overlap(
+                    chunk_texts[i], chunk_texts[j]
+                )
                 if overlap <= OVERLAP_MIN:
                     continue
                 sim_overlap_pass += 1
-                c_ij = curation.detect_contradictions(chunk_texts[i], [{"id": j, "content": chunk_texts[j]}])
-                c_ji = curation.detect_contradictions(chunk_texts[j], [{"id": i, "content": chunk_texts[i]}])
+                c_ij = curation.detect_contradictions(
+                    chunk_texts[i], [{"id": j, "content": chunk_texts[j]}]
+                )
+                c_ji = curation.detect_contradictions(
+                    chunk_texts[j], [{"id": i, "content": chunk_texts[i]}]
+                )
                 if c_ij or c_ji:
                     full_gate += 1
                     q_edges += 1
@@ -121,7 +130,10 @@ def main() -> int:
                         )
         per_q_edges.append(q_edges)
         if (qi + 1) % 20 == 0:
-            print(f"  [{qi+1}/{len(ku)}] cumulative edges={full_gate} chunks={total_chunks}", file=sys.stderr)
+            print(
+                f"  [{qi + 1}/{len(ku)}] cumulative edges={full_gate} chunks={total_chunks}",
+                file=sys.stderr,
+            )
 
     print("=" * 64)
     print("GUARD A1: supersede gate on DECOMPOSED chunks (LME-S KU)")
@@ -129,7 +141,9 @@ def main() -> int:
     print(f"KU questions                 : {len(ku)}")
     print(f"Total chunks (decomposed)    : {total_chunks}")
     print(f"Cross-session chunk pairs    : {tot_pairs}")
-    print(f"max cosine sim seen          : {max_sim_seen:.4f}  (gate needs >= {MERGE_THRESHOLD})")
+    print(
+        f"max cosine sim seen          : {max_sim_seen:.4f}  (gate needs >= {MERGE_THRESHOLD})"
+    )
     print(f"pairs sim>=0.85              : {sim_pass}")
     print(f"  + jaccard overlap>0.5      : {sim_overlap_pass}")
     print(f"  + contradiction (FULL)     : {full_gate}   <-- edges that would form")

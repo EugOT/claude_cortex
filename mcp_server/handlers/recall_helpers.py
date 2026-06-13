@@ -386,7 +386,10 @@ def _version_neighbors(memory_id: int, store: MemoryStore) -> list[dict[str, Any
     if not row:
         return []
     out: list[dict[str, Any]] = []
-    for edge, key in (("supersedes", "supersedes_id"), ("superseded_by", "superseded_by_id")):
+    for edge, key in (
+        ("supersedes", "supersedes_id"),
+        ("superseded_by", "superseded_by_id"),
+    ):
         nid = row.get(key)
         if not nid:
             continue
@@ -446,7 +449,5 @@ def inline_related_neighbors(
             continue
         mem["related"] = {
             "versions": _version_neighbors(int(mid), store),
-            "entities": _entity_neighbors(
-                int(mid), store, max_entities, max_neighbors
-            ),
+            "entities": _entity_neighbors(int(mid), store, max_entities, max_neighbors),
         }

@@ -167,9 +167,5 @@ def detect_god_nodes(
         return []
 
     threshold = mean + sigma * std
-    gods = [
-        node
-        for node, scores in centrality.items()
-        if scores["degree"] > threshold
-    ]
+    gods = [node for node, scores in centrality.items() if scores["degree"] > threshold]
     return sorted(gods, key=lambda n: centrality[n]["degree"], reverse=True)

@@ -33,15 +33,15 @@ _MCP_ROOT = _REPO_ROOT / "mcp_server"
 # OR be added here with a source-commented ADR justification.
 _ALLOWED_WRITERS: set[tuple[str, int]] = {
     # Canonical single-row writer (all callers route through this).
-    # bump_heat_raw — UPDATE at line 548 (shifted 543→548 by the pg_store
-    # token guard added above it); still the one canonical single-row site.
-    ("infrastructure/pg_store.py", 548),
+    # bump_heat_raw — UPDATE at line 564 (shifted 548→564 by code added
+    # above it); still the one canonical single-row site.
+    ("infrastructure/pg_store.py", 564),
     # A3 batched writer (homeostatic cohort branch + any other batch consumer).
-    # update_memories_heat_batch — SET line at 608 (shifted 603→608 likewise).
-    ("infrastructure/pg_store.py", 608),
-    # SQLite parity.
-    ("infrastructure/sqlite_store.py", 284),
-    ("infrastructure/sqlite_store.py", 328),
+    # update_memories_heat_batch — SET line at 624 (shifted 608→624 likewise).
+    ("infrastructure/pg_store.py", 624),
+    # SQLite parity (shifted 284→288, 328→332).
+    ("infrastructure/sqlite_store.py", 288),
+    ("infrastructure/sqlite_store.py", 332),
     # Homeostatic fold (amortized ~once/month per domain). Shifted 292→317
     # when the bounded-I/O slim-projection helpers were added above it.
     ("handlers/consolidation/homeostatic.py", 317),

@@ -10,9 +10,7 @@ import pytest
 
 from mcp_server.core.ast_parser import AST_SUPPORTED, is_available, parse_file_ast
 
-pytestmark = pytest.mark.skipif(
-    not is_available(), reason="tree-sitter not installed"
-)
+pytestmark = pytest.mark.skipif(not is_available(), reason="tree-sitter not installed")
 
 
 def _defs(path: str, src: bytes) -> dict[str, str]:
