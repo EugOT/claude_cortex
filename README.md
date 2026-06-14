@@ -246,9 +246,11 @@ Anchored memories get maximum protection — they always survive compaction, no 
 
 ---
 
-## The views
+## The views — the cortex-viz MCP
 
-Launch with `/cortex-visualize`. One launcher opens six reading angles over the same data; the default landing view is **Graph**.
+Visualization lives in **[cortex-viz](https://github.com/cdeust/cortex-viz)**, a standalone companion MCP. It reads this same PostgreSQL store **read-only** (plus your `~/.claude` session history and wiki) and serves the whole reading surface — so Cortex stays a focused memory engine and the graphics ship and scale on their own. Install cortex-viz alongside Cortex, then launch with the `open_visualization` tool (or `/cortex-visualize`).
+
+One launcher opens six reading angles over the same data; the default landing view is **Trace**.
 
 <p align="center">
 <img src="docs/assets/cortex-workflow-graph.png" width="100%" alt="Cortex workflow graph — many brain-region clouds, one per project, with inner radial shells grouping nodes by Claude surface (setup → tools → files → discussions → memories)" />
@@ -358,9 +360,9 @@ Clean Architecture with strict dependency rules — inner layers never import ou
 | **core/** | Neuroscience + retrieval + wiki-curation logic | 177 |
 | **core/context_assembly/** | Structured context assembler + stage detector | 10 |
 | **infrastructure/** | PostgreSQL, embeddings, file I/O, MCP client | 59 |
-| **handlers/** | MCP tools + consolidation cycles (49 MCP-exposed) | 105 |
+| **handlers/** | MCP tools + consolidation cycles (46 MCP-exposed) | 105 |
 | **hooks/** | Lifecycle automation (incl. autonomous consolidate spawn) | 9 registered |
-| **server/** | HTTP standalone + wiki API + visualization | 29 |
+| **server/** | MCP tool registration + composition roots | — |
 | **observability/** | Prometheus text-format metrics | 2 |
 
 **Storage:** PostgreSQL 15+ with pgvector (HNSW) and pg_trgm. All retrieval in PL/pgSQL stored procedures — WRRF fusion, vector search, FTS, trigram, heat, recency, all server-side.
@@ -384,7 +386,7 @@ The full per-mechanism evidence lives in the thermodynamic paper (§6.3); the BE
 
 ## Security
 
-Runs **100% locally** — MCP over stdio, PostgreSQL on localhost, visualization bound to 127.0.0.1. No data leaves your machine. Audit score: **91/100**.
+Runs **100% locally** — MCP over stdio, PostgreSQL on localhost (the optional [cortex-viz](https://github.com/cdeust/cortex-viz) companion binds its server to 127.0.0.1). No data leaves your machine. Audit score: **91/100**.
 
 ## Development
 

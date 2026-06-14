@@ -1,6 +1,8 @@
-"""Tool registration: Tier 1 core profiling tools (8 tools).
+"""Tool registration: Tier 1 core profiling tools (6 tools).
 
-Registers cognitive profiling, domain detection, and visualization tools.
+Registers cognitive profiling and domain detection tools. The visualization
+tools (get_methodology_graph, open_visualization) were extracted to the
+standalone cortex-viz MCP.
 """
 
 from __future__ import annotations

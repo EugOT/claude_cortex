@@ -77,12 +77,7 @@ Handlers are the **composition roots**: they wire infrastructure (I/O) to core (
 - `profile_assembler.py` — Profile assembly from extracted components
 - `blindspot_patterns.py` — Blind spot pattern definitions
 - `session_shape.py` — Session shape analysis
-- `graph_builder.py` — Graph node/edge construction for MCP `get_methodology_graph` tool
-- `graph_builder_nodes.py` — Node construction for graph
-- `graph_builder_edges.py` — Edge construction for graph
-- `graph_builder_dedup.py` — Graph deduplication logic
-- `graph_quality_scorer.py` — Per-node quality scoring
-- `unified_graph_builder.py` — REMOVED in Gap 10 (was dead since workflow_graph.v1 replaced it)
+- *(graph construction — `graph_builder*.py`, `graph_quality_scorer.py` — was extracted to the standalone **cortex-viz** MCP along with the HTTP/3D visualization stack)*
 
 *Behavioral Interpretability:*
 - `sparse_dictionary.py` — Behavioral feature dictionary learning (OMP sparse coding, K-SVD)
@@ -218,11 +213,9 @@ Handlers are the **composition roots**: they wire infrastructure (I/O) to core (
 
 **errors/** — `__init__.py` — MethodologyError, ValidationError, StorageError, AnalysisError, McpConnectionError
 
-**server/** — HTTP servers and visualization (4 modules)
-- `http_server.py` — Visualization HTTP server
-- `http_viz_server.py` — Unified neural graph visualization server
-- `http_dashboard_data.py` — Dashboard data aggregation
-- `http_common.py` — Shared HTTP utilities
+**server/** — MCP tool registration + composition roots. The HTTP visualization
+stack (galaxy/trace/wiki/knowledge/board UI) was extracted to the standalone
+**cortex-viz** MCP, which reads this same PostgreSQL store read-only.
 
 **hooks/** — Session lifecycle automation
 - `session_lifecycle.py` — SessionEnd hook for automatic profile updates
@@ -241,8 +234,6 @@ Handlers are the **composition roots**: they wire infrastructure (I/O) to core (
 | `rebuild_profiles` | Full rescan of session data | <10s |
 | `list_domains` | Overview of all domains | <10ms |
 | `record_session_end` | Incremental profile update + session critique | <200ms |
-| `get_methodology_graph` | Graph data for 3D visualization | <100ms |
-| `open_visualization` | Launch 3D methodology map in browser | — |
 | `explore_features` | Interpretability exploration (features, attribution, persona, crosscoder) | <100ms |
 | `remember` | Store a memory through the 4-signal predictive coding gate | <100ms |
 | `recall` | Retrieve memories via 6-signal WRRF fusion | <200ms |
