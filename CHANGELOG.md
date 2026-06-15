@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.21.0] - 2026-06-15
+
+### Changed
+- **Visualization extracted to the standalone [cortex-viz](https://github.com/cdeust/cortex-viz) MCP.** The galaxy graph, execution trace, the Knowledge / Board / Wiki / Pipeline views, the HTTP server, the workflow-graph builders, and all `ui/` assets (−50,671 lines) now live in cortex-viz, which reads this same PostgreSQL store **read-only**. Cortex is a focused memory engine again.
+
+### Removed
+- **BREAKING:** the `open_visualization`, `get_methodology_graph`, and `query_workflow_graph` MCP tools — now provided by cortex-viz. **46 MCP tools** remain.
+- The in-repo `cortex-visualize` skill (moved to cortex-viz, repointed at its tools).
+
+### Notes
+- No memory, retrieval, consolidation, or wiki-authoring behaviour changed. Full suite green (3214 passed); `mcp_server` imports cleanly and registers exactly 46 tools with zero viz tools and no dangling references.
+
 ## [3.20.0] - 2026-06-13
 
 Consolidated release. Supersedes the never-tagged 3.19.6 prep commit
