@@ -1,8 +1,4 @@
 <p align="center">
-  <img src="docs/assets/cortex-workflow-graph.png" alt="Cortex workflow graph — each project becomes a dense brain-region cloud whose shape IS its code: files, commands, agents, memories and AST symbols (functions, methods, classes, modules, constants across 10 languages) are pulled into position by the real edges between them (defined_in, calls, imports, member_of, tool_used_file). Symbols touched by two projects sit in the inter-project space between their hubs; long threads mark shared files and MCPs." width="100%"/>
-</p>
-
-<p align="center">
   <a href="https://github.com/cdeust/Cortex/actions/workflows/ci.yml"><img src="https://github.com/cdeust/Cortex/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
@@ -248,61 +244,17 @@ Anchored memories get maximum protection — they always survive compaction, no 
 
 ---
 
-## The views — the cortex-viz MCP
+## Visualization
 
-Visualization lives in **[cortex-viz](https://github.com/cdeust/cortex-viz)**, a standalone companion MCP. It reads this same PostgreSQL store **read-only** (plus your `~/.claude` session history and wiki) and serves the whole reading surface — so Cortex stays a focused memory engine and the graphics ship and scale on their own. Install cortex-viz alongside Cortex, then launch with the `open_visualization` tool (or `/cortex-visualize`).
-
-One launcher opens six reading angles over the same data; the default landing view is **Trace**.
-
-<p align="center">
-<img src="docs/assets/cortex-workflow-graph.png" width="100%" alt="Cortex workflow graph — many brain-region clouds, one per project, with inner radial shells grouping nodes by Claude surface (setup → tools → files → discussions → memories)" />
-</p>
-
-### Graph — the Claude workflow map
-
-Each project becomes a **cloud of nodes** around one gold domain hub. Inside every cloud, nodes sit in six concentric levels by the Claude surface (or the code itself) that produced them:
-
-| Level | What's there | Click through to |
-|---|---|---|
-| **L1 · Setup** | Skills · Commands · Hooks · Agents · MCPs | File paths; which domains share an MCP (thin indigo bridges) |
-| **L2 · Tools** | One hub per Claude tool per domain (Edit · Write · Read · Grep · Glob · Bash · Task) | Files touched + total uses |
-| **L3 · Files** | Every file Claude opened, read, edited, searched, or referenced — colored by primary tool | `first_seen` / `last_accessed` / `last_modified` + **See diff against HEAD** |
-| **L4 · Discussions** | One node per Claude Code session | `started_at`, duration, message count + **View full conversation** replay |
-| **L5 · Memories** | Persistent memories, colored by consolidation stage | Full content, tags, every scientific measurement |
-| **L6 · AST symbols** | The code itself — functions, methods, classes, modules, constants parsed from 10 languages (Rust, Python, TypeScript, Java, Kotlin, Swift, Objective-C, C, C++, Go) | Qualified name, symbol type, parent file, and named `defined_in` / `calls` / `imports` / `member_of` edges |
-
-**Why L6 matters.** L5 and below tell you *what Claude did*; L6 tells you *what the code is*. Three things become visible for free: **shared code** (any symbol referenced by two projects drifts into the inter-project gap), **impact** (clicking a symbol surfaces every caller, importer, and member — "what breaks if I change this?" is a graph neighbourhood, not a grep), and **the shape of the codebase itself** (a dense petal around a file means a fat internal API; a thin one means a leaf module). A grouped filter (`L1–L6` / by kind / by AST edge kind / `Cross-domain`) isolates any slice; the graph rebuilds every ~2 minutes from the `PostToolUse` hook.
-
-<p align="center">
-<img src="docs/assets/cortex-consolidation-board.png" width="100%" alt="Cortex Board view — five columns for labile, early LTP, late LTP, consolidated, and reconsolidating memories, each column header showing total count and per-bucket stage metrics (decay, vulnerability, plasticity, heat, importance, encoding, interference, hippo, replay) plus cards grouped by stage" />
-</p>
-
-### Board — consolidation as a kanban
-
-Five columns by consolidation stage (`labile` · `early_ltp` · `late_ltp` · `consolidated` · `reconsolidating`). Each header reads live bucket metrics — decay rate, vulnerability, plasticity, heat / importance / encoding / interference medians, hippocampal dependency, replay count — with the advancement rule (`replay ≥ 3`, `DA ≥ 1 or imp > 0.3`) printed under the bar. Cards carry heat, importance, surprise, valence, arousal, and the exact tool that created the memory.
-
-<p align="center">
-<img src="docs/assets/cortex-memory-detail.png" width="100%" alt="Cortex memory detail modal — stage pill, tags, valence chip, full body, then a Scientific measurements grid with plain-language explanations of consolidation stage, activity (heat), baseline activity, importance, surprise, emotional tone, emotional intensity, confidence, plasticity, stability" />
-</p>
-
-**Detail panel — every measurement explained.** Clicking any node opens a modal with the raw value *and* a one-line plain-language explanation. Consolidation stage, activity (heat), importance, surprise, emotional tone and intensity, confidence, plasticity, stability — each a labeled bar with a sentence like *"How unexpected this memory was when it arrived. Surprises stick better than routine events."*
-
-### The other three
-
-- **Knowledge** — curated memory cards with heat-based borders, emotion tags, and evidence file references; filter by domain or emotion, click any card for a full detail panel.
-- **Wiki** — the per-project knowledge base as a browsable Project → Kind → Pages tree, with a coverage grid on the welcome screen. It's the front end of the [autonomous wiki](#the-autonomous-wiki) below; edit any page in the split-pane [authoring environment](#write-papers-in-cortex).
-- **Pipeline** — a horizontal Sankey from domains through the write gate into consolidation stages; ribbon width = memory volume, so retention and drop-off are visible at a glance.
-- **Trace** — the live execution-trace drill: collapsed domain hubs → sessions → the ordered prompt → action → file chain of what actually happened → a file's AST symbols, impact neighbourhood, and git history. Served live from session JSONL, the code graph, and git on every request — no snapshots, always current.
+> **🎨 The visual layer now lives in its own MCP: [cortex-viz](https://github.com/cdeust/cortex-viz).**
+>
+> The galaxy graph, the per-session execution trace, and the Knowledge / Board / Wiki / Pipeline views were **extracted from Cortex** so it stays a focused memory engine. **cortex-viz** reads this same PostgreSQL store **read-only** and serves all six reading angles in the browser. Install it alongside Cortex and launch with `open_visualization` (or `/cortex-visualize`). **→ See the [cortex-viz README](https://github.com/cdeust/cortex-viz#the-views) for the views and screenshots.**
 
 ---
 
 ## The autonomous wiki
 
 Cortex's wiki is **a self-curating per-project knowledge base**, not a memory dump. Every project the registry knows is driven toward **42 canonical documentation scopes** (product overview, architecture, services, API, data flow, operations, decisions, onboarding, security, testing, configuration … ), and every source file toward **13 canonical sections** (Purpose · Public API · Dependencies · Callers · How it works · Invariants · What can go wrong · Tests · Sequence diagram · Flow diagram · Parameters · Request example · Response example).
-
-<p align="center">
-<img src="docs/assets/wiki-project-tree.png" width="100%" alt="Cortex Wiki view — left panel organizes pages as Project → Kind → Pages (agentic-ai expanded showing Architecture Decisions, Explanation, Tutorial, Reference sub-trees), breadcrumb `Wiki › agentic-ai › Architecture overview`, page body opens with the auto-authored architecture explanation for the project" />
-</p>
 
 What makes it autonomous — no cron, no daemon, no manual invocation:
 
@@ -318,10 +270,6 @@ This isn't documentation you write — it's documentation Cortex authors and ver
 ### Write papers in Cortex
 
 Every page is editable in place in a full scientific writing environment — the same markdown that feeds the memory pipeline, with a rendering layer on top that never steals your content into a proprietary format. Your `.md` files stay grep-able, diffable, and git-versioned.
-
-<p align="center">
-<img src="docs/assets/wiki-edit-preview.png" width="100%" alt="Cortex Wiki editor — CodeMirror 6 source pane on the left showing YAML frontmatter (title, kind: explanation, domain: agentic-ai, scope: architecture, status: living, authored_by: headless-authoring-worker, provenance: auto-authored, created/updated/last_reviewed dates) and the body with wikilinks; live preview on the right rendering the same content with EB Garamond typography, hierarchical headings, and resolved cross-references" />
-</p>
 
 - **CodeMirror 6 split-pane editor** — syntax-highlighted markdown on the left, fully-rendered article on the right, atomic round-trip to the `.md` file on disk.
 - **Structured frontmatter** — `kind` / `domain` / `scope` / `status` / `authored_by` / `provenance` / `created` / `updated` / `last_reviewed`. Real metadata: the coverage audit, dashboards, and wiki view all read it.
