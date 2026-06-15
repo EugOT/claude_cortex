@@ -96,7 +96,7 @@ docker run -it \
 
 **v3.19.1 — ingest stdio pipe deadlock fix.** `ingest_codebase` could hang forever (hours at 0% CPU): a pooled MCP client bound to a closed per-call event loop was reused with a dead reader task, so once the analyzer's response exceeded the 64KB OS pipe buffer both sides slept indefinitely — the upstream cause of "graph shows only the global domain" reports. The client now detects a dead or foreign event loop and reconnects, and a new `CORTEX_MCP_CALL_TIMEOUT_S` (default 600s) makes a wedged call fail loudly in minutes with a diagnostic naming the cause.
 
-**v3.19.0 — memory hygiene + scoring integrity.** The headline is a fix to an auto-capture scoring inversion at all three roots: prospective-trigger injection no longer harvests garbage keyword triggers from raw tool dumps; WRRF fusion excludes mechanical freshness (`post_tool_capture`) from the hot/recency pools so churn isn't mistaken for importance; and `rate_memory` feedback now wires into rank as a metamemory confidence prior (Kraaij 2002). Oversized auto-captures store a deterministic gist plus a content-addressed artifact pointer — full output one `Read` away, no truncation. The `cortex-visualize` Graph galaxy is restored alongside the live Trace view. And pytest now refuses destructive isolation against any populated non-test database, after a 2026-06-10 incident lost 537k production rows to a misconfigured CI run. Benchmarks regression-free (LongMemEval R@10 98.4% / MRR 0.916; LoCoMo MRR 0.828).
+**v3.19.0 — memory hygiene + scoring integrity.** The headline is a fix to an auto-capture scoring inversion at all three roots: prospective-trigger injection no longer harvests garbage keyword triggers from raw tool dumps; WRRF fusion excludes mechanical freshness (`post_tool_capture`) from the hot/recency pools so churn isn't mistaken for importance; and `rate_memory` feedback now wires into rank as a metamemory confidence prior (Kraaij 2002). Oversized auto-captures store a deterministic gist plus a content-addressed artifact pointer — full output one `Read` away, no truncation. The `cortex-visualize` Graph galaxy is restored alongside the live Trace view. And pytest now refuses destructive isolation against any populated non-test database, after a 2026-06-10 incident lost 537k production rows to a misconfigured CI run. Benchmarks regression-free (LongMemEval R@10 98.4% / MRR 0.9124; LoCoMo MRR 0.8278).
 
 Recent releases also brought a **progressive graph build** (bounded memory, keyset streaming — no more OOM on large stores), a **self-healing automatised-pipeline MCP bridge**, **git-diff + AST symbols for any file type**, a **cross-lens Wiki graph** in the visualizer, and **CodeQL path-injection hardening**.
 
@@ -120,7 +120,7 @@ Cortex doesn't store memories the way a database stores rows. It treats them the
 
 **Similar memories stay distinct.** Pattern separation, modeled on the dentate gyrus, keeps "Tuesday's standup" separate from "Wednesday's standup" even though they're nearly identical — without it, retrieval returns the same generic match for every similar query. *(Leutgeb et al. 2007; Yassa & Stark 2011)*
 
-The two arXiv-ready papers go deeper: **[Thermodynamic memory (PDF, 34 pages)](docs/arxiv-thermodynamic/main.pdf)** · **[Structured context assembly (PDF, 39 pages)](docs/arxiv-context-assembly/main.pdf)**.
+The two arXiv-ready papers go deeper: **[Thermodynamic Memory vs. Flat-Importance Stores (PDF, 34 pages)](docs/arxiv-thermodynamic/main.pdf)** · **[Stage-Aware Context Assembly (PDF, 39 pages)](docs/arxiv-context-assembly/main.pdf)**.
 
 ---
 
@@ -147,7 +147,7 @@ LongMemEval (Wu et al., ICLR 2025): 500 human-curated questions embedded in ~40 
 | | Cortex | What it means |
 |---|---|---|
 | Recall@10 | **98.4%** | The right memory shows up in the top 10 for nearly every question |
-| MRR | **0.916** | The correct answer is usually the first or second result |
+| MRR | **0.9124** | The correct *memory* is usually ranked first or second — retrieval rank only, no LLM reader |
 
 <sub>n=500, E1 v3 verification campaign — per-row JSONs with code SHAs in `benchmarks/results/ablation/longmemeval-s_v3/`. Re-verified on a clean DB 2026-06-10.</sub>
 
@@ -168,8 +168,8 @@ LoCoMo (Maharana et al., ACL 2024): 1,986 questions across 10 conversations — 
 
 | | Cortex | What it means |
 |---|---|---|
-| Recall@10 | **94.3%** | Right memory in top 10 over 9 times out of 10 |
-| MRR | **0.828** | Correct answer is typically the first result |
+| Recall@10 | **94.2%** | Right memory in top 10 over 9 times out of 10 |
+| MRR | **0.8278** | The correct *memory* is typically ranked first — retrieval rank only, no LLM reader |
 
 <sub>n=1986, BASELINE_NO_CONSOLIDATION, post-plasticity-fix — `tasks/e1-v3-locomo-results-post-fix.md`.</sub>
 
@@ -206,7 +206,7 @@ Every system in the paper collapses at this scale; the best reported (LIGHT on L
 
 <sub>2026-04 family, same code revision, 196 Qs / 10 conversations — `benchmarks/beam/variance/assembler_10m_stagefixed.txt` and `assembler_10m_temporal.txt`. Reproduced 2026-06-11 on current code (fresh DBs, same 196 Qs): oracle 0.496, temporal **0.523** — the temporal advantage persists across code revisions (`benchmarks/results/beam10m_paired/RESULTS.md`).</sub>
 
-The finding that surprised us: **label-free temporal day-level partitioning outperforms BEAM's ground-truth topic labels** (0.471 vs 0.429). Temporal proximity is a stronger stage signal than topic boundaries for conversational memory, so the [Structured Context Assembly](docs/research-post-context-assembly.md) architecture deploys without any oracle metadata. It was originally designed in September 2025 for 9-page PRDs on Apple Intelligence's 4,096-token window ([ai-prd-builder](https://github.com/cdeust/ai-prd-builder), commit [`462de01`](https://github.com/cdeust/ai-prd-builder/commit/462de01)) — one month before the BEAM paper existed — because the problem is the same at both scales: you can't fit everything in context, so you have to be smart about what goes in.
+The finding that surprised us: **label-free temporal day-level partitioning outperforms BEAM's ground-truth topic labels** (0.471 vs 0.429). Temporal proximity is a stronger stage signal than topic boundaries for conversational memory, so the [Stage-Aware Context Assembly](docs/research-post-context-assembly.md) architecture deploys without any oracle metadata. It was originally designed in September 2025 for 9-page PRDs on Apple Intelligence's 4,096-token window ([ai-prd-builder](https://github.com/cdeust/ai-prd-builder), commit [`462de01`](https://github.com/cdeust/ai-prd-builder/commit/462de01)) — one month before the BEAM paper existed — because the problem is the same at both scales: you can't fit everything in context, so you have to be smart about what goes in.
 
 > **Honest caveat:** BEAM defines no retrieval MRR metric — the paper uses LLM-as-judge nugget scoring. Our "MRR" is a retrieval proxy (rank of the first substring-matching memory); LIGHT's scores are end-to-end QA. The two are *not* commensurable, so we make no head-to-head BEAM claim and use BEAM only for within-system, same-harness comparisons.
 
@@ -330,7 +330,7 @@ Every benchmark headline above is backed by a per-mechanism ablation campaign �
 - **LongMemEval-S, 17 rows, n=500** — `tasks/e1-v3-results.md`. Per-mechanism deltas at the calibrated equilibrium + category-specialization analysis.
 - **LoCoMo, 14 rows, n=1986** — `tasks/e1-v3-locomo-results.md` (pre-fix) and `tasks/e1-v3-locomo-results-post-fix.md` (post plasticity result-shape fix). Two-baseline design (NO_CONSOLIDATION / WITH_CONSOLIDATION).
 
-The full per-mechanism evidence lives in the thermodynamic paper (§6.3); the BEAM decay dose-response (§6.4) documents a re-scoped negative result after a dirty-store confound was caught and traced. **[Thermodynamic memory (PDF, 34 pages)](docs/arxiv-thermodynamic/main.pdf)** · **[Structured context assembly (PDF, 39 pages)](docs/arxiv-context-assembly/main.pdf)**.
+The full per-mechanism evidence lives in the thermodynamic paper (§6.3); the BEAM decay dose-response (§6.4) documents a re-scoped negative result after a dirty-store confound was caught and traced. **[Thermodynamic Memory vs. Flat-Importance Stores (PDF, 34 pages)](docs/arxiv-thermodynamic/main.pdf)** · **[Stage-Aware Context Assembly (PDF, 39 pages)](docs/arxiv-context-assembly/main.pdf)**.
 
 ---
 
@@ -363,8 +363,8 @@ The paper PDFs on `main` are the canonical artefacts (arXiv IDs forthcoming, end
 }
 
 @unpublished{deust2026thermodynamic,
-  title={Thermodynamic Memory for Conversational Agents:
-         A Per-Mechanism Ablation Study on LongMemEval and LoCoMo},
+  title={Thermodynamic Memory vs. Flat-Importance Stores:
+         Why Long-Term Retrieval Collapses Without Decay},
   author={Deust, Clement},
   year={2026},
   note={arXiv ID forthcoming, endorsement in progress},
@@ -372,7 +372,7 @@ The paper PDFs on `main` are the canonical artefacts (arXiv IDs forthcoming, end
 }
 
 @unpublished{deust2026context,
-  title={Structured Context Assembly for Long-Horizon Conversational Memory},
+  title={Stage-Aware Context Assembly for Long-Context Memory Retrieval},
   author={Deust, Clement},
   year={2026},
   note={arXiv ID forthcoming, endorsement in progress},
