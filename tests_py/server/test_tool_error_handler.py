@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 from mcp_server.observability import metrics
@@ -186,6 +188,16 @@ async def test_dispatch_tool_inline_preserves_args():
     result = await _dispatch_tool(handler, {"inline": True}, None)
 
     assert result == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_dispatch_tool_rejects_non_dict_handler_output():
+    async def handler(args: dict[str, Any]) -> str:
+        assert args == {"inline": True}
+        return "bad"
+
+    with pytest.raises(TypeError, match="got str"):
+        await _dispatch_tool(cast(Any, handler), {"inline": True}, None)
 
 
 def test_error_response_preserves_message_key_and_details():

@@ -29,7 +29,6 @@ def test_runtime_error_on_gpu_triggers_cpu_fallback():
     assert result is not None
     assert len(result) == 32 * 4
     assert engine._device == "cpu"
-    assert engine._device == "cpu"
 
 
 def test_runtime_error_on_cpu_reraises():
@@ -75,3 +74,5 @@ def test_cpu_retry_failure_degrades_to_hash():
     engine._ensure_model = fake_ensure
     result = engine.encode("test")
     assert result is not None
+    assert len(result) == 32 * 4
+    assert engine._device == "cpu"

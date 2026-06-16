@@ -66,6 +66,12 @@ class MemorySettings(BaseSettings):
     # heat (0.6) and symbol-level heat (0.8) in ingest_codebase_writers.py;
     # recalibrate with retrieval ablation before changing.
     CODEBASE_ANALYZE_HEAT_BOOST: float = 0.7
+    # source: neutral normalized importance for semantic code-structure
+    # memories. In Cortex papers, 0.7+ is the high-importance event band
+    # while flat-prior items are intentionally unboosted; codebase structural
+    # rows get semantic store_type + heat boost, but stay at the neutral
+    # midpoint until a retrieval ablation supports a stronger prior.
+    CODEBASE_ANALYZE_IMPORTANCE: float = 0.5
 
     # ── Retrieval ─────────────────────────────────────────────────────────
     DEFAULT_RECALL_LIMIT: int = 10

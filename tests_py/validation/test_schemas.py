@@ -69,6 +69,69 @@ class TestValidateToolArgs:
         assert exc_info.value.details["expected"] == "number"
         assert exc_info.value.details["got"] == "bool"
 
+    def test_rejects_number_below_minimum(self):
+        with pytest.raises(ValidationError, match="must be >=") as exc_info:
+            validate_tool_args(
+                "remember",
+                {
+                    "content": "ok",
+                    "initial_heat": -0.01,
+                },
+            )
+
+        assert exc_info.value.details["tool"] == "remember"
+        assert exc_info.value.details["field"] == "initial_heat"
+        assert exc_info.value.details["minimum"] == 0.0
+        assert exc_info.value.details["got"] == -0.01
+
+    def test_rejects_number_above_maximum(self):
+        with pytest.raises(ValidationError, match="must be <=") as exc_info:
+            validate_tool_args(
+                "remember",
+                {
+                    "content": "ok",
+                    "initial_heat": 1.01,
+                },
+            )
+
+        assert exc_info.value.details["tool"] == "remember"
+        assert exc_info.value.details["field"] == "initial_heat"
+        assert exc_info.value.details["maximum"] == 1.0
+        assert exc_info.value.details["got"] == 1.01
+
+    def test_accepts_number_bounds_endpoints(self):
+        assert (
+            validate_tool_args(
+                "remember",
+                {
+                    "content": "ok",
+                    "initial_heat": 0.0,
+                },
+            )["initial_heat"]
+            == 0.0
+        )
+        assert (
+            validate_tool_args(
+                "remember",
+                {
+                    "content": "ok",
+                    "initial_heat": 1.0,
+                },
+            )["initial_heat"]
+            == 1.0
+        )
+
+    def test_accepts_number_without_maximum_constraint(self):
+        result = validate_tool_args(
+            "remember",
+            {
+                "content": "ok",
+                "importance": 2.0,
+            },
+        )
+
+        assert result["importance"] == 2.0
+
     def test_raises_for_boolean_type_mismatch(self):
         with pytest.raises(ValidationError, match="boolean") as exc_info:
             validate_tool_args("rebuild_profiles", {"force": "yes"})

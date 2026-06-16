@@ -2,6 +2,33 @@
 
 from __future__ import annotations
 
+# ADR-0045 R2/R5 (fragility sweep v3.13.0 E3): content envelope tightened
+# from 50K to 10K chars after large memory writes triggered unbounded
+# extraction/indexing cost.
+MEMORY_CONTENT_MAX_CHARS = 10_000
+# ADR-0045 R2 (fragility sweep v3.13.0 E4): bounded tag fan-out prevents
+# FTS/entity-index blowups from untrusted caller-provided tag arrays.
+MEMORY_TAG_MAX_ITEMS = 20
+MEMORY_TAG_MAX_CHARS = 80
+# Schema v1 compatibility envelope for short routing/label fields. These are
+# not content bodies; changing them is an API contract change and should be
+# backed by caller telemetry or a migration.
+SHORT_LABEL_MAX_CHARS = 200
+PATH_FIELD_MAX_CHARS = 500
+TIMESTAMP_MAX_CHARS = 64
+# Cortex heat is normalized to [0, 1] throughout thermodynamic scoring; see
+# docs/papers/thermodynamic-memory-vs-flat-importance.md §4.
+NORMALIZED_SCORE_MIN = 0.0
+NORMALIZED_SCORE_MAX = 1.0
+# Wiki write envelopes preserve the existing authoring API: paths/titles stay
+# short, summaries fit a compact page synopsis, and page bodies keep the
+# pre-validation storage cap pending wiki corpus telemetry.
+WIKI_KIND_MAX_CHARS = 20
+WIKI_RELATION_MAX_CHARS = 40
+WIKI_SUMMARY_MAX_CHARS = 5_000
+WIKI_SECTION_MAX_CHARS = 20_000
+WIKI_PAGE_MAX_CHARS = 200_000
+
 # Each property has a type and optional default.
 SCHEMAS: dict[str, dict] = {
     "query_methodology": {
@@ -77,83 +104,75 @@ SCHEMAS: dict[str, dict] = {
     },
     "remember": {
         "properties": {
-            # ADR-0045 R2/R5 (fragility sweep v3.13.0 E3):
-            # content maxLength tightened from 50_000 -> 10_000 chars.
-            # Taleb audit: a 100 KB content blob triggered ~100K fallback
-            # regex scans in entity extraction plus OOM on the knowledge
-            # graph path. 10 K is the bounded envelope; callers submitting
-            # larger content get a ValidationError and must split upstream.
-            "content": {"type": "string", "maxLength": 10000},
-            # ADR-0045 R2 (fragility sweep v3.13.0 E4):
-            # Bounded tags envelope: at most 20 tags, each <= 80 chars.
-            # Prevents a caller from submitting a 10K-element tag list
-            # (each tag becomes a tsvector lexeme, an FTS dictionary
-            # entry, and a row in memory_entities) which would blow up
-            # indexing cost without bounded benefit.
+            "content": {"type": "string", "maxLength": MEMORY_CONTENT_MAX_CHARS},
             "tags": {
                 "type": "array",
-                "maxItems": 20,
-                "items": {"type": "string", "maxLength": 80},
+                "maxItems": MEMORY_TAG_MAX_ITEMS,
+                "items": {"type": "string", "maxLength": MEMORY_TAG_MAX_CHARS},
             },
-            "source": {"type": "string", "maxLength": 200},
-            "domain": {"type": "string", "maxLength": 200},
-            "directory": {"type": "string", "maxLength": 500},
-            "agent_topic": {"type": "string", "maxLength": 200},
+            "source": {"type": "string", "maxLength": SHORT_LABEL_MAX_CHARS},
+            "domain": {"type": "string", "maxLength": SHORT_LABEL_MAX_CHARS},
+            "directory": {"type": "string", "maxLength": PATH_FIELD_MAX_CHARS},
+            "agent_topic": {"type": "string", "maxLength": SHORT_LABEL_MAX_CHARS},
             "importance": {"type": "number"},
-            "created_at": {"type": "string", "maxLength": 64},
-            "initial_heat": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "created_at": {"type": "string", "maxLength": TIMESTAMP_MAX_CHARS},
+            "initial_heat": {
+                "type": "number",
+                "minimum": NORMALIZED_SCORE_MIN,
+                "maximum": NORMALIZED_SCORE_MAX,
+            },
         },
         "required": ["content"],
     },
     "recall": {
         "properties": {
-            "query": {"type": "string", "maxLength": 10000},
+            "query": {"type": "string", "maxLength": MEMORY_CONTENT_MAX_CHARS},
             "limit": {"type": "number"},
-            "domain": {"type": "string", "maxLength": 200},
-            "directory": {"type": "string", "maxLength": 500},
-            "agent_topic": {"type": "string", "maxLength": 200},
+            "domain": {"type": "string", "maxLength": SHORT_LABEL_MAX_CHARS},
+            "directory": {"type": "string", "maxLength": PATH_FIELD_MAX_CHARS},
+            "agent_topic": {"type": "string", "maxLength": SHORT_LABEL_MAX_CHARS},
         },
         "required": ["query"],
     },
     "wiki_write": {
         "properties": {
-            "path": {"type": "string", "maxLength": 500},
-            "content": {"type": "string", "maxLength": 200000},
+            "path": {"type": "string", "maxLength": PATH_FIELD_MAX_CHARS},
+            "content": {"type": "string", "maxLength": WIKI_PAGE_MAX_CHARS},
             "mode": {"type": "string"},
-            "title": {"type": "string", "maxLength": 500},
-            "summary": {"type": "string", "maxLength": 5000},
-            "body": {"type": "string", "maxLength": 200000},
+            "title": {"type": "string", "maxLength": PATH_FIELD_MAX_CHARS},
+            "summary": {"type": "string", "maxLength": WIKI_SUMMARY_MAX_CHARS},
+            "body": {"type": "string", "maxLength": WIKI_PAGE_MAX_CHARS},
             "tags": {"type": "array"},
         },
         "required": ["path"],
     },
     "wiki_read": {
         "properties": {
-            "path": {"type": "string", "maxLength": 500},
+            "path": {"type": "string", "maxLength": PATH_FIELD_MAX_CHARS},
         },
         "required": ["path"],
     },
     "wiki_list": {
         "properties": {
-            "kind": {"type": "string", "maxLength": 20},
+            "kind": {"type": "string", "maxLength": WIKI_KIND_MAX_CHARS},
         },
         "required": [],
     },
     "wiki_link": {
         "properties": {
-            "from_path": {"type": "string", "maxLength": 500},
-            "to_path": {"type": "string", "maxLength": 500},
-            "relation": {"type": "string", "maxLength": 40},
+            "from_path": {"type": "string", "maxLength": PATH_FIELD_MAX_CHARS},
+            "to_path": {"type": "string", "maxLength": PATH_FIELD_MAX_CHARS},
+            "relation": {"type": "string", "maxLength": WIKI_RELATION_MAX_CHARS},
         },
         "required": ["from_path", "to_path", "relation"],
     },
     "wiki_adr": {
         "properties": {
-            "title": {"type": "string", "maxLength": 500},
-            "context": {"type": "string", "maxLength": 20000},
-            "decision": {"type": "string", "maxLength": 20000},
-            "consequences": {"type": "string", "maxLength": 20000},
-            "status": {"type": "string", "maxLength": 40},
+            "title": {"type": "string", "maxLength": PATH_FIELD_MAX_CHARS},
+            "context": {"type": "string", "maxLength": WIKI_SECTION_MAX_CHARS},
+            "decision": {"type": "string", "maxLength": WIKI_SECTION_MAX_CHARS},
+            "consequences": {"type": "string", "maxLength": WIKI_SECTION_MAX_CHARS},
+            "status": {"type": "string", "maxLength": WIKI_RELATION_MAX_CHARS},
             "tags": {"type": "array"},
         },
         "required": ["title", "context", "decision", "consequences"],

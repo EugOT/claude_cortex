@@ -156,7 +156,6 @@ class SqliteMemoryStore(
 
             self._raw_conn.enable_load_extension(True)
             sqlite_vec.load(self._raw_conn)
-            self._raw_conn.enable_load_extension(False)
             self._conn.execute(MEMORIES_VEC_DDL)
             self._conn.commit()
             self._has_vec = True
@@ -164,6 +163,11 @@ class SqliteMemoryStore(
         except Exception as exc:
             logger.info("sqlite-vec unavailable (%s) — vector search disabled", exc)
             self._has_vec = False
+        finally:
+            try:
+                self._raw_conn.enable_load_extension(False)
+            except Exception:
+                pass
 
     @property
     def has_vec(self) -> bool:

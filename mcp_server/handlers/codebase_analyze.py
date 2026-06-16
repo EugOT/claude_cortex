@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from mcp_server.core.codebase_parser import (
-    EXT_TO_LANG,
     build_memory_content,
     parse_file,
 )
@@ -29,10 +28,15 @@ from mcp_server.handlers.codebase_analyze_helpers import (
     mark_stale,
     persist_entities,
 )
+from mcp_server.handlers.codebase_analyze_graph import run_graph_analysis
+from mcp_server.handlers.codebase_analyze_response import (
+    dry_run_response,
+    success_response,
+)
+from mcp_server.handlers.codebase_analyze_schema import schema as schema
 from mcp_server.handlers.remember import handler as remember_handler
 from mcp_server.infrastructure.memory_config import get_memory_settings
 from mcp_server.infrastructure.memory_store import MemoryStore, get_shared_store
-from mcp_server.handlers._tool_meta import READ_ONLY
 
 if TYPE_CHECKING:
     from mcp_server.infrastructure.pg_store import PgMemoryStore
@@ -41,97 +45,6 @@ if TYPE_CHECKING:
     StoreBackend = PgMemoryStore | SqliteMemoryStore
 else:
     StoreBackend = Any
-
-# ── Schema ────────────────────────────────────────────────────────────────
-
-schema = {
-    "title": "Codebase analyze",
-    "annotations": READ_ONLY,
-    "description": (
-        "Walk a codebase and store its structure as memories using tree-"
-        "sitter AST parsing (with regex fallback for unsupported "
-        "languages). One memory per file, with symbols as entities and "
-        "imports as relationships; then cross-file symbol resolution, "
-        "call-graph extraction, and community detection over the call "
-        "graph. Incremental — only re-processes files whose content hash "
-        "changed since last run (tracked via HASH_TAG_PREFIX tags). Use "
-        "this on first onboarding to a serious codebase, or after a major "
-        "refactor that invalidates symbol assumptions. Distinct from "
-        "`seed_project` (5-stage shallow structural sweep, no AST), "
-        "`backfill_memories` (Claude Code conversations, not source "
-        "files), `wiki_seed_codebase` (seeds wiki pages from .md docs), "
-        "and `ingest_codebase` (downstream PRD-generator consumer). "
-        "Mutates memories + entities + relationships tables. Latency "
-        "varies (~10s-10min depending on tree size). Returns "
-        "{files_analyzed, files_skipped, memories_written, entities_"
-        "created, relationships_created}."
-    ),
-    "inputSchema": {
-        "type": "object",
-        "required": [],
-        "properties": {
-            "directory": {
-                "type": "string",
-                "description": "Root directory of the codebase to analyze. Defaults to the current working directory.",
-                "examples": ["/Users/alice/code/cortex"],
-            },
-            "languages": {
-                "type": "array",
-                "description": (
-                    "Restrict analysis to specific languages by tree-sitter "
-                    "grammar name. Omit to auto-detect from file extensions."
-                ),
-                "items": {
-                    "type": "string",
-                    "enum": [
-                        "python",
-                        "javascript",
-                        "typescript",
-                        "rust",
-                        "go",
-                        "java",
-                        "swift",
-                        "c",
-                        "cpp",
-                        "ruby",
-                    ],
-                },
-                "default": [],
-                "examples": [["python"], ["typescript", "javascript"]],
-            },
-            "max_files": {
-                "type": "integer",
-                "description": "Maximum number of files to process per call. Set to 0 (default) for no limit — process every matching file. Use a positive cap only to bound runaway analysis on extremely large monorepos.",
-                "default": 0,
-                "minimum": 0,
-                "examples": [0, 500, 5000],
-            },
-            "max_file_size_kb": {
-                "type": "integer",
-                "description": "Skip files larger than this many kilobytes (typically generated files or binary blobs).",
-                "default": 100,
-                "minimum": 1,
-                "maximum": 4096,
-                "examples": [100, 256],
-            },
-            "incremental": {
-                "type": "boolean",
-                "description": "Only re-process files whose content hash changed since the last analysis. Disable for a clean rescan.",
-                "default": True,
-            },
-            "dry_run": {
-                "type": "boolean",
-                "description": "Report what would be analyzed and stored without writing any memories.",
-                "default": False,
-            },
-            "domain": {
-                "type": "string",
-                "description": "Cognitive domain to tag analysis memories with. Auto-detected from directory if omitted.",
-                "examples": ["cortex", "auth-service"],
-            },
-        },
-    },
-}
 
 CODEBASE_SOURCE = "codebase_analyze"
 CODEBASE_TAG = "codebase"
@@ -187,13 +100,13 @@ def _set_memory_metadata(store: StoreBackend, memory_id: int) -> None:
     Phase 5: batch pool. A3 heat writes route through the canonical writer.
     """
     try:
+        settings = get_memory_settings()
         with store.acquire_batch() as conn:
             conn.execute(
                 "UPDATE memories SET store_type = 'semantic', "
-                "importance = 0.5 WHERE id = %s",
-                (memory_id,),
+                "importance = %s WHERE id = %s",
+                (settings.CODEBASE_ANALYZE_IMPORTANCE, memory_id),
             )
-        settings = get_memory_settings()
         store.bump_heat_raw(memory_id, settings.CODEBASE_ANALYZE_HEAT_BOOST)
     except Exception as exc:
         _log(f"metadata update failed for memory_id={memory_id}: {exc}")
@@ -289,35 +202,18 @@ async def _process_files(
     )
 
 
-async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Analyze a codebase and store its structure as Cortex memories."""
-    root, languages, max_files, max_bytes, incremental, dry_run, domain = _parse_args(
-        args
-    )
-
-    if not root.exists() or not root.is_dir():
-        return {"analyzed": False, "reason": f"directory not found: {root}"}
-
-    _log(f"scanning {root} (max_files={max_files}, incremental={incremental})")
-    source_files = collect_source_files(root, languages, max_files, max_bytes)
-    _log(f"found {len(source_files)} source files")
-
-    if dry_run:
-        langs = list({EXT_TO_LANG.get(f.suffix.lower(), "?") for f in source_files})
-        return {
-            "analyzed": False,
-            "dry_run": True,
-            "directory": str(root),
-            "source_files": len(source_files),
-            "languages": langs,
-        }
-
-    store = cast(MemoryStore, _get_store())
+async def _analyze_and_store(
+    root: Path,
+    source_files: list[Path],
+    incremental: bool,
+    store: MemoryStore,
+    domain: str,
+) -> dict[str, Any]:
     existing = load_existing_hashes(store) if incremental else {}
     if incremental:
         _log(f"loaded {len(existing)} existing file hashes")
 
-    new_c, upd_c, unch_c, ents, rels, seen, analyses, contents = await _process_files(
+    processed = await _process_files(
         source_files,
         root,
         existing,
@@ -325,68 +221,37 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
         domain,
         store,
     )
+    new_c, upd_c, unch_c, ents, rels, seen, analyses, contents = processed
     stale = _mark_deleted(existing, seen, store, incremental)
-
-    # Phase 2: cross-file resolution, type references, communities
-    graph_stats = _run_graph_analysis(analyses, contents, store, domain or "code")
+    graph_stats = run_graph_analysis(analyses, contents, store, domain or "code")
 
     _log(f"done: {new_c} new, {upd_c} updated, {unch_c} unchanged, {stale} stale")
     _log(f"graph: {graph_stats}")
-    return {
-        "analyzed": True,
-        "directory": str(root),
-        "source_files": len(source_files),
-        "new": new_c,
-        "updated": upd_c,
-        "unchanged": unch_c,
-        "stale_marked": stale,
-        "entities": ents,
-        "relationships": rels,
-        "graph": graph_stats,
-        "languages": list(
-            {EXT_TO_LANG.get(f.suffix.lower(), "?") for f in source_files}
-        ),
-    }
-
-
-def _run_graph_analysis(
-    analyses: list[Any],
-    file_contents: dict[str, str],
-    store: MemoryStore,
-    domain: str,
-) -> dict[str, int]:
-    """Run cross-file resolution, type references, and communities."""
-    from mcp_server.core.codebase_graph import (
-        detect_communities,
-        extract_inheritance,
-        resolve_all_imports,
-    )
-    from mcp_server.core.codebase_type_resolver import resolve_type_references
-    from mcp_server.handlers.codebase_analyze_helpers import (
-        persist_community_tags,
-        persist_file_edge,
-        persist_inheritance_edge,
+    return success_response(
+        root,
+        source_files,
+        (new_c, upd_c, unch_c, ents, rels),
+        stale,
+        graph_stats,
     )
 
-    import_edges = resolve_all_imports(analyses)
-    type_ref_edges = resolve_type_references(analyses, file_contents)
-    all_file_edges = list(set(import_edges + type_ref_edges))
-    inherit_edges = extract_inheritance(analyses)
-    communities = detect_communities(all_file_edges, [])
 
-    file_rels = persist_file_edge(store, all_file_edges, domain)
-    inherit_rels = persist_inheritance_edge(store, inherit_edges, domain)
-    persist_community_tags(store, communities)
+async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Analyze a codebase and store its structure as Cortex memories."""
+    root, languages, max_files, max_bytes, incremental, dry_run, domain = _parse_args(
+        args
+    )
+    if not root.exists() or not root.is_dir():
+        return {"analyzed": False, "reason": f"directory not found: {root}"}
 
-    return {
-        "import_edges": len(import_edges),
-        "type_ref_edges": len(type_ref_edges),
-        "total_file_edges": len(all_file_edges),
-        "inheritance_edges": len(inherit_edges),
-        "communities": len(set(communities.values())) if communities else 0,
-        "file_edges_stored": file_rels,
-        "inherit_edges_stored": inherit_rels,
-    }
+    _log(f"scanning {root} (max_files={max_files}, incremental={incremental})")
+    source_files = collect_source_files(root, languages, max_files, max_bytes)
+    _log(f"found {len(source_files)} source files")
+    if dry_run:
+        return dry_run_response(root, source_files)
+
+    store = cast(MemoryStore, _get_store())
+    return await _analyze_and_store(root, source_files, incremental, store, domain)
 
 
 def _resolve_relative(source_path: Path, root: Path) -> str:

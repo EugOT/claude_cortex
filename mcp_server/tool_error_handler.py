@@ -156,10 +156,15 @@ async def _dispatch_tool(
     # ``output_schema``. If a handler regresses to None we surface
     # an empty dict so FastMCP's structured-content validator does
     # not reject the response.
-    return _normalize_result(result)
+    normalized = _normalize_result(result)
+    if not isinstance(normalized, dict):
+        raise TypeError(
+            f"Handler must return dict | None, got {type(normalized).__name__}"
+        )
+    return normalized
 
 
-def _normalize_result(result: dict[str, Any] | None) -> dict[str, Any]:
+def _normalize_result(result: Any) -> Any:
     return {} if result is None else result
 
 

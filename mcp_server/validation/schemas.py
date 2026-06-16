@@ -99,6 +99,8 @@ def _check_field_type(
             f'Field "{field}" must be a {spec["type"]}, got {got}',
             {"tool": tool_name, "field": field, "expected": spec["type"], "got": got},
         )
+    if spec["type"] == "number":
+        _check_numeric_bounds(tool_name, field, value, spec)
     max_len = spec.get("maxLength")
     if max_len is not None and isinstance(value, str) and len(value) > max_len:
         raise ValidationError(
@@ -107,6 +109,26 @@ def _check_field_type(
         )
     if spec["type"] == "array" and isinstance(value, list):
         _check_array_envelope(tool_name, field, value, spec)
+
+
+def _check_numeric_bounds(
+    tool_name: str,
+    field: str,
+    value: int | float,
+    spec: dict[str, Any],
+) -> None:
+    minimum = spec.get("minimum")
+    if minimum is not None and value < minimum:
+        raise ValidationError(
+            f'Field "{field}" must be >= {minimum}, got {value}',
+            {"tool": tool_name, "field": field, "minimum": minimum, "got": value},
+        )
+    maximum = spec.get("maximum")
+    if maximum is not None and value > maximum:
+        raise ValidationError(
+            f'Field "{field}" must be <= {maximum}, got {value}',
+            {"tool": tool_name, "field": field, "maximum": maximum, "got": value},
+        )
 
 
 def validate_tool_args(tool_name: str, args: dict[str, Any] | None) -> dict[str, Any]:

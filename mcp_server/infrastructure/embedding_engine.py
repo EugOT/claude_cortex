@@ -242,6 +242,9 @@ class EmbeddingEngine:
             self._model = self._load_model(device)
         except self._cache_miss_exceptions():
             self._download_model(device, had_offline)
+        except Exception as exc:
+            logger.debug("Offline embedding model load failed: %s", exc)
+            self._download_model(device, had_offline)
 
     def _download_model(self, device: str, had_offline: str | None) -> None:
         self._restore_hf_offline(had_offline)
