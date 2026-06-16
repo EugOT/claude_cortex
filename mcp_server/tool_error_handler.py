@@ -28,7 +28,7 @@ Usage in tool registries:
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, Coroutine
+from typing import Any, Awaitable, Callable
 
 _DB_SETUP_GUIDE = (
     "Cortex could not connect to PostgreSQL. "
@@ -55,20 +55,21 @@ _EXTENSION_GUIDE = (
 
 def _classify_error(exc: Exception) -> tuple[str, str]:
     """Classify an exception into a user-friendly category and message."""
-    exc_lower = (type(exc).__name__ + " " + str(exc)).lower()
+    haystacks = (type(exc).__name__.lower(), str(exc).lower())
 
     if any(
-        kw in exc_lower
+        kw in haystack
         for kw in [
             'type "vector" does not exist',
             "extension",
             "pg_trgm",
         ]
+        for haystack in haystacks
     ):
         return "missing_extension", _EXTENSION_GUIDE
 
     if any(
-        kw in exc_lower
+        kw in haystack
         for kw in [
             "connection refused",
             "could not connect",
@@ -80,6 +81,7 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
             "password authentication",
             "timeout",
         ]
+        for haystack in haystacks
     ):
         return "database_not_connected", _DB_SETUP_GUIDE
 
@@ -87,9 +89,9 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
 
 
 def _run_coroutine_on_thread(
-    handler_fn: Callable[..., Coroutine[Any, Any, dict]],
+    handler_fn: Callable[..., Awaitable[dict[str, Any] | None]],
     args: dict[str, Any],
-) -> dict:
+) -> dict[str, Any] | None:
     """Run an async handler's coroutine on a fresh event loop in a worker thread.
 
     Used by ``safe_handler`` under ``asyncio.to_thread`` to give real
@@ -110,82 +112,106 @@ def _run_coroutine_on_thread(
             pass
 
 
+def _validate_args(tool_name: str | None, args: dict[str, Any]) -> dict[str, Any]:
+    if not tool_name:
+        return args
+    from mcp_server.validation.schemas import validate_tool_args
+
+    return validate_tool_args(tool_name, args)
+
+
+async def _run_tool_with_admission(
+    tool_name: str,
+    handler_fn: Callable[..., Awaitable[dict[str, Any] | None]],
+    args: dict[str, Any],
+) -> dict[str, Any] | None:
+    from mcp_server.handlers.admission import admit
+    from mcp_server.observability import metrics
+
+    async with admit(tool_name):
+        with metrics.Timer("cortex_tool_duration_seconds", {"tool": tool_name}):
+            result = await asyncio.to_thread(_run_coroutine_on_thread, handler_fn, args)
+    metrics.inc_counter("cortex_tool_calls_total", {"tool": tool_name, "status": "ok"})
+    return result
+
+
+async def _run_inline(
+    handler_fn: Callable[..., Awaitable[dict[str, Any] | None]],
+    args: dict[str, Any],
+) -> dict[str, Any] | None:
+    return await handler_fn(args)
+
+
+async def _dispatch_tool(
+    handler_fn: Callable[..., Awaitable[dict[str, Any] | None]],
+    args: dict[str, Any],
+    tool_name: str | None,
+) -> dict[str, Any]:
+    call_args = _validate_args(tool_name, args)
+    if tool_name:
+        result = await _run_tool_with_admission(tool_name, handler_fn, call_args)
+    else:
+        result = await _run_inline(handler_fn, call_args)
+    # Defensive: every handler must already return a dict per its
+    # ``output_schema``. If a handler regresses to None we surface
+    # an empty dict so FastMCP's structured-content validator does
+    # not reject the response.
+    normalized = _normalize_result(result)
+    if not isinstance(normalized, dict):
+        raise TypeError(
+            f"Handler must return dict | None, got {type(normalized).__name__}"
+        )
+    return normalized
+
+
+def _normalize_result(result: Any) -> Any:
+    return {} if result is None else result
+
+
+def _record_error_metrics(tool_name: str | None) -> None:
+    if not tool_name:
+        return
+    try:
+        from mcp_server.observability import metrics
+
+        metrics.inc_counter(
+            "cortex_tool_calls_total",
+            {"tool": tool_name, "status": "error"},
+        )
+    except Exception:
+        pass
+
+
+def _error_response(exc: Exception) -> dict[str, Any]:
+    error_type, message = _classify_error(exc)
+    response: dict[str, Any] = {
+        "error": error_type,
+        "message": message,
+        "hint": _hint_for_error(error_type),
+    }
+    details = getattr(exc, "details", None)
+    if details:
+        response["details"] = details
+    return response
+
+
+def _hint_for_error(error_type: str) -> str | None:
+    if error_type in ("missing_extension", "database_not_connected", "ValidationError"):
+        return None
+    return (
+        "If this persists, check that PostgreSQL is running "
+        "and DATABASE_URL is set correctly."
+    )
+
+
 async def safe_handler(
-    handler_fn: Callable[..., Coroutine[Any, Any, dict]],
+    handler_fn: Callable[..., Awaitable[dict[str, Any] | None]],
     args: dict[str, Any],
     tool_name: str | None = None,
 ) -> dict[str, Any]:
-    """Call a handler and return its dict, catching errors gracefully.
-
-    When ``tool_name`` is provided:
-      * The call is gated by the per-tool admission semaphore (Phase 5
-        step 5). Bounds concurrency so one client cannot DoS a tool by
-        hammering it.
-      * The handler runs on a worker thread via ``asyncio.to_thread``
-        (Phase 5 step 4). The handler body — which calls sync DB
-        methods — no longer blocks the event loop, and two concurrent
-        tool invocations genuinely run in parallel (the pool gives each
-        worker its own DB connection).
-
-    When ``tool_name`` is omitted the call runs in-line on the caller's
-    event loop without admission (backward-compat for code paths not
-    yet migrated).
-
-    Contract (issue #17 — Liskov enforcement across all MCP handlers):
-      precondition: ``handler_fn`` is an async callable returning a dict.
-      postcondition: returns a ``dict[str, Any]``. Never a JSON string.
-                     FastMCP 2.x validates structured content against
-                     the declared ``output_schema`` and rejects strings.
-
-    On success: returns the handler's dict verbatim.
-    On DB errors: returns a friendly setup-guide dict.
-    On other errors: returns an error-type/message dict (no traceback).
-    """
+    """Call a handler and map exceptions into safe response dictionaries."""
     try:
-        if tool_name:
-            from mcp_server.handlers.admission import admit
-            from mcp_server.observability import metrics
-
-            async with admit(tool_name):
-                with metrics.Timer(
-                    "cortex_tool_duration_seconds",
-                    {"tool": tool_name},
-                ):
-                    result = await asyncio.to_thread(
-                        _run_coroutine_on_thread, handler_fn, args
-                    )
-            metrics.inc_counter(
-                "cortex_tool_calls_total",
-                {"tool": tool_name, "status": "ok"},
-            )
-        else:
-            result = await handler_fn(args)
-        # Defensive: every handler must already return a dict per its
-        # ``output_schema``. If a handler regresses to None we surface
-        # an empty dict so FastMCP's structured-content validator does
-        # not reject the response.
-        if result is None:
-            return {}
-        return result
+        return await _dispatch_tool(handler_fn, args, tool_name)
     except Exception as exc:
-        error_type, message = _classify_error(exc)
-        if tool_name:
-            try:
-                from mcp_server.observability import metrics
-
-                metrics.inc_counter(
-                    "cortex_tool_calls_total",
-                    {"tool": tool_name, "status": "error"},
-                )
-            except Exception:
-                pass
-        return {
-            "error": error_type,
-            "message": message,
-            "hint": (
-                "If this persists, check that PostgreSQL is running "
-                "and DATABASE_URL is set correctly."
-            )
-            if error_type not in ("missing_extension", "database_not_connected")
-            else None,
-        }
+        _record_error_metrics(tool_name)
+        return _error_response(exc)

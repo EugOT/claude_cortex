@@ -61,7 +61,11 @@ class MemorySettings(BaseSettings):
     SYNAPTIC_BOOST: float = 0.2
     SESSION_COHERENCE_BONUS: float = 0.2
     SESSION_COHERENCE_WINDOW_HOURS: float = 4.0
-
+    # source: existing codebase_analyze semantic-memory write path retained
+    # through the A3 canonical-writer migration. It sits between file-level
+    # heat (0.6) and symbol-level heat (0.8) in ingest_codebase_writers.py;
+    # recalibrate with retrieval ablation before changing.
+    CODEBASE_ANALYZE_HEAT_BOOST: float = 0.7
     # ── Retrieval ─────────────────────────────────────────────────────────
     DEFAULT_RECALL_LIMIT: int = 10
     WRRF_K: int = 60

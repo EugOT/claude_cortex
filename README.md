@@ -387,7 +387,9 @@ Runs **100% locally** — MCP over stdio, PostgreSQL on localhost, visualization
 ## Development
 
 ```bash
-pixi run test             # 3,000+ tests
+pixi run test             # Full pytest suite
+pixi run test-e2e         # Cortex FastMCP surface scenarios
+pixi run mutation         # Mutmut boundary/safety mutation pass
 pixi run lint             # Lint
 pixi run format-check     # Format
 pixi run typecheck        # Pyright baseline, visible but not yet required

@@ -36,68 +36,108 @@
 // workflow's Commit phase will commit + push + open a PR against main.
 
 export const meta = {
-  name: 'clinical-graph-rebuild',
-  description: 'Build the clinical-hospital graph viz at ui/clinical/ — Sigma.js + graphology, big-picture→zoom-in→sub-graph, zero JS errors',
-  phases: [
-    { title: 'Spec',     detail: '3 parallel design agents — navigation model, sub-graph drill-down, streaming wire-up' },
-    { title: 'Scaffold', detail: 'create ui/clinical/, vendor sigma.js + graphology, write boot HTML + module skeleton' },
-    { title: 'Big-pic',  detail: 'implement the landing big-picture view (domains + structural backbone) from /api/graph/phase' },
-    { title: 'Zoom',     detail: 'progressive zoom-in: scroll/pinch deepens the visible phase (L0→L1→L2→L3)' },
-    { title: 'Sub-graph', detail: 'node click opens chain-of-call/action as a SEPARATE graph view (modal/side panel)' },
-    { title: 'Live',     detail: 'wire /api/graph/events SSE for incremental updates after initial paint' },
-    { title: 'Verify',   detail: '4 parallel adversarial verifiers — JS syntax, console.error hunt, accessibility, smoke test' },
-    { title: 'Commit',   detail: 'final review pass + git commit + push + open PR' },
-  ],
-}
+	name: "clinical-graph-rebuild",
+	description:
+		"Build the clinical-hospital graph viz at ui/clinical/ — Sigma.js + graphology, big-picture→zoom-in→sub-graph, zero JS errors",
+	phases: [
+		{
+			title: "Spec",
+			detail:
+				"3 parallel design agents — navigation model, sub-graph drill-down, streaming wire-up",
+		},
+		{
+			title: "Scaffold",
+			detail:
+				"create ui/clinical/, vendor sigma.js + graphology, write boot HTML + module skeleton",
+		},
+		{
+			title: "Big-pic",
+			detail:
+				"implement the landing big-picture view (domains + structural backbone) from /api/graph/phase",
+		},
+		{
+			title: "Zoom",
+			detail:
+				"progressive zoom-in: scroll/pinch deepens the visible phase (L0→L1→L2→L3)",
+		},
+		{
+			title: "Sub-graph",
+			detail:
+				"node click opens chain-of-call/action as a SEPARATE graph view (modal/side panel)",
+		},
+		{
+			title: "Live",
+			detail:
+				"wire /api/graph/events SSE for incremental updates after initial paint",
+		},
+		{
+			title: "Verify",
+			detail:
+				"4 parallel adversarial verifiers — JS syntax, console.error hunt, accessibility, smoke test",
+		},
+		{
+			title: "Commit",
+			detail: "final review pass + git commit + push + open PR",
+		},
+	],
+};
 
 const SPEC_SCHEMA = {
-  type: 'object',
-  properties: {
-    title: { type: 'string' },
-    decisions: {
-      type: 'array',
-      items: { type: 'object', properties: {
-        decision: { type: 'string' },
-        rationale: { type: 'string' },
-      }, required: ['decision', 'rationale'] }
-    },
-    api_endpoints_used: { type: 'array', items: { type: 'string' } },
-    pseudocode: { type: 'string' },
-  },
-  required: ['title', 'decisions', 'api_endpoints_used', 'pseudocode'],
-  additionalProperties: false,
-}
+	type: "object",
+	properties: {
+		title: { type: "string" },
+		decisions: {
+			type: "array",
+			items: {
+				type: "object",
+				properties: {
+					decision: { type: "string" },
+					rationale: { type: "string" },
+				},
+				required: ["decision", "rationale"],
+			},
+		},
+		api_endpoints_used: { type: "array", items: { type: "string" } },
+		pseudocode: { type: "string" },
+	},
+	required: ["title", "decisions", "api_endpoints_used", "pseudocode"],
+	additionalProperties: false,
+};
 
 const IMPL_SCHEMA = {
-  type: 'object',
-  properties: {
-    files_written: { type: 'array', items: { type: 'string' } },
-    files_modified: { type: 'array', items: { type: 'string' } },
-    summary: { type: 'string' },
-    open_questions: { type: 'array', items: { type: 'string' } },
-  },
-  required: ['files_written', 'files_modified', 'summary'],
-  additionalProperties: false,
-}
+	type: "object",
+	properties: {
+		files_written: { type: "array", items: { type: "string" } },
+		files_modified: { type: "array", items: { type: "string" } },
+		summary: { type: "string" },
+		open_questions: { type: "array", items: { type: "string" } },
+	},
+	required: ["files_written", "files_modified", "summary"],
+	additionalProperties: false,
+};
 
 const VERIFY_SCHEMA = {
-  type: 'object',
-  properties: {
-    check: { type: 'string' },
-    passed: { type: 'boolean' },
-    findings: {
-      type: 'array',
-      items: { type: 'object', properties: {
-        severity: { type: 'string', enum: ['blocker', 'warning', 'info'] },
-        file: { type: 'string' },
-        line: { type: 'number' },
-        message: { type: 'string' },
-      }, required: ['severity', 'message'] }
-    },
-  },
-  required: ['check', 'passed', 'findings'],
-  additionalProperties: false,
-}
+	type: "object",
+	properties: {
+		check: { type: "string" },
+		passed: { type: "boolean" },
+		findings: {
+			type: "array",
+			items: {
+				type: "object",
+				properties: {
+					severity: { type: "string", enum: ["blocker", "warning", "info"] },
+					file: { type: "string" },
+					line: { type: "number" },
+					message: { type: "string" },
+				},
+				required: ["severity", "message"],
+			},
+		},
+	},
+	required: ["check", "passed", "findings"],
+	additionalProperties: false,
+};
 
 // ── Shared context every agent gets ──
 const CTX = `
@@ -161,14 +201,17 @@ CONSTRAINTS:
   * Duplicate node guard: track loadedPhases (Set) and pendingPhases (Set) in streaming.js;
     check both before every /api/graph/phase fetch to prevent addNode on existing id (Sigma throws).
   * SSE done event: call source.close() in the 'done' event handler to prevent auto-reconnect loop.
-`
+`;
 
-phase('Spec')
+export default async function runClinicalGraphRebuild() {
+	phase("Spec");
 
-// 3 spec agents in parallel — each writes ONE markdown spec under
-// ui/clinical/docs/. They don't touch JS so parallel is safe.
-const specs = await parallel([
-  () => agent(`${CTX}
+	// 3 spec agents in parallel — each writes ONE markdown spec under
+	// ui/clinical/docs/. They don't touch JS so parallel is safe.
+	const specs = await parallel([
+		() =>
+			agent(
+				`${CTX}
 
 ROLE: Navigation-model designer for the clinical-hospital graph rebuild.
 
@@ -185,9 +228,12 @@ INCLUDE:
 
 RETURN the schema-shaped summary. Files written goes in 'pseudocode'
 as a brief outline of the actual code structure the implementer will follow.`,
-    { schema: SPEC_SCHEMA, label: 'spec:navigation' }),
+				{ schema: SPEC_SCHEMA, label: "spec:navigation" },
+			),
 
-  () => agent(`${CTX}
+		() =>
+			agent(
+				`${CTX}
 
 ROLE: Sub-graph drill-down designer.
 
@@ -207,9 +253,12 @@ INCLUDE:
 
 If a new server endpoint is genuinely needed, list it under
 'open_questions' so the user can decide whether to add it later.`,
-    { schema: SPEC_SCHEMA, label: 'spec:sub-graph' }),
+				{ schema: SPEC_SCHEMA, label: "spec:sub-graph" },
+			),
 
-  () => agent(`${CTX}
+		() =>
+			agent(
+				`${CTX}
 
 ROLE: Streaming + initial-load wire designer.
 
@@ -227,16 +276,18 @@ INCLUDE:
     anchor; never NaN.
   * Loading UI: progress bar wired to /api/graph/progress.pct,
     phase-name display.`,
-    { schema: SPEC_SCHEMA, label: 'spec:streaming' }),
-])
+				{ schema: SPEC_SCHEMA, label: "spec:streaming" },
+			),
+	]);
 
-const validSpecs = specs.filter(Boolean)
-log(`Specs complete: ${validSpecs.length}/3`)
-for (const s of validSpecs) log(`  - ${s.title}`)
+	const validSpecs = specs.filter(Boolean);
+	log(`Specs complete: ${validSpecs.length}/3`);
+	for (const s of validSpecs) log(`  - ${s.title}`);
 
-phase('Scaffold')
+	phase("Scaffold");
 
-const scaffold = await agent(`${CTX}
+	const scaffold = await agent(
+		`${CTX}
 
 ROLE: Scaffold engineer.
 
@@ -291,17 +342,19 @@ trigger layout pre-computation so /api/quadtree has data:
 (best-effort; ui gracefully falls back to circular layout on 503).
 
 RETURN the IMPL_SCHEMA shape.`,
-  { schema: IMPL_SCHEMA, label: 'scaffold', model: 'sonnet' })
+		{ schema: IMPL_SCHEMA, label: "scaffold", model: "sonnet" },
+	);
 
-log(`Scaffold: ${scaffold ? scaffold.summary : 'FAILED'}`)
-if (!scaffold) {
-  log('Scaffold failed; aborting workflow.')
-  return { aborted: 'scaffold' }
-}
+	log(`Scaffold: ${scaffold ? scaffold.summary : "FAILED"}`);
+	if (!scaffold) {
+		log("Scaffold failed; aborting workflow.");
+		return { aborted: "scaffold" };
+	}
 
-phase('Big-pic')
+	phase("Big-pic");
 
-const bigpic = await agent(`${CTX}
+	const bigpic = await agent(
+		`${CTX}
 
 ROLE: Big-picture landing-view implementer.
 
@@ -335,17 +388,19 @@ Read ui/clinical/docs/01-navigation-model.md first for the depth=0
 spec. Read renderer.js as scaffolded; replace stubs with real code.
 
 RETURN IMPL_SCHEMA.`,
-  { schema: IMPL_SCHEMA, label: 'big-picture', model: 'sonnet' })
+		{ schema: IMPL_SCHEMA, label: "big-picture", model: "sonnet" },
+	);
 
-log(`Big-pic: ${bigpic ? bigpic.summary : 'FAILED'}`)
-if (!bigpic) {
-  log('Big-picture failed; aborting workflow.')
-  return { aborted: 'big-picture' }
-}
+	log(`Big-pic: ${bigpic ? bigpic.summary : "FAILED"}`);
+	if (!bigpic) {
+		log("Big-picture failed; aborting workflow.");
+		return { aborted: "big-picture" };
+	}
 
-phase('Zoom')
+	phase("Zoom");
 
-const zoom = await agent(`${CTX}
+	const zoom = await agent(
+		`${CTX}
 
 ROLE: Progressive-zoom implementer.
 
@@ -372,17 +427,19 @@ CONSTRAINTS:
   * Loading a phase is async — show a spinner near the depth indicator.
 
 RETURN IMPL_SCHEMA.`,
-  { schema: IMPL_SCHEMA, label: 'zoom', model: 'sonnet' })
+		{ schema: IMPL_SCHEMA, label: "zoom", model: "sonnet" },
+	);
 
-log(`Zoom: ${zoom ? zoom.summary : 'FAILED'}`)
-if (!zoom) {
-  log('Zoom failed; aborting workflow.')
-  return { aborted: 'zoom' }
-}
+	log(`Zoom: ${zoom ? zoom.summary : "FAILED"}`);
+	if (!zoom) {
+		log("Zoom failed; aborting workflow.");
+		return { aborted: "zoom" };
+	}
 
-phase('Sub-graph')
+	phase("Sub-graph");
 
-const subgraph = await agent(`${CTX}
+	const subgraph = await agent(
+		`${CTX}
 
 ROLE: Sub-graph drill-down implementer.
 
@@ -413,17 +470,19 @@ CONSTRAINTS:
 
 RETURN IMPL_SCHEMA. List any per-kind that you stubbed out as
 "open_questions".`,
-  { schema: IMPL_SCHEMA, label: 'sub-graph', model: 'sonnet' })
+		{ schema: IMPL_SCHEMA, label: "sub-graph", model: "sonnet" },
+	);
 
-log(`Sub-graph: ${subgraph ? subgraph.summary : 'FAILED'}`)
-if (!subgraph) {
-  log('Sub-graph failed; aborting workflow.')
-  return { aborted: 'sub-graph' }
-}
+	log(`Sub-graph: ${subgraph ? subgraph.summary : "FAILED"}`);
+	if (!subgraph) {
+		log("Sub-graph failed; aborting workflow.");
+		return { aborted: "sub-graph" };
+	}
 
-phase('Live')
+	phase("Live");
 
-const live = await agent(`${CTX}
+	const live = await agent(
+		`${CTX}
 
 ROLE: Live-streaming implementer.
 
@@ -449,19 +508,22 @@ PER spec 03:
     EventSource's built-in Last-Event-ID behaviour).
 
 RETURN IMPL_SCHEMA.`,
-  { schema: IMPL_SCHEMA, label: 'streaming', model: 'sonnet' })
+		{ schema: IMPL_SCHEMA, label: "streaming", model: "sonnet" },
+	);
 
-log(`Live: ${live ? live.summary : 'FAILED'}`)
-if (!live) {
-  log('Live streaming failed; aborting workflow.')
-  return { aborted: 'live' }
-}
+	log(`Live: ${live ? live.summary : "FAILED"}`);
+	if (!live) {
+		log("Live streaming failed; aborting workflow.");
+		return { aborted: "live" };
+	}
 
-phase('Verify')
+	phase("Verify");
 
-// 4 parallel adversarial verifiers
-const verifications = await parallel([
-  () => agent(`${CTX}
+	// 4 parallel adversarial verifiers
+	const verifications = await parallel([
+		() =>
+			agent(
+				`${CTX}
 
 ROLE: JS syntax + import verifier.
 
@@ -473,9 +535,12 @@ Use Bash for 'node --check' and Read for paths.
 
 RETURN VERIFY_SCHEMA. 'check' = 'js-syntax+imports'. Any failure is
 a blocker.`,
-    { schema: VERIFY_SCHEMA, label: 'verify:syntax' }),
+				{ schema: VERIFY_SCHEMA, label: "verify:syntax" },
+			),
 
-  () => agent(`${CTX}
+		() =>
+			agent(
+				`${CTX}
 
 ROLE: console.error + uncaught throw hunter.
 
@@ -493,9 +558,12 @@ Use Grep + Read.
 
 RETURN VERIFY_SCHEMA. 'check' = 'console-errors'. Each suspect is a
 warning unless it's a hot-path throw (blocker).`,
-    { schema: VERIFY_SCHEMA, label: 'verify:errors' }),
+				{ schema: VERIFY_SCHEMA, label: "verify:errors" },
+			),
 
-  () => agent(`${CTX}
+		() =>
+			agent(
+				`${CTX}
 
 ROLE: Accessibility + UX sanity verifier.
 
@@ -510,9 +578,12 @@ Use Read.
 
 RETURN VERIFY_SCHEMA. 'check' = 'accessibility'. Findings = warnings
 unless they break Esc / keyboard navigation (blocker).`,
-    { schema: VERIFY_SCHEMA, label: 'verify:a11y' }),
+				{ schema: VERIFY_SCHEMA, label: "verify:a11y" },
+			),
 
-  () => agent(`${CTX}
+		() =>
+			agent(
+				`${CTX}
 
 ROLE: End-to-end smoke test harness.
 
@@ -531,24 +602,29 @@ Cover:
 
 RETURN VERIFY_SCHEMA. 'check' = 'smoke-plan'. passed=true once the
 plan exists; findings list each scenario as info-level.`,
-    { schema: VERIFY_SCHEMA, label: 'verify:smoke' }),
-])
+				{ schema: VERIFY_SCHEMA, label: "verify:smoke" },
+			),
+	]);
 
-const verifyResults = verifications.filter(Boolean)
-const blockers = verifyResults.flatMap(v =>
-  (v.findings || []).filter(f => f.severity === 'blocker')
-)
-log(`Verify: ${verifyResults.length}/4 checks ran, ${blockers.length} blockers`)
-for (const b of blockers) log(`  BLOCKER ${b.file || ''} ${b.line || ''}: ${b.message}`)
+	const verifyResults = verifications.filter(Boolean);
+	const blockers = verifyResults.flatMap((v) =>
+		(v.findings || []).filter((f) => f.severity === "blocker"),
+	);
+	log(
+		`Verify: ${verifyResults.length}/4 checks ran, ${blockers.length} blockers`,
+	);
+	for (const b of blockers)
+		log(`  BLOCKER ${b.file || ""} ${b.line || ""}: ${b.message}`);
 
-if (blockers.length > 0) {
-  log('Blockers present — refusing to commit. Workflow ends here.')
-  return { aborted: 'verify-blockers', blockers, verifyResults }
-}
+	if (blockers.length > 0) {
+		log("Blockers present — refusing to commit. Workflow ends here.");
+		return { aborted: "verify-blockers", blockers, verifyResults };
+	}
 
-phase('Commit')
+	phase("Commit");
 
-const finalCommit = await agent(`${CTX}
+	const finalCommit = await agent(
+		`${CTX}
 
 ROLE: Final commit + push agent.
 
@@ -565,16 +641,18 @@ DO:
      glued to the server contract from PR #50.
 
 RETURN IMPL_SCHEMA. 'summary' = final state + PR URL.`,
-  { schema: IMPL_SCHEMA, label: 'commit', model: 'sonnet' })
+		{ schema: IMPL_SCHEMA, label: "commit", model: "sonnet" },
+	);
 
-return {
-  specs: validSpecs,
-  scaffold,
-  bigpic,
-  zoom,
-  subgraph,
-  live,
-  verifyResults,
-  blockers,
-  finalCommit,
+	return {
+		specs: validSpecs,
+		scaffold,
+		bigpic,
+		zoom,
+		subgraph,
+		live,
+		verifyResults,
+		blockers,
+		finalCommit,
+	};
 }

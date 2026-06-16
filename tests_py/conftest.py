@@ -92,6 +92,32 @@ def _pg_available() -> bool:
 _guard_against_populated_db()
 _USE_PG = _pg_available()
 
+
+_LIVE_PG_ONLY_FILES = (
+    "tests_py/infrastructure/test_pg_pool.py",
+    "tests_py/infrastructure/test_pg_recall_scoring_debias.py",
+    "tests_py/infrastructure/test_pg_user_mood.py",
+    "tests_py/invariants/test_I10_pool_capacity.py",
+)
+
+
+def _requires_live_pg(nodeid: str) -> bool:
+    """True for tests that instantiate PgMemoryStore or require live PG pools."""
+    normalized = nodeid.replace("\\", "/")
+    return any(path in normalized for path in _LIVE_PG_ONLY_FILES)
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip direct-PostgreSQL tests when the harness is in SQLite fallback mode."""
+    if _USE_PG:
+        return
+
+    skip_pg = pytest.mark.skip(reason="requires a reachable PostgreSQL test DB")
+    for item in items:
+        if _requires_live_pg(item.nodeid):
+            item.add_marker(skip_pg)
+
+
 # When PG isn't available, force SQLite backend with a temp dir
 if not _USE_PG:
     _SQLITE_TEST_DIR = tempfile.mkdtemp(prefix="cortex_test_")

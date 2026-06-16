@@ -264,7 +264,7 @@ Handlers sit at the center as **composition roots**: they wire infrastructure (I
 
 ## Testing Strategy
 
-**Framework:** `pytest` with `pytest-cov` for coverage, `pytest-asyncio` for async tests
+**Framework:** `pytest` with `pytest-cov` for coverage, `pytest-asyncio` for async tests, and `mutmut` for mutation testing
 
 **Runner:** `pixi run test`
 
@@ -274,14 +274,12 @@ Handlers sit at the center as **composition roots**: they wire infrastructure (I
 
 | Command | Scope |
 |---|---|
-| `pixi run test` | All tests (3,000+ passing) |
-| `pixi run -- python -m pytest tests_py/shared/` | Shared utilities |
-| `pixi run -- python -m pytest tests_py/core/` | Core domain logic |
-| `pixi run -- python -m pytest tests_py/infrastructure/` | Infrastructure and I/O |
-| `pixi run -- python -m pytest tests_py/handlers/` | Handler composition roots |
-| `pixi run -- python -m pytest tests_py/server/` | MCP router |
-| `pixi run -- python -m pytest tests_py/transport/` | stdio transport |
-| `pixi run -- python -m pytest tests_py/hooks/` | Session lifecycle hooks |
+| `pixi run test` | Full pytest suite |
+| `pixi run test-unit` | Shared/core/errors/validation |
+| `pixi run test-functional` | Infrastructure, handlers, hooks, server, scripts, invariants |
+| `pixi run test-integration` | Cross-layer memory lifecycle and cold-start flows |
+| `pixi run test-e2e` | Cortex FastMCP tool-boundary scenarios |
+| `pixi run mutation` | Mutmut boundary/safety mutation pass |
 
 **Coverage targets by layer:**
 

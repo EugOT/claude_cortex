@@ -237,7 +237,7 @@ CREATE TABLE IF NOT EXISTS oscillatory_state (
 
 INDEXES_DDL = """
 CREATE INDEX IF NOT EXISTS idx_memories_heat
-    ON memories (heat);
+    ON memories (heat_base);
 CREATE INDEX IF NOT EXISTS idx_memories_domain
     ON memories (domain);
 CREATE INDEX IF NOT EXISTS idx_memories_store_type

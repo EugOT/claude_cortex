@@ -68,7 +68,7 @@ class _CompatCursor:
     def __init__(
         self,
         cursor: sqlite3.Cursor,
-        lastrowid: int,
+        lastrowid: int | None,
         *,
         had_returning: bool = False,
     ) -> None:

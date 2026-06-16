@@ -117,6 +117,7 @@ timeout = 300
 timeout_method = "thread"
 markers = [
     "invariants: Phase 0.3+ testable invariant predicates (I1/I2/I3/I4 and parity tests)",
+    "e2e: End-to-end Cortex MCP surface tests through the FastMCP tool boundary",
 ]
 
 [tool.coverage.run]
@@ -140,15 +141,36 @@ neuro-cortex-memory = { path = ".", editable = true, extras = ["dev", "postgresq
 ruff = ">=0.12"
 pyright = ">=1.1"
 build = ">=1.2"
+mutmut = ">=3.2"
+
+[tool.mutmut]
+source_paths = [
+    "mcp_server/tool_error_handler.py",
+    "mcp_server/validation/",
+]
+also_copy = ["mcp_server", "tests_py"]
+pytest_add_cli_args_test_selection = [
+    "tests_py/e2e/",
+    "tests_py/integration/test_cold_start.py::TestToolErrorHandler",
+    "tests_py/validation/",
+    "tests_py/server/test_handler_contract.py",
+    "tests_py/server/test_tool_error_handler.py",
+]
 
 [tool.pixi.tasks]
 test = "python -m pytest --tb=short -q"
 test-cov = "python -m pytest --cov=mcp_server --cov-report=xml --cov-report=term-missing"
+test-unit = "python -m pytest tests_py/shared tests_py/core tests_py/errors tests_py/validation --tb=short -q"
+test-functional = "python -m pytest tests_py/infrastructure tests_py/handlers tests_py/hooks tests_py/server tests_py/scripts tests_py/invariants tests_py/observability --tb=short -q"
+test-integration = "python -m pytest tests_py/integration --tb=short -q"
+test-e2e = "python -m pytest tests_py/e2e --tb=short -q"
 lint = "ruff check ."
 format-check = "ruff format --check ."
 typecheck = "pyright mcp_server/"
 doctor = "python -m mcp_server.doctor"
 build = "python -m build"
+mutation = "mutmut run"
+mutation-stats = "mutmut export-cicd-stats"
 verify = { cmd = "true", depends-on = ["format-check", "lint", "test"] }
 
 [tool.pixi.feature.py310.dependencies]
