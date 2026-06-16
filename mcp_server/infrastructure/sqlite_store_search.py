@@ -6,16 +6,17 @@ and spread activation — replacing PL/pgSQL stored procedures.
 
 from __future__ import annotations
 
-import sqlite3
 from typing import Any
 
 import numpy as np
+
+from mcp_server.infrastructure.sqlite_compat import PsycopgCompatConnection
 
 
 class SqliteSearchMixin:
     """Search operations on SQLite with client-side WRRF fusion."""
 
-    _conn: sqlite3.Connection
+    _conn: PsycopgCompatConnection
     _has_vec: bool
 
     @staticmethod

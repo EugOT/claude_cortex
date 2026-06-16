@@ -142,6 +142,23 @@ async def _run_inline(
     return await handler_fn(args)
 
 
+async def _dispatch_tool(
+    handler_fn: Callable[..., Awaitable[dict[str, Any] | None]],
+    args: dict[str, Any],
+    tool_name: str | None,
+) -> dict[str, Any]:
+    call_args = _validate_args(tool_name, args)
+    if tool_name:
+        result = await _run_tool_with_admission(tool_name, handler_fn, call_args)
+    else:
+        result = await _run_inline(handler_fn, call_args)
+    # Defensive: every handler must already return a dict per its
+    # ``output_schema``. If a handler regresses to None we surface
+    # an empty dict so FastMCP's structured-content validator does
+    # not reject the response.
+    return _normalize_result(result)
+
+
 def _normalize_result(result: dict[str, Any] | None) -> dict[str, Any]:
     return {} if result is None else result
 
@@ -187,43 +204,9 @@ async def safe_handler(
     args: dict[str, Any],
     tool_name: str | None = None,
 ) -> dict[str, Any]:
-    """Call a handler and return its dict, catching errors gracefully.
-
-    When ``tool_name`` is provided:
-      * The call is gated by the per-tool admission semaphore (Phase 5
-        step 5). Bounds concurrency so one client cannot DoS a tool by
-        hammering it.
-      * The handler runs on a worker thread via ``asyncio.to_thread``
-        (Phase 5 step 4). The handler body — which calls sync DB
-        methods — no longer blocks the event loop, and two concurrent
-        tool invocations genuinely run in parallel (the pool gives each
-        worker its own DB connection).
-
-    When ``tool_name`` is omitted the call runs in-line on the caller's
-    event loop without admission (backward-compat for code paths not
-    yet migrated).
-
-    Contract (issue #17 — Liskov enforcement across all MCP handlers):
-      precondition: ``handler_fn`` is an async callable returning a dict.
-      postcondition: returns a ``dict[str, Any]``. Never a JSON string.
-                     FastMCP 2.x validates structured content against
-                     the declared ``output_schema`` and rejects strings.
-
-    On success: returns the handler's dict verbatim.
-    On DB errors: returns a friendly setup-guide dict.
-    On other errors: returns an error-type/message dict (no traceback).
-    """
+    """Call a handler and map exceptions into safe response dictionaries."""
     try:
-        call_args = _validate_args(tool_name, args)
-        if tool_name:
-            result = await _run_tool_with_admission(tool_name, handler_fn, call_args)
-        else:
-            result = await _run_inline(handler_fn, call_args)
-        # Defensive: every handler must already return a dict per its
-        # ``output_schema``. If a handler regresses to None we surface
-        # an empty dict so FastMCP's structured-content validator does
-        # not reject the response.
-        return _normalize_result(result)
+        return await _dispatch_tool(handler_fn, args, tool_name)
     except Exception as exc:
         _record_error_metrics(tool_name)
         return _error_response(exc)

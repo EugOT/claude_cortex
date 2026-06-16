@@ -27,6 +27,8 @@ def test_runtime_error_on_gpu_triggers_cpu_fallback():
     engine._ensure_model = fake_ensure
     result = engine.encode("test")
     assert result is not None
+    assert len(result) == 32 * 4
+    assert engine._device == "cpu"
     assert engine._device == "cpu"
 
 

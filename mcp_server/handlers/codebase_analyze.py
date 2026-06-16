@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from mcp_server.core.codebase_parser import (
     EXT_TO_LANG,
@@ -33,6 +33,14 @@ from mcp_server.handlers.remember import handler as remember_handler
 from mcp_server.infrastructure.memory_config import get_memory_settings
 from mcp_server.infrastructure.memory_store import MemoryStore, get_shared_store
 from mcp_server.handlers._tool_meta import READ_ONLY
+
+if TYPE_CHECKING:
+    from mcp_server.infrastructure.pg_store import PgMemoryStore
+    from mcp_server.infrastructure.sqlite_store import SqliteMemoryStore
+
+    StoreBackend = PgMemoryStore | SqliteMemoryStore
+else:
+    StoreBackend = Any
 
 # ── Schema ────────────────────────────────────────────────────────────────
 
@@ -132,18 +140,18 @@ LANG_TAG_PREFIX = "lang:"
 DEFAULT_MAX_FILES = 0
 DEFAULT_MAX_FILE_SIZE_KB = 100
 
-_store: Any | None = None
+_store: StoreBackend | None = None
 
 
 def _log(msg: str) -> None:
     print(f"[codebase-analyze] {msg}", file=sys.stderr)
 
 
-def _get_store() -> Any:
+def _get_store() -> StoreBackend:
     global _store
     if _store is None:
         s = get_memory_settings()
-        _store = get_shared_store(s.DB_PATH, s.EMBEDDING_DIM)
+        _store = cast("StoreBackend", get_shared_store(s.DB_PATH, s.EMBEDDING_DIM))
     return _store
 
 
@@ -173,7 +181,7 @@ def _build_tags(rel_path: str, analysis: Any) -> list[str]:
     return tags
 
 
-def _set_memory_metadata(store: Any, memory_id: int) -> None:
+def _set_memory_metadata(store: StoreBackend, memory_id: int) -> None:
     """Mark memory as semantic with boosted heat and importance.
 
     Phase 5: batch pool. A3 heat writes route through the canonical writer.
@@ -187,8 +195,8 @@ def _set_memory_metadata(store: Any, memory_id: int) -> None:
             )
         settings = get_memory_settings()
         store.bump_heat_raw(memory_id, settings.CODEBASE_ANALYZE_HEAT_BOOST)
-    except Exception:
-        pass
+    except Exception as exc:
+        _log(f"metadata update failed for memory_id={memory_id}: {exc}")
 
 
 async def _store_file(
@@ -218,7 +226,7 @@ async def _store_file(
     if not result.get("stored") or not memory_id:
         return None, 0, 0
 
-    _set_memory_metadata(store, memory_id)
+    _set_memory_metadata(cast("StoreBackend", store), memory_id)
     ents, rels = persist_entities(store, analysis, memory_id, domain or "code")
     return memory_id, ents, rels
 
@@ -304,7 +312,7 @@ async def handler(args: dict[str, Any] | None = None) -> dict[str, Any]:
             "languages": langs,
         }
 
-    store = _get_store()
+    store = cast(MemoryStore, _get_store())
     existing = load_existing_hashes(store) if incremental else {}
     if incremental:
         _log(f"loaded {len(existing)} existing file hashes")

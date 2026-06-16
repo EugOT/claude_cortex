@@ -7,6 +7,7 @@ import pytest
 from mcp_server.observability import metrics
 from mcp_server.tool_error_handler import (
     _classify_error,
+    _dispatch_tool,
     _error_response,
     _hint_for_error,
     _run_inline,
@@ -159,6 +160,32 @@ async def test_run_inline_forwards_args():
     result = await _run_inline(handler, {"inline": True})
 
     assert result == {"got": {"inline": True}}
+
+
+@pytest.mark.asyncio
+async def test_dispatch_tool_validates_admits_and_normalizes():
+    metrics.reset()
+
+    async def handler(args):
+        assert args == {"force": False}
+        return None
+
+    result = await _dispatch_tool(handler, {}, "rebuild_profiles")
+
+    assert result == {}
+    rendered = metrics.render()
+    assert 'cortex_tool_calls_total{status="ok",tool="rebuild_profiles"} 1' in rendered
+
+
+@pytest.mark.asyncio
+async def test_dispatch_tool_inline_preserves_args():
+    async def handler(args):
+        assert args == {"inline": True}
+        return {"ok": True}
+
+    result = await _dispatch_tool(handler, {"inline": True}, None)
+
+    assert result == {"ok": True}
 
 
 def test_error_response_preserves_message_key_and_details():

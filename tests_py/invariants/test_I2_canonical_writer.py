@@ -39,9 +39,10 @@ _ALLOWED_WRITERS: set[tuple[str, int]] = {
     # A3 batched writer (homeostatic cohort branch + any other batch consumer).
     # update_memories_heat_batch — SET line at 608 (shifted 603→608 likewise).
     ("infrastructure/pg_store.py", 608),
-    # SQLite parity.
-    ("infrastructure/sqlite_store.py", 284),
-    ("infrastructure/sqlite_store.py", 328),
+    # SQLite parity. Shifted 284/328→312/356 when Phase 5 connection context
+    # parity methods were added above the CRUD section.
+    ("infrastructure/sqlite_store.py", 312),
+    ("infrastructure/sqlite_store.py", 356),
     # Homeostatic fold (amortized ~once/month per domain). Shifted 292→317
     # when the bounded-I/O slim-projection helpers were added above it.
     ("handlers/consolidation/homeostatic.py", 317),

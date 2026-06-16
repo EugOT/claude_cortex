@@ -38,6 +38,14 @@ class _FakeStore:
         self.bumped.append((memory_id, amount))
 
 
+class _FailingStore:
+    def acquire_batch(self):
+        raise RuntimeError("batch unavailable")
+
+    def bump_heat_raw(self, memory_id: int, amount: float) -> None:
+        raise AssertionError("heat boost should not run after batch failure")
+
+
 def test_set_memory_metadata_uses_configured_heat_boost(monkeypatch):
     store = _FakeStore()
     settings = SimpleNamespace(CODEBASE_ANALYZE_HEAT_BOOST=0.42)
@@ -47,3 +55,11 @@ def test_set_memory_metadata_uses_configured_heat_boost(monkeypatch):
 
     assert store.bumped == [(123, 0.42)]
     assert store.conn.executed[0][1] == (123,)
+
+
+def test_set_memory_metadata_logs_batch_failures(capsys):
+    codebase_analyze._set_memory_metadata(_FailingStore(), 321)
+
+    captured = capsys.readouterr()
+    assert "metadata update failed for memory_id=321" in captured.err
+    assert "batch unavailable" in captured.err

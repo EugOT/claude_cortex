@@ -25,11 +25,13 @@ from __future__ import annotations
 import hashlib
 import logging
 from collections import OrderedDict
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 # ── Process-wide singleton ────────────────────────────────────────────
 # One EmbeddingEngine per process. Handlers call get_embedding_engine()
@@ -176,15 +178,13 @@ class EmbeddingEngine:
         if self._model is not None or self._unavailable:
             return
         try:
-            had_offline = self._set_hf_offline()
             device = self._resolve_device()
-            try:
-                try:
-                    self._model = self._load_model(device)
-                except self._cache_miss_exceptions():
-                    self._download_model(device, had_offline)
-            finally:
-                self._restore_hf_offline(had_offline)
+            self._with_hf_offline_env(
+                lambda had_offline: self._load_or_download_model(
+                    device,
+                    had_offline,
+                )
+            )
             if self._model is not None:
                 self._finalize_model(device)
         except ImportError:
@@ -221,10 +221,10 @@ class EmbeddingEngine:
         else:
             os.environ["HF_HUB_OFFLINE"] = had_offline
 
-    def _with_hf_offline_env(self, func: Callable[[], Any]) -> Any:
+    def _with_hf_offline_env(self, func: Callable[[str | None], _T]) -> _T:
         had_offline = self._set_hf_offline()
         try:
-            return func()
+            return func(had_offline)
         finally:
             self._restore_hf_offline(had_offline)
 
@@ -232,6 +232,16 @@ class EmbeddingEngine:
         from sentence_transformers import SentenceTransformer
 
         return SentenceTransformer(self._model_name, device=device)
+
+    def _load_or_download_model(
+        self,
+        device: str,
+        had_offline: str | None,
+    ) -> None:
+        try:
+            self._model = self._load_model(device)
+        except self._cache_miss_exceptions():
+            self._download_model(device, had_offline)
 
     def _download_model(self, device: str, had_offline: str | None) -> None:
         self._restore_hf_offline(had_offline)

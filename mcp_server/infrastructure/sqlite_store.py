@@ -12,9 +12,10 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 
@@ -51,6 +52,9 @@ class SqliteMemoryStore(
     SqliteSearchMixin,
 ):
     """SQLite + FTS5 + sqlite-vec storage engine for Cortex memory system."""
+
+    _raw_conn: sqlite3.Connection
+    _conn: PsycopgCompatConnection
 
     def __init__(self, db_path: str = "", embedding_dim: int = 384) -> None:
         self._embedding_dim = embedding_dim
@@ -148,7 +152,7 @@ class SqliteMemoryStore(
     def _try_load_vec(self) -> None:
         """Attempt to load sqlite-vec extension and create vec table."""
         try:
-            import sqlite_vec  # noqa: F401
+            import sqlite_vec  # pyright: ignore[reportMissingImports]  # noqa: F401
 
             self._raw_conn.enable_load_extension(True)
             sqlite_vec.load(self._raw_conn)
@@ -168,6 +172,30 @@ class SqliteMemoryStore(
     @staticmethod
     def _now_iso() -> str:
         return _now_iso()
+
+    # ── Phase 5: connection context parity ───────────────────────────
+
+    @contextmanager
+    def acquire_interactive(self) -> Iterator[PsycopgCompatConnection]:
+        """Yield the SQLite compatibility connection for hot-path parity."""
+        try:
+            yield self._conn
+        except Exception:
+            self._conn.rollback()
+            raise
+        else:
+            self._conn.commit()
+
+    @contextmanager
+    def acquire_batch(self) -> Iterator[PsycopgCompatConnection]:
+        """Yield the SQLite compatibility connection for batch parity."""
+        try:
+            yield self._conn
+        except Exception:
+            self._conn.rollback()
+            raise
+        else:
+            self._conn.commit()
 
     # ── Embedding conversion ──────────────────────────────────────────
 
@@ -297,8 +325,8 @@ class SqliteMemoryStore(
         if row is None:
             return 1.0
         try:
-            return float(row["factor"] if hasattr(row, "__getitem__") else row[0])
-        except (KeyError, TypeError, IndexError):
+            return float(row.get("factor") or 1.0)
+        except (TypeError, ValueError):
             return 1.0
 
     def set_homeostatic_factor(self, domain: str, factor: float) -> None:
