@@ -95,7 +95,7 @@ def _build_tags(rel_path: str, analysis: Any) -> list[str]:
 
 
 def _set_memory_metadata(store: StoreBackend, memory_id: int) -> None:
-    """Mark memory as semantic with boosted heat and importance.
+    """Mark memory as semantic with boosted heat.
 
     Phase 5: batch pool. A3 heat writes route through the canonical writer.
     """
