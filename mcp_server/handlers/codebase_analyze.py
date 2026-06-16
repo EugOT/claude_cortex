@@ -103,9 +103,8 @@ def _set_memory_metadata(store: StoreBackend, memory_id: int) -> None:
         settings = get_memory_settings()
         with store.acquire_batch() as conn:
             conn.execute(
-                "UPDATE memories SET store_type = 'semantic', "
-                "importance = %s WHERE id = %s",
-                (settings.CODEBASE_ANALYZE_IMPORTANCE, memory_id),
+                "UPDATE memories SET store_type = 'semantic' WHERE id = %s",
+                (memory_id,),
             )
         store.bump_heat_raw(memory_id, settings.CODEBASE_ANALYZE_HEAT_BOOST)
     except Exception as exc:

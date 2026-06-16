@@ -9,9 +9,9 @@ from mcp_server.handlers import codebase_analyze
 
 class _FakeConnection:
     def __init__(self) -> None:
-        self.executed: list[tuple[str, tuple[float, int]]] = []
+        self.executed: list[tuple[str, tuple[int, ...]]] = []
 
-    def execute(self, sql: str, params: tuple[float, int]) -> None:
+    def execute(self, sql: str, params: tuple[int, ...]) -> None:
         self.executed.append((sql, params))
 
 
@@ -50,7 +50,6 @@ def test_set_memory_metadata_uses_configured_heat_boost(monkeypatch):
     store = _FakeStore()
     settings = SimpleNamespace(
         CODEBASE_ANALYZE_HEAT_BOOST=0.42,
-        CODEBASE_ANALYZE_IMPORTANCE=0.33,
     )
     monkeypatch.setattr(codebase_analyze, "get_memory_settings", lambda: settings)
 
@@ -58,7 +57,8 @@ def test_set_memory_metadata_uses_configured_heat_boost(monkeypatch):
 
     assert store.bumped == [(123, 0.42)]
     assert "store_type = 'semantic'" in store.conn.executed[0][0]
-    assert store.conn.executed[0][1] == (0.33, 123)
+    assert "importance" not in store.conn.executed[0][0]
+    assert store.conn.executed[0][1] == (123,)
 
 
 def test_schema_declares_write_annotation():
