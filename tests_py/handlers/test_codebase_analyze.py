@@ -57,7 +57,17 @@ def test_set_memory_metadata_uses_configured_heat_boost(monkeypatch):
     codebase_analyze._set_memory_metadata(store, 123)
 
     assert store.bumped == [(123, 0.42)]
+    assert "store_type = 'semantic'" in store.conn.executed[0][0]
     assert store.conn.executed[0][1] == (0.33, 123)
+
+
+def test_schema_declares_write_annotation():
+    assert codebase_analyze.schema["annotations"] == {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    }
 
 
 def test_set_memory_metadata_logs_batch_failures(capsys):

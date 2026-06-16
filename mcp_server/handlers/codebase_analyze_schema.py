@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from mcp_server.handlers._tool_meta import READ_ONLY
+from mcp_server.handlers._tool_meta import NON_IDEMPOTENT_WRITE
 
 schema = {
     "title": "Codebase analyze",
-    "annotations": READ_ONLY,
+    "annotations": NON_IDEMPOTENT_WRITE,
     "description": (
         "Walk a codebase and store its structure as memories using tree-"
         "sitter AST parsing (with regex fallback for unsupported "
