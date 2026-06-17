@@ -18,6 +18,7 @@ import json
 import os
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────────
@@ -27,6 +28,59 @@ PROJECT_DIR = SCRIPT_DIR.parent
 PLUGIN_DATA = os.environ.get("CLAUDE_PLUGIN_DATA", str(PROJECT_DIR))
 DEPS_DIR = os.path.join(PLUGIN_DATA, "deps")
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost:5432/cortex")
+
+
+def _redact_db_url(url: str) -> str:
+    """Mask the password in a database URL before printing.
+
+    Prefer the shared utility when the package is installed; fall back to an
+    inline urllib.parse implementation so setup.py is safe to run before
+    ``pip install`` has completed (the package may not yet be on sys.path).
+
+    Pre:  url is a str.
+    Post: password component of url (if any) is replaced with "***".
+    """
+    try:
+        # engineering choice: import the canonical implementation when
+        # available so both code paths stay in sync.
+        from mcp_server.shared.redaction import redact_url
+
+        return redact_url(url)
+    except ImportError:
+        pass
+    # Inline stdlib fallback (reached only pre-install, before mcp_server is
+    # importable). Mirrors redact_url in redaction.py: masks userinfo AND
+    # ?password=/pgpassword query params, and preserves IPv6 host brackets.
+    _pw_keys = ("password", "pgpassword")
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except Exception:
+        return url
+    if not parsed.scheme:
+        return url
+    query = parsed.query
+    if query:
+        pairs = urllib.parse.parse_qsl(query, keep_blank_values=True)
+        if any(k.lower() in _pw_keys for k, _ in pairs):
+            query = urllib.parse.urlencode(
+                [(k, "***" if k.lower() in _pw_keys else v) for k, v in pairs]
+            )
+    if not parsed.password and query == parsed.query:
+        return url
+    netloc = parsed.netloc
+    if parsed.password:
+        user = parsed.username or ""
+        host = parsed.hostname or ""
+        if ":" in host:  # IPv6 literal — re-wrap in brackets
+            host = f"[{host}]"
+        port = parsed.port
+        netloc = (
+            f"{user}:***@{host}:{port}" if port is not None else f"{user}:***@{host}"
+        )
+    return urllib.parse.urlunparse(
+        (parsed.scheme, netloc, parsed.path, parsed.params, query, parsed.fragment)
+    )
+
 
 # Colors (skip on Windows unless WT/modern terminal)
 if sys.platform == "win32" and "WT_SESSION" not in os.environ:
@@ -70,11 +124,33 @@ def check_python() -> None:
 # ── Step 2: PostgreSQL check ──────────────────────────────────────────
 
 
+def _parse_db_host_port(url: str) -> tuple[str, str]:
+    """Extract host and port from a PostgreSQL DSN using stdlib urllib.parse.
+
+    Pre:  url is a non-empty str with a postgresql:// or postgres:// scheme.
+    Post: returns (host, port) as strings; falls back to ("localhost", "5432")
+          for any component that is absent or unparseable.
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.hostname or "localhost"
+        port = str(parsed.port) if parsed.port else "5432"
+    except Exception:
+        host, port = "localhost", "5432"
+    return host, port
+
+
 def check_postgresql() -> None:
     step("PostgreSQL")
 
+    # Derive the target host/port from DATABASE_URL so that a remote DSN is
+    # probed correctly.  When DATABASE_URL is unset the module-level constant
+    # already defaults to postgresql://localhost:5432/cortex, so the parsed
+    # values are ("localhost", "5432") and behaviour is unchanged.
+    host, port = _parse_db_host_port(DATABASE_URL)
+
     # Check pg_isready
-    result = run(["pg_isready"])
+    result = run(["pg_isready", "-h", host, "-p", port])
     if result.returncode != 0:
         if sys.platform == "win32":
             warn(
@@ -272,7 +348,7 @@ def main() -> None:
     print(f"Cortex setup — {sys.platform}")
     print(f"  Plugin root: {PROJECT_DIR}")
     print(f"  Deps dir:    {DEPS_DIR}")
-    print(f"  Database:    {DATABASE_URL}")
+    print(f"  Database:    {_redact_db_url(DATABASE_URL)}")
 
     check_python()
     check_postgresql()
@@ -290,7 +366,7 @@ def main() -> None:
     print("  2. Start a conversation — Cortex works automatically")
     print("  3. Use /cortex-recall to search memories")
     print()
-    print(f"Database: {DATABASE_URL}")
+    print(f"Database: {_redact_db_url(DATABASE_URL)}")
     print(f"Deps:     {DEPS_DIR}")
 
 
