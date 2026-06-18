@@ -1,0 +1,19 @@
+title = "claude_cortex gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Intentional secret-shape fixtures; values are documented non-real test data"
+paths = [
+  '''(^|/)\.claude/memory/pii-fixtures/tp-known-secrets\.txt$''',
+]
+
+[[allowlists]]
+description = "Verified benchmark model-pin false positive; exact extracted secret only"
+# Triage note: no credential rotation/revocation is attached to these entries
+# because the findings are non-credential test fixtures plus a public model id.
+# Real credential findings must be rotated or revoked before any allowlist entry.
+regexes = [
+  '''^claude-haiku-4-5-20251001$''',
+]
