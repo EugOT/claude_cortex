@@ -19,14 +19,24 @@ jobs:
     name: Zig native verification
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Set up Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0
+      - name: Install Zig
+        env:
+          ZIG_VERSION: "0.16.0"
+          ZIG_TARBALL: "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz"
+          ZIG_SHASUM: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+        run: |
+          set -eu
+          curl -fsSL "$ZIG_TARBALL" -o zig.tar.xz
+          printf '%s  zig.tar.xz\n' "$ZIG_SHASUM" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/zig"
+          tar -xf zig.tar.xz -C "$RUNNER_TEMP/zig" --strip-components=1
+          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/zig/zig" version
 
       - name: Format check
         run: zig build fmt
@@ -48,6 +58,6 @@ jobs:
           ! grep -RInE '(^#!.*(python|node|deno|bun)|(^|[[:space:]])(python[0-9]?|node|deno|bun|npm|npx|yarn|pnpm)([[:space:]]+(-m|--test|run|install|add|exec|x|scripts?/|benchmarks?/)|$))' -- README.md docs .claude-plugin build.zig build.zig.zon src .gitleaks.toml
 
       - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
