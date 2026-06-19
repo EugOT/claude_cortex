@@ -58,8 +58,8 @@ References
 ----------
 - Box, G. E. P. & Wilson, K. B. (1951). Central-composite designs.
 - Cormack, Clarke & Buettcher (2009). RRF blend constant k=60.
-- ``tasks/verification-protocol.md`` — Fisher discipline for sweeps.
-- ``tasks/blend-weight-calibration.md`` — pre-registration of THIS sweep.
+- ``docs/provenance/verification-protocol.md`` — Fisher discipline for sweeps.
+- ``docs/provenance/blend-weight-calibration.md`` — pre-registration of THIS sweep.
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ DEFAULTS = {
 # Phase A central-composite design points.
 # Center + 16 face-centered corners on [low, high] for each of 4 knobs.
 # DENDRITIC uses a tighter range [0.05, 0.20] per the spec.
-# source: tasks/blend-weight-calibration.md §Phase A grid.
+# source: docs/provenance/blend-weight-calibration.md §Phase A grid.
 PHASE_A_LOW = {
     "HOPFIELD_BETA": 0.10,
     "HDC_BETA": 0.10,
@@ -338,7 +338,7 @@ def write_manifest(
         ["git", "rev-parse", "HEAD"], cwd=str(REPO_ROOT), text=True
     ).strip()
     # Dirtiness measured against TRACKED source files only (matches the
-    # pre-registration definition in tasks/blend-weight-calibration.md
+    # pre-registration definition in docs/provenance/blend-weight-calibration.md
     # §Reproducibility manifest). Excluded by design:
     # - Untracked files (benchmark result archives, agent caches, node_modules)
     # - Submodule internal state (.claude/worktrees/agent-* — agent

@@ -1,6 +1,6 @@
 """Handler-layer tests for response-budget wiring (bounded-I/O Phase 1).
 
-Each of the four response surfaces named in tasks/bounded-io-plan.md
+Each of the four response surfaces named in docs/provenance/bounded-io-plan.md
 — recall, query_methodology, unified_search, wiki_read — must ship
 payloads that fit the host's tool-result cap, with truncated items
 retrievable in full (recall ``memory_id``, wiki_read ``offset``).

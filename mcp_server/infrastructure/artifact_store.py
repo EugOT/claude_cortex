@@ -2,7 +2,7 @@
 
 When an auto-captured tool output exceeds GIST_BUDGET, the full raw output is
 written here and the memory body keeps only a gist + a pointer to the artifact
-path (see core/gist_extraction.py and tasks/bounded-io-phase2-design.md F3).
+path (see core/gist_extraction.py and docs/provenance/bounded-io-phase2-design.md F3).
 The artifact is a plain Markdown file loadable by the Read tool — zero new MCP
 surface, nothing dropped from the corpus.
 

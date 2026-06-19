@@ -16,7 +16,7 @@ from mcp_server.core.synaptic_tagging import apply_synaptic_tags as _apply_tags
 # intent. Harvesting "TODO"/"later"/"make sure" phrases from raw tool dumps
 # minted 317 garbage keyword triggers (100% of sampled conditions were shell
 # fragments / regex shards, production DB audit 2026-06-10) which then flooded
-# recall via inject_triggered_memories. See tasks/bounded-io-phase2-design.md M1.
+# recall via inject_triggered_memories. See docs/provenance/bounded-io-phase2-design.md M1.
 _AUTO_CAPTURE_SOURCES = frozenset({"post_tool_capture"})
 
 

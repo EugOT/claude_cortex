@@ -133,7 +133,7 @@ Combining Popper's piecemeal bets + Taleb's barbell + Altshuller's inventive mov
 
 ### M2 — Ablation + constant audit (4 weeks, in parallel with M1)
 
-**Action:** Two deliverables, both in `tasks/paper-implementation-audit.md`:
+**Action:** Two deliverables, both in `docs/provenance/paper-implementation-audit.md`:
 1. **Ablation matrix** — for each of the 23 ablatable mechanisms (see `core/ablation.py`), measure the benchmark delta when it's turned off. Publish. Any mechanism with <1% delta is either non-load-bearing (kept but unclaimed) or wrong (removed).
 2. **Constant-justification audit** — every numeric constant in `core/thermodynamics.py`, `core/cascade.py`, `core/decay_cycle.py`, `core/homeostatic_plasticity.py` gets a `# source:` comment tracing to a paper equation, a benchmark measurement, or a measured constant. Zero unsourced numbers by end of month.
 
@@ -193,7 +193,7 @@ Alongside the 5 positive moves, 4 subtractive moves we ship immediately:
 | Week | Deliverable | Gate | Risk if it fails |
 |---|---|---|---|
 | 1-2 | M1: GitNexus benchmark run | Numbers published, reproducible script | "Benchmark moat" collapses, pivot to M4 |
-| 3-6 | M2: ablation + constant audit | `tasks/paper-implementation-audit.md` at 100% constant coverage | Mechanisms <1% delta cut; 2500-test baseline holds |
+| 3-6 | M2: ablation + constant audit | `docs/provenance/paper-implementation-audit.md` at 100% constant coverage | Mechanisms <1% delta cut; 2500-test baseline holds |
 | 3-6 | Subtractive moves (1-4) | Dead code gone, reranker port shipped, UI reframed | — |
 | 5-8 | M3: code-corpus benchmark | Pre-registered question set public; both systems run; numbers published | Reveals a real weakness, informs the next iteration |
 | 7-14 | M4: absorb 5 unused resources | Git-blame + coverage + PR-sentiment + LSP + commit-verbs all wired into consolidation + retrieval | Measures improve or don't; either way, honest |

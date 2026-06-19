@@ -1,6 +1,6 @@
 """Tests for inject_triggered_memories — bounded-io Phase 2 F1.
 
-The 2026-06-10 audit (tasks/bounded-io-phase2-design.md M1) found this
+The 2026-06-10 audit (docs/provenance/bounded-io-phase2-design.md M1) found this
 injection was the primary live scoring inversion: 317 garbage triggers each
 prepending up to 3 FTS matches at a fabricated 0.9, unbounded, re-introducing
 the auto-capture blobs filter_low_signal had just dropped. These tests pin

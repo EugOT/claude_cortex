@@ -7,7 +7,7 @@ Nothing is dropped — the raw output is one ``Read`` away — so this satisfies
 the 2026-05-17 "no truncation of available information" directive while
 removing the ts_rank_cd length-frequency bias that makes a 120 KB Bash dump
 outrank a curated lesson (M2 root cause, write side — see
-tasks/bounded-io-phase2-design.md F3).
+docs/provenance/bounded-io-phase2-design.md F3).
 
 Gist composition is deterministic (no LLM): a head slice + the high-value
 signal lines + a tail slice, filled sequentially within the budget. The
@@ -23,7 +23,7 @@ core → hooks is not). post_tool_capture re-exports it for backward use.
 from __future__ import annotations
 
 # source: measured p90 curated memory length, production DB 2026-06-10
-# (3,041 chars, n=68) — see tasks/bounded-io-phase2-design.md. Makes
+# (3,041 chars, n=68) — see docs/provenance/bounded-io-phase2-design.md. Makes
 # auto-captures size-comparable to curated content, removing the
 # ts_rank_cd length-frequency bias (M2/H5).
 GIST_BUDGET = 3000

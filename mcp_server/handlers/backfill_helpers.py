@@ -257,7 +257,7 @@ def gist_oversized_content(content: str) -> str:
     exceeds the budget, the FULL raw content is written to a content-addressed
     artifact and the returned string is a deterministic gist plus a pointer
     line — same write-side hygiene as the post_tool_capture hook
-    (tasks/bounded-io-phase2-design.md F3). Single choke point so the
+    (docs/provenance/bounded-io-phase2-design.md F3). Single choke point so the
     extractor (core) stays I/O-free: the I/O happens here, in the handler
     (composition-root) layer. Artifact write failure falls back to the full
     content (capture must not be lost).

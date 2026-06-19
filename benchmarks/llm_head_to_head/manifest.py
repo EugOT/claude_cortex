@@ -3,7 +3,7 @@
 Every scored run emits a ``manifest.json`` in
 ``benchmarks/llm_head_to_head/results/<runid>/`` containing every field
 listed in §10. Missing fields → run downgraded to *exploratory* per
-``tasks/verification-protocol.md`` global invariants.
+``docs/provenance/verification-protocol.md`` global invariants.
 
 precondition: caller has computed run-time fields (started_at, hostname,
   uname, package lockfile sha, db snapshot sha) BEFORE calling

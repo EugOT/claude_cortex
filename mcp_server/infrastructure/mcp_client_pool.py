@@ -82,7 +82,7 @@ def _admit_new_connection(server_name: str) -> None:
     OR an McpConnectionError is raised. When at capacity, the LRU idle
     connection is evicted; if all are busy, fail fast rather than grow
     unbounded — this is the explicit anti-leak guarantee from the
-    pool-leak fix follow-on. source: tasks/bounded-io-plan.md Phase 3.
+    pool-leak fix follow-on. source: docs/provenance/bounded-io-plan.md Phase 3.
     """
     max_conns = get_memory_settings().mcp_pool_max_connections
     if len(_pool) < max_conns:

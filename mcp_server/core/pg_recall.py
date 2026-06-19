@@ -173,8 +173,8 @@ def compute_pg_weights(
       WRRF fusion so the thermodynamic adaptive-decay signal cannot
       influence ranking. This is the cleaner approach than trying to
       inject ablation into PL/pgSQL — same observable effect at the
-      composition root. Source: tasks/verification-protocol.md E1.
-    Source: tasks/verification-protocol.md E2 (N-scan); env vars defined
+      composition root. Source: docs/provenance/verification-protocol.md E1.
+    Source: docs/provenance/verification-protocol.md E2 (N-scan); env vars defined
     by benchmarks/lib/n_scan_runner.py:_apply_condition.
     """
     import os as _os

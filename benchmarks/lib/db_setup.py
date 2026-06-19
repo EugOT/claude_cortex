@@ -3,7 +3,7 @@
 Companion to db_snapshot.py. Snapshot owns dump/restore + manifest; this
 module owns the runtime GUCs that affect results but are NOT baked into
 the dump (parallel workers, work_mem, ef_search, etc.).
-Source: tasks/hnsw-determinism-playbook.md §8 (SRP split).
+Source: docs/provenance/hnsw-determinism-playbook.md §8 (SRP split).
 
 API: apply_deterministic_session, apply_deterministic_database,
      analyze_after_restore, capture_session_state, verify_session_matches_snapshot.
@@ -32,7 +32,7 @@ def _scalar(conn: psycopg.Connection, sql: str) -> str:
     return "" if row is None else str(row[0])
 
 
-# Frozen GUC values; every line cites tasks/hnsw-determinism-playbook.md.
+# Frozen GUC values; every line cites docs/provenance/hnsw-determinism-playbook.md.
 _WORK_MEM = "64MB"  # source: playbook §4.6
 _MAINTENANCE_WORK_MEM = "512MB"  # source: playbook §4.7
 _MAX_PARALLEL_WORKERS_PER_GATHER = 0  # source: playbook §4.5

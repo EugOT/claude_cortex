@@ -203,7 +203,7 @@ jobs:
       # 568-error backlog stands, so its own exit is ignored (|| true); the
       # build fails only when a --blocking rule regresses past its committed
       # baseline (0). Add rules to --blocking as each batch drives them to
-      # their floor — see tasks/pyright-remediation-plan.md.
+      # their floor — see docs/provenance/pyright-remediation-plan.md.
       - name: Run pyright + per-rule ratchet gate
         run: |
           .venv/bin/python -m pyright --outputjson mcp_server/ > pyright-current.json || true

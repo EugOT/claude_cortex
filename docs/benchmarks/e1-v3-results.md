@@ -60,7 +60,7 @@ db.clear() → db.load(haystack) → db.recall(query)
 This isolated-haystack design **forecloses three classes of mechanism by construction**:
 
 1. **Read-path rerank (HOPFIELD, HDC, SPREADING_ACTIVATION, DENDRITIC_CLUSTERS).**
-   The WRRF baseline already returns nearly all correct items in the top-K (R@10 = 0.984). Rerankers reorder *within* the top-K but rarely change *which* items make the top-K. Phase A calibration (`tasks/blend-weight-calibration.md`) confirmed defaults are at the plateau: marginal effects of 0.035–0.045 MRR per knob, ablation effects ±0.001 MRR. Only HOPFIELD shows a measurable positive contribution (+0.0007 MRR; +0.004 R@10).
+   The WRRF baseline already returns nearly all correct items in the top-K (R@10 = 0.984). Rerankers reorder *within* the top-K but rarely change *which* items make the top-K. Phase A calibration (`docs/provenance/blend-weight-calibration.md`) confirmed defaults are at the plateau: marginal effects of 0.035–0.045 MRR per knob, ablation effects ±0.001 MRR. Only HOPFIELD shows a measurable positive contribution (+0.0007 MRR; +0.004 R@10).
 
 2. **Affect-side stages (EMOTIONAL_RETRIEVAL, MOOD_CONGRUENT_RERANK).**
    LME-S queries are factual. VADER compound is below the 0.10 floor for EMOTIONAL_RETRIEVAL on these queries; user-mood drifts toward neutral on factual content. Phase B's 25-cell tied plateau confirmed this is a structural property of the benchmark — not a defect of the mechanism.
@@ -110,7 +110,7 @@ This is a property of the benchmark, not the mechanisms. **Paper recommendation:
 - Collins & Loftus (1975) — semantic priming / spreading activation.
 - Poirazi et al. (2003) — dendritic clusters / branch-specific nonlinear integration.
 - Nader, Schafe & LeDoux (Nature 2000) — reconsolidation.
-- Phase A + Phase B calibration: `tasks/blend-weight-calibration.md`.
+- Phase A + Phase B calibration: `docs/provenance/blend-weight-calibration.md`.
 
 ## Next steps
 

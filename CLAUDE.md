@@ -17,7 +17,7 @@ Claude Code sessions generate rich behavioral data (tool usage, session duration
 - **No dead code** — remove unused functions, backward-compat shims, commented-out code
 - **No unwired code** — if it's built, it must be called somewhere
 
-See `tasks/refactoring-plan.md` for the file-by-file split plan (31 files over 300 lines).
+See `docs/provenance/refactoring-plan.md` for the file-by-file split plan (31 files over 300 lines).
 
 ## Research Methodology
 
@@ -438,4 +438,4 @@ Every change to the retrieval or memory system MUST follow this protocol:
 
 6. **Say "I don't know" when you don't know.** Do not fabricate solutions, invent heuristics, or approximate algorithms without explicitly stating what was changed and why. A faithful "I don't know" is worth more than a confident wrong answer.
 
-7. **Audit trail.** Every module's docstring must cite the exact paper, the exact equations implemented, and document any adaptations with justification. The audit at `tasks/paper-implementation-audit.md` must stay current.
+7. **Audit trail.** Every module's docstring must cite the exact paper, the exact equations implemented, and document any adaptations with justification. The audit at `docs/provenance/paper-implementation-audit.md` must stay current.

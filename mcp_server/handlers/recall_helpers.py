@@ -288,7 +288,7 @@ def inject_triggered_memories(
     as prospective memories. When a query matches their trigger, the
     associated memory is injected into results even if WRRF didn't find it.
 
-    Bounded-io Phase 2 F1 (tasks/bounded-io-phase2-design.md M1): the
+    Bounded-io Phase 2 F1 (docs/provenance/bounded-io-phase2-design.md M1): the
     2026-06-10 audit found this injection was the PRIMARY live scoring
     inversion — 317 garbage triggers each prepending up to 3 FTS matches
     at a fabricated 0.9, unbounded, re-introducing the exact auto-capture

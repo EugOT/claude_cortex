@@ -1,7 +1,7 @@
 """Postgres snapshot/restore with fingerprint + version-drift enforcement.
 pg_dump --format=custom round-trips index bytes so dump+restore collapses
 HNSW build non-determinism to a single outcome.
-Source: tasks/hnsw-determinism-playbook.md §2 mechanism, §5 manifest.
+Source: docs/provenance/hnsw-determinism-playbook.md §2 mechanism, §5 manifest.
 API: create_snapshot, restore_snapshot, fingerprint, verify_fingerprint,
      verify_compatibility.
 """

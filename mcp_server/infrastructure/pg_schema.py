@@ -294,7 +294,7 @@ CREATE INDEX IF NOT EXISTS idx_wiki_claim_events_session
     ON wiki.claim_events (session_id);
 -- HNSW reloptions pinned for determinism: same (m, ef_construction) as
 -- memories.embedding so benchmark reproducibility doesn't drift on
--- pgvector default changes. source: tasks/hnsw-determinism-playbook.md §1
+-- pgvector default changes. source: docs/provenance/hnsw-determinism-playbook.md §1
 CREATE INDEX IF NOT EXISTS idx_wiki_claim_events_embedding
     ON wiki.claim_events USING hnsw (embedding vector_cosine_ops)
     WITH (m = 16, ef_construction = 64);
@@ -858,7 +858,7 @@ BEGIN
     -- used by the prefilter, so this is NOT a full candidates scan —
     -- candidates is already bounded.
     -- Auto-captures are excluded from the heat and recency pools
-    -- (bounded-io Phase 2 F2, tasks/bounded-io-phase2-design.md M2):
+    -- (bounded-io Phase 2 F2, docs/provenance/bounded-io-phase2-design.md M2):
     -- their freshness is a mechanical artifact of one-write-per-tool-call
     -- (baseline_heat 1.0 + always-recent created_at), carrying no
     -- importance information. Including them let a fresh raw dump join
@@ -956,7 +956,7 @@ BEGIN
     -- (multiplicative identity) and moves ONLY via rate_memory feedback,
     -- so the prior is data-driven, no invented constant, and an identity
     -- transform on benchmark fixtures. Closes the M3 structural gap
-    -- (tasks/bounded-io-phase2-design.md): user feedback previously had
+    -- (docs/provenance/bounded-io-phase2-design.md): user feedback previously had
     -- no channel into rank.
     confidence_weighted AS (
         SELECT tb.id,
@@ -1484,7 +1484,7 @@ CREATE TABLE IF NOT EXISTS ingest_progress (
 -- rows keep '' (unattributable). The 2026-06-10 audit found 317 active
 -- keyword_match triggers with 100%-garbage sampled conditions, all
 -- harvested from raw tool dumps by write_post_store.extract_triggers —
--- see tasks/bounded-io-phase2-design.md M1.
+-- see docs/provenance/bounded-io-phase2-design.md M1.
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='prospective_memories' AND column_name='created_by')
     THEN ALTER TABLE prospective_memories ADD COLUMN created_by TEXT NOT NULL DEFAULT '';

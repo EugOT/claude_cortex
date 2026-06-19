@@ -76,7 +76,7 @@ class TestCheckTrigger:
     def test_keyword_match_requires_word_boundary(self):
         """Substring containment fired "ask" on "task" — with 317 harvested
         triggers active that matched nearly every query (bounded-io Phase 2
-        F1, tasks/bounded-io-phase2-design.md M1)."""
+        F1, docs/provenance/bounded-io-phase2-design.md M1)."""
         trigger = {
             "trigger_type": "keyword_match",
             "trigger_condition": "ask",

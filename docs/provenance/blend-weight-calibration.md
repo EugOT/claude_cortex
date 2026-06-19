@@ -120,7 +120,7 @@ After both phases complete, this document will be updated with:
 The constants in `mcp_server/core/recall_pipeline.py` will be updated only
 for knobs that pass the H1 decision rule. Knobs that fail H1 keep the
 engineering default with a comment switching from `engineering default` to
-`engineering default — confirmed near-optimum, tasks/blend-weight-calibration.md`.
+`engineering default — confirmed near-optimum, docs/provenance/blend-weight-calibration.md`.
 
 ## Reproducibility manifest
 
@@ -249,17 +249,17 @@ H0 is **not rejected** for any of the six knobs.
 In `mcp_server/core/recall_pipeline.py`:
 
 - `_HOPFIELD_BETA = 0.30` — comment now reads
-  "engineering default — confirmed near-optimum, tasks/blend-weight-calibration.md Results §HOPFIELD_BETA"
+  "engineering default — confirmed near-optimum, docs/provenance/blend-weight-calibration.md Results §HOPFIELD_BETA"
 - `_HDC_BETA = 0.20` — comment now reads
-  "engineering default — confirmed near-optimum, tasks/blend-weight-calibration.md Results §HDC_BETA"
+  "engineering default — confirmed near-optimum, docs/provenance/blend-weight-calibration.md Results §HDC_BETA"
 - `_SA_BETA = 0.25` — comment now reads
-  "engineering default — confirmed near-optimum, tasks/blend-weight-calibration.md Results §SA_BETA"
+  "engineering default — confirmed near-optimum, docs/provenance/blend-weight-calibration.md Results §SA_BETA"
 - `_DENDRITIC_DELTA = 0.10` — comment now reads
-  "engineering default — confirmed near-optimum, tasks/blend-weight-calibration.md Results §DENDRITIC_DELTA"
+  "engineering default — confirmed near-optimum, docs/provenance/blend-weight-calibration.md Results §DENDRITIC_DELTA"
 - `_EMOTIONAL_RETRIEVAL_BETA = 0.20` — comment now reads
-  "engineering default — no observable effect on LongMemEval-S (upstream VADER gate); tasks/blend-weight-calibration.md Results §EMOTIONAL_RETRIEVAL_BETA"
+  "engineering default — no observable effect on LongMemEval-S (upstream VADER gate); docs/provenance/blend-weight-calibration.md Results §EMOTIONAL_RETRIEVAL_BETA"
 - `_MOOD_CONGRUENT_BETA = 0.15` — comment now reads
-  "engineering default — no observable effect on LongMemEval-S (no user-mood adapter); tasks/blend-weight-calibration.md Results §MOOD_CONGRUENT_BETA"
+  "engineering default — no observable effect on LongMemEval-S (no user-mood adapter); docs/provenance/blend-weight-calibration.md Results §MOOD_CONGRUENT_BETA"
 
 The two affect-side constants are retained at their conservative defaults
 for the benefit of benchmarks that DO exercise these gates (emotion-laden

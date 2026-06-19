@@ -1,7 +1,7 @@
 // node:test suite for the canvas hit-test spatial hash (ADR-009 node:test).
 //   node --test tests_js/spatial_hash.test.js
 //
-// Two acceptance signals from tasks/borrow-from-supermemory-handover.md §4:
+// Two acceptance signals from docs/provenance/borrow-from-supermemory-handover.md §4:
 //   (1) hit-test correctness — spatial grid returns the SAME node as the
 //       O(N) linear reverse-scan it replaces, over random graphs/points;
 //   (2) measured frame-time improvement on a >5k-node graph (spatial path

@@ -78,7 +78,7 @@ def run_cls_cycle(
     is set (E2 N-scan condition `cortex_flat`), this returns the zero
     state immediately. No episodic-to-semantic abstraction runs; the
     flat-importance store is never enriched with patterns. Source:
-    tasks/verification-protocol.md E2; benchmarks/lib/n_scan_runner.py.
+    docs/provenance/verification-protocol.md E2; benchmarks/lib/n_scan_runner.py.
 
     Pattern extraction (`plan_cls_consolidation`) and causal-edge
     discovery (`_discover_causal_edges`) sample up to 2000 episodic

@@ -68,7 +68,7 @@ mandatory backend; the SQLite fallback path was substantially repaired.
 - **CI:** a `test-sqlite` job exercising the SQLite fallback.
 - **Docs:** `docs/deployment-scenarios.md` — WSL, TLS client-certificate
   `DATABASE_URL` (no password; passed straight to libpq), and remote PostgreSQL.
-- `tasks/pyright-remediation-plan.md` — phased plan to clear the 566 pyright errors.
+- `docs/provenance/pyright-remediation-plan.md` — phased plan to clear the 566 pyright errors.
 
 ## [3.21.0] - 2026-06-15
 

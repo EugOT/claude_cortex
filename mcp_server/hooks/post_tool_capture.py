@@ -65,7 +65,7 @@ _MIN_OUTPUT_LENGTH = 50
 # substrate halo retrieval needs — a 20k-char Edit diff cropped to 4k
 # loses the actual code change. The directive itself anticipated
 # "filesystem-backed references" as the remedy if the corpus grows too
-# large. 2026-06-10 (user directive, tasks/bounded-io-phase2-design.md):
+# large. 2026-06-10 (user directive, docs/provenance/bounded-io-phase2-design.md):
 # outputs above GIST_BUDGET are now stored full to a content-addressed
 # artifact file and the memory body keeps a deterministic gist + a pointer
 # line. This is NOT truncation — nothing is dropped; the raw output is one

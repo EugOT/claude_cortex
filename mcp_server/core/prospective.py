@@ -114,7 +114,7 @@ def check_trigger(
         # Word-boundary match, not substring containment: the pre-2026-06-10
         # `kw in content_lower` fired "ask" on "task" — with 317 harvested
         # triggers active, nearly every recall query matched something.
-        # Correctness fix, not tuning. See tasks/bounded-io-phase2-design.md M1.
+        # Correctness fix, not tuning. See docs/provenance/bounded-io-phase2-design.md M1.
         keywords = condition.lower().split()
         content_lower = content.lower()
         return any(re.search(rf"\b{re.escape(kw)}\b", content_lower) for kw in keywords)

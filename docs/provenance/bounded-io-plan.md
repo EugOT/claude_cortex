@@ -24,7 +24,7 @@ query_methodology → 262KB, both exceeded MCP tool-result limits.
 - [x] prd-spec-generator: Zod size contracts on PrdInputBundle (per-field char + element caps, rejection not truncation), MAX_CLARIFICATION_TURNS=50, MAX_PIPELINE_ERRORS=50 with FIFO eviction + `errors_dropped` counter. 607 tests green. — commit cd356ad; follow-up e43f41a fixed the aggregate overshoot (per-field shares summed to ~165% of the 100k cap): `boundFullStateResponse` sheds least-relevant detail first (grounding/validation blobs → oldest clarifications → section bodies; never the error trail), every shed observable in `__bounded.applied` with re-fetch hints via new `format:"grounding"`/`format:"validation"` selectors; JS `.length` is UTF-16 units = exact host match, no safety factor needed. 617 tests green.
 
 ## Phase 2 — Write-side hygiene (root cause of memory pollution) — design + code DONE 2026-06-10 (3207 tests; bench gate in flight)
-Design: tasks/bounded-io-phase2-design.md. Three measured inversion mechanisms, not one:
+Design: docs/provenance/bounded-io-phase2-design.md. Three measured inversion mechanisms, not one:
 M1 trigger-injection bypass (PRIMARY live — 317 garbage keyword triggers, single-substring
 matching, hardcoded 0.9 prepend, unbounded), M2 WRRF multi-pool amplification,
 M3 source/store_type/confidence output-only.

@@ -37,7 +37,7 @@ def test_recall_memories_drop_guard_present() -> None:
 
 
 def test_recall_memories_excludes_auto_captures_from_heat_and_recency() -> None:
-    """Bounded-io Phase 2 F2 (tasks/bounded-io-phase2-design.md M2):
+    """Bounded-io Phase 2 F2 (docs/provenance/bounded-io-phase2-design.md M2):
     auto-capture freshness is a write-frequency artifact, not importance —
     both mechanical pools must exclude source='post_tool_capture'."""
     assert RECALL_MEMORIES_LAZY_FN.count("c.source <> 'post_tool_capture'") == 2, (

@@ -1,7 +1,7 @@
 """BEAM-10M LLM Head-to-Head Harness.
 
 Stage-0 scaffold for the pre-registered protocol at
-``tasks/beam-10m-llm-head-to-head-protocol.md`` (v3, frozen 2026-04-30).
+``docs/provenance/beam-10m-llm-head-to-head-protocol.md`` (v3, frozen 2026-04-30).
 
 Four conditions feed the SAME generator prompt:
   A — naive long-context (recency-truncated to model window)

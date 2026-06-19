@@ -295,12 +295,12 @@ Two rows (HOMEOSTATIC_PLASTICITY at +0.0042, SCHEMA_ENGINE at +0.0021) move from
 
 #### 6.3.5 Calibration rigor: Phase A and Phase B
 
-The above ablations are reported at the calibrated equilibrium of the six post-WRRF rerank-blend constants. These constants were swept under a pre-registered protocol (`tasks/blend-weight-calibration.md`):
+The above ablations are reported at the calibrated equilibrium of the six post-WRRF rerank-blend constants. These constants were swept under a pre-registered protocol (`docs/provenance/blend-weight-calibration.md`):
 
 - **Phase A** — Box & Wilson (1951) central composite design, 17 cells over the four perception-side knobs (HOPFIELD_BETA, HDC_BETA, SA_BETA, DENDRITIC_DELTA), n = 50 LongMemEval-S questions. The plateau width at $\varepsilon = 0.005$ MRR is **1 cell**: the engineering-default center is the unique optimum. Per-knob marginal effect is 0.035–0.045 MRR, well above the 0.003 detection threshold. All four defaults stand.
 - **Phase B** — full 5×5 grid over the two affect-side knobs (EMOTIONAL_RETRIEVAL_BETA, MOOD_CONGRUENT_BETA), n = 30. Plateau width = **25 cells**: every cell is tied at MRR = 0.84. Per-knob marginal effect is 0.000 — both stages are gated upstream of the blend weight on factual benchmarks (VADER floor for EMOTIONAL_RETRIEVAL; missing user-mood adapter for MOOD_CONGRUENT_RERANK), as predicted in the pre-registration.
 
-All six calibrated constants stand at the engineering defaults; the in-source comments in `mcp_server/core/recall_pipeline.py` cite `tasks/blend-weight-calibration.md` as confirmed near-optimum. The 17-row ablation table above is therefore measured at a calibrated equilibrium, not at an arbitrary set of placeholders.
+All six calibrated constants stand at the engineering defaults; the in-source comments in `mcp_server/core/recall_pipeline.py` cite `docs/provenance/blend-weight-calibration.md` as confirmed near-optimum. The 17-row ablation table above is therefore measured at a calibrated equilibrium, not at an arbitrary set of placeholders.
 
 #### 6.3.6 Verification surfaced a production fix: consolidation cadence
 

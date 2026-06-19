@@ -1,6 +1,6 @@
 """Live-PG reproduction tests for the bounded-io Phase 2 scoring fix.
 
-Reproduces the 2026-06-10 scoring inversion (tasks/bounded-io-phase2-design.md
+Reproduces the 2026-06-10 scoring inversion (docs/provenance/bounded-io-phase2-design.md
 M2): a fresh, large, keyword-rich auto-capture joined 4-5 WRRF signal pools
 (content pools + mechanical heat/recency) while a month-old curated lesson
 joined 1-2, so the raw dump outranked the lesson it buried. The fix excludes

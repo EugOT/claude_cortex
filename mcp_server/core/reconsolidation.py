@@ -226,7 +226,7 @@ def update_stability(
 # and labelled "engineering default, calibration pending" per the source-
 # discipline rule (CLAUDE.md §8). Calibration belongs to the same blend-
 # weight grid that owns HOPFIELD/HDC/SA/DENDRITIC/EMOTIONAL betas
-# (tasks/blend-weight-calibration.md).
+# (docs/provenance/blend-weight-calibration.md).
 
 
 @dataclass
@@ -255,7 +255,7 @@ class ReconsolidationOutcome:
     prediction_error: float = 0.0
 
 
-# Engineering defaults (calibration pending — see tasks/blend-weight-calibration.md).
+# Engineering defaults (calibration pending — see docs/provenance/blend-weight-calibration.md).
 # Bounded so the recall-time bump can never dominate the thermodynamic decay
 # signal that drives the heat WRRF weight; these are tie-breakers, not filters.
 _RECONS_HEAT_BUMP_UPDATE: float = 0.05

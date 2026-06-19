@@ -12,7 +12,7 @@ through the production read path (BenchmarkDB → pg_recall) — same code
 as the standalone benchmarks. Outputs JSON per (benchmark, N, cond) and
 a summary.csv.
 
-Falsifiability (per tasks/verification-protocol.md §E2): the gap between
+Falsifiability (per docs/provenance/verification-protocol.md §E2): the gap between
 cortex_full and cortex_flat MRR on at least one of {LongMemEval-S,
 LoCoMo, BEAM-100K} at N=full must be >= 5pp; otherwise the
 thermodynamic-structure-matters claim is refuted.

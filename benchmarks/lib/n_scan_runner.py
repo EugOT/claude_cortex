@@ -7,7 +7,7 @@ thermodynamic structure for heat to discriminate). The harness is now
 the latency-only sibling; claim-bearing E2 retrieval lives in
 ``e2_subsample_runner`` (real benchmark subsample) and
 ``e2_zipf_runner`` (Zipf access pattern). See module docstring of
-``latency_runner`` and ``tasks/verification-protocol.md`` §E2 for
+``latency_runner`` and ``docs/provenance/verification-protocol.md`` §E2 for
 detail.
 
 This stub re-exports the public surface so existing callers and any

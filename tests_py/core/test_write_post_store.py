@@ -55,7 +55,7 @@ def _clear_cache():
 
 
 class TestExtractTriggers:
-    """Bounded-io Phase 2 F1 (tasks/bounded-io-phase2-design.md M1):
+    """Bounded-io Phase 2 F1 (docs/provenance/bounded-io-phase2-design.md M1):
     prospective intent is a statement by the user; harvesting it from raw
     tool dumps minted 317 garbage keyword triggers."""
 

@@ -5,7 +5,7 @@ n_scan) and the new E2 retrieval runners (subsample, zipf) share a single
 source of truth for the ablation condition. Production write paths read
 the env vars; this module only sets/restores them.
 
-Per E2 falsifiability protocol (tasks/verification-protocol.md §E2):
+Per E2 falsifiability protocol (docs/provenance/verification-protocol.md §E2):
 - cortex_full:  no env overrides; production defaults active.
 - cortex_flat:  decay disabled, heat constant 0.5, consolidation disabled.
 """
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 
-# source: tasks/verification-protocol.md §E2 flat-baseline definition.
+# source: docs/provenance/verification-protocol.md §E2 flat-baseline definition.
 FLAT_ENV_VARS: dict[str, str] = {
     "CORTEX_DECAY_DISABLED": "1",
     "CORTEX_HEAT_CONSTANT": "0.5",
@@ -62,6 +62,6 @@ def heat_for(condition: str, default: float = 1.0) -> float:
 
     cortex_flat forces heat=0.5 so the flat-importance condition is
     observable even when downstream code does not yet read CORTEX_HEAT_CONSTANT.
-    source: tasks/verification-protocol.md §E2 flat-baseline definition.
+    source: docs/provenance/verification-protocol.md §E2 flat-baseline definition.
     """
     return 0.5 if condition == "cortex_flat" else default

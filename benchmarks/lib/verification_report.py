@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any
 
 # Pre-registered hypotheses + thresholds (locked at protocol-write time).
-# Source: tasks/verification-protocol.md §1-6.
+# Source: docs/provenance/verification-protocol.md §1-6.
 HYPOTHESES: dict[str, dict[str, Any]] = {
     "E1": {
         "name": "Ablation — each claimed component contributes",
