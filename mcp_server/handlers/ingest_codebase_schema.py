@@ -5,7 +5,10 @@ Held separate so the composition root stays under the 300-line cap.
 
 from __future__ import annotations
 
+from mcp_server.handlers._tool_meta import IDEMPOTENT_WRITE
+
 schema = {
+    "annotations": IDEMPOTENT_WRITE,
     "description": (
         "Ingest a codebase analysis from the upstream ai-automatised-"
         "pipeline MCP server into Cortex's store. Triggers `analyze_"

@@ -7,6 +7,8 @@ htmlcov/
 dist/
 build/
 .pytest_cache/
+# Built MCPB bundle — release artifact attached to GitHub Releases, never committed
+*.mcpb
 .python-version
 .DS_Store
 mcp-server_old/
@@ -47,9 +49,10 @@ pyright-*.json
 # Runtime telemetry
 traces/
 
-# Claude Code ephemeral session state
-.claude/scheduled_tasks.lock
-.claude/session-cache.json
+# Internal dev tooling, agent config & task notes — excluded from the public
+# submission repo (untracked via `git rm --cached`; kept locally on disk)
+.claude/
+tasks/
 benchmarks/snapshots/
 .memsearch/
 

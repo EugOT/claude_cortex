@@ -132,7 +132,7 @@ Handlers are the **composition roots**: they wire infrastructure (I/O) to core (
 - `two_stage_transfer.py` — Transfer protocol execution
 - `emergence_tracker.py` — System-level metrics: forgetting curve, spacing effect, schema acceleration
 - `emergence_metrics.py` — Emergence metric definitions
-- `ablation.py` — Lesion study framework for 23 ablatable mechanisms
+- `ablation.py` — Lesion study framework (28 ablatable units spanning the 23 neuroscience-grounded mechanisms)
 - `ablation_report.py` — Ablation report generation
 
 *Consolidation:*
@@ -207,7 +207,7 @@ Handlers are the **composition roots**: they wire infrastructure (I/O) to core (
 - `artifact_store.py` — Content-addressed raw-output artifacts (`~/.claude/methodology/artifacts/<yyyy-mm>/<sha256[:16]>.md`) backing gist+pointer memories
 - `agent_config.py` — Agent configuration and topic scoping
 
-**handlers/** — Composition roots (33 tools + helpers, one per tool)
+**handlers/** — Composition roots (43 standalone tools + 3 upstream-integration tools conditionally registered = 46 total + helpers, one per tool)
 
 **validation/** — `schemas.py` — Per-tool argument validation
 
@@ -248,6 +248,8 @@ stack (galaxy/trace/wiki/knowledge/board UI) was extracted to the standalone
 | `seed_project` | 5-stage codebase bootstrap | varies |
 | `anchor` | Mark memory as compaction-resistant (heat=1.0) | <50ms |
 | `backfill_memories` | Auto-import prior Claude Code conversations | varies |
+| `unified_search` | Unified retrieval across memories, wiki, and code graph | <200ms |
+| `get_telemetry` | Retrieval and memory-system telemetry metrics | <50ms |
 
 ### Tier 2 — Navigation & Exploration (5 tools)
 
@@ -259,7 +261,7 @@ stack (galaxy/trace/wiki/knowledge/board UI) was extracted to the standalone
 | `get_causal_chain` | Trace entity relationships through knowledge graph | <200ms |
 | `detect_gaps` | Identify isolated entities, sparse domains, temporal drift | <500ms |
 
-### Tier 3 — Automation & Intelligence (7 tools)
+### Tier 3 — Automation & Intelligence (8 tools)
 
 | Tool | Purpose | Target Latency |
 |---|---|---|
@@ -269,7 +271,30 @@ stack (galaxy/trace/wiki/knowledge/board UI) was extracted to the standalone
 | `get_rules` | List active rules by scope/type | <50ms |
 | `get_project_story` | Period-based autobiographical narrative | <500ms |
 | `assess_coverage` | Knowledge coverage score (0-100) + recommendations | <500ms |
-| `run_pipeline` | Drive ai-architect pipeline end-to-end (11 stages → PR) | varies |
+| `codebase_analyze` | Native AST codebase analysis (tree-sitter, 7 languages) | varies |
+| `curate_wiki` | Auto-curate wiki pages from memory clusters | varies |
+
+### Tier 4 — Wiki (9 tools)
+
+| Tool | Purpose | Target Latency |
+|---|---|---|
+| `wiki_write` | Create a first-class wiki page (ADR, spec, note) | <100ms |
+| `wiki_read` | Read a wiki page | <50ms |
+| `wiki_list` | List wiki pages by scope/kind | <50ms |
+| `wiki_link` | Create a typed link between wiki pages | <50ms |
+| `wiki_adr` | Create an Architecture Decision Record | <100ms |
+| `wiki_rename` | Rename a wiki page and update backlinks | <100ms |
+| `wiki_verify` | Verify wiki page integrity and links | <100ms |
+| `wiki_reindex` | Reindex wiki pages into memory pointers | varies |
+| `wiki_purge` | Permanently delete a wiki page | <50ms |
+
+**Upstream-integration tools (3, conditionally registered)** — these register
+only when their upstream MCP server is configured, bringing the total to 46:
+`ingest_codebase` + `change_impact` (automatised-pipeline) and `ingest_prd`
+(prd-spec-generator). With no upstream present, exactly the **43 standalone
+tools** above register. Driving the ai-architect pipeline end-to-end
+(formerly `run_pipeline`) is **not** part of this server — it lives in the
+automatised-pipeline MCP.
 
 ## Slash Commands
 
@@ -307,7 +332,7 @@ stack (galaxy/trace/wiki/knowledge/board UI) was extracted to the standalone
 ## Testing
 
 ```bash
-pytest                                      # All tests (2500+ passing)
+pytest                                      # All tests (3000+ passing)
 pytest --cov=mcp_server --cov-report=term-missing  # With coverage
 pytest tests_py/core/                       # Core layer only
 pytest tests_py/shared/                     # Shared layer only
@@ -332,21 +357,23 @@ python3 benchmarks/evermembench/run_benchmark.py                    # EverMemBen
 python3 benchmarks/episodic/run_benchmark.py --events 20           # Episodic Memories (ICLR 2025)
 ```
 
-**Current benchmark scores (clean DB, 2026-06-10, post bounded-io Phase 2):**
+**Current benchmark scores (E1 v3; canonical source: the arxiv papers under `docs/arxiv-thermodynamic/` and `docs/arxiv-context-assembly/`):**
 | Benchmark | Cortex | Best in paper |
 |---|---|---|
 | LongMemEval R@10 | **98.4%** | 78.4% |
-| LongMemEval MRR | **0.916** | -- |
-| LoCoMo R@10 | **94.1%** (1982 Qs) | -- |
-| LoCoMo MRR | **0.828** | 0.794 |
-| BEAM 100K MRR | **0.501** (395 Qs) | 0.329 |
+| LongMemEval MRR | **0.9124** | -- |
+| LoCoMo R@10 | **94.2%** | -- |
+| LoCoMo MRR | **0.8278** | 0.794 |
+| BEAM-100K MRR (retrieval-proxy) | **0.591** | -- |
 
-BEAM note: the April 2026 record (0.591) was a 200-question split; the 100K
-split now loads 395 questions, so the absolute number re-based. A/B on the
-395-Q dataset (2026-06-10): pre-Phase-2 scoring 0.502 vs post 0.501 — the
-Phase 2 scoring changes are regression-free (Δ within noise), as predicted
-by their structural benchmark-neutrality (fixtures never use
-source='post_tool_capture', no prospective triggers, confidence=1.0).
+BEAM note: 0.591 is a retrieval-proxy MRR (the rank of the first gold-matching
+memory), which is **not** commensurable with BEAM's end-to-end LLM-as-judge
+metric; no head-to-head BEAM claim is made — it is used only for within-system,
+same-harness comparisons. The context-assembly architecture adds +33.4% on
+BEAM-10M with label-free temporal stage detection (+21.5% with oracle labels).
+Source of truth: `docs/arxiv-thermodynamic/main.pdf` and
+`docs/arxiv-context-assembly/main.pdf` (the CLAUDE.md numbers must match the
+papers, not the other way around).
 
 ## Research-Driven Improvement Workflow
 

@@ -1516,6 +1516,38 @@ END $$;
 # ── Schema initialization ────────────────────────────────────────────────
 
 
+def _strip_sql_line_comments(ddl: str) -> str:
+    """Remove ``--`` line comments before statement splitting.
+
+    A ``--`` begins a comment only outside a single-quoted string literal;
+    everything from it to end-of-line is dropped. Without this, a semicolon
+    *inside* a comment (e.g. ``-- ...participate in a version chain; on a store
+    with no edges these are empty and cost nothing.``) is mistaken for a
+    statement terminator by the ``;``-splitter, and the comment tail after the
+    semicolon is then executed as SQL — a syntax error on schema init.
+    """
+    cleaned = []
+    for line in ddl.splitlines():
+        in_str = False
+        cut = len(line)
+        idx = 0
+        while idx < len(line):
+            ch = line[idx]
+            if ch == "'":
+                in_str = not in_str
+            elif (
+                ch == "-"
+                and not in_str
+                and idx + 1 < len(line)
+                and line[idx + 1] == "-"
+            ):
+                cut = idx
+                break
+            idx += 1
+        cleaned.append(line[:cut].rstrip())
+    return "\n".join(cleaned)
+
+
 def _split_statements(ddl: str) -> list[str]:
     """Split a multi-statement DDL string into individual statements.
 
@@ -1526,7 +1558,7 @@ def _split_statements(ddl: str) -> list[str]:
         # PL/pgSQL function — return as single block
         return [ddl.strip()] if ddl.strip() else []
     statements = []
-    for part in ddl.split(";"):
+    for part in _strip_sql_line_comments(ddl).split(";"):
         # Strip leading SQL line comments and blank lines so a chunk that
         # begins with "-- foo\nCREATE TABLE ..." is not mistaken for the
         # comment text being the first SQL token. Also drop chunks that

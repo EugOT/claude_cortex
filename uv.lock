@@ -1230,6 +1230,102 @@ wheels = [
 ]
 
 [[package]]
+name = "hypermnesia-mcp"
+version = "3.23.0"
+source = { editable = "." }
+dependencies = [
+    { name = "fastmcp" },
+    { name = "flashrank" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "sentence-transformers" },
+]
+
+[package.optional-dependencies]
+benchmarks = [
+    { name = "datasets" },
+    { name = "flashrank" },
+    { name = "pgvector" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "pymupdf" },
+    { name = "sentence-transformers" },
+]
+codebase = [
+    { name = "igraph" },
+    { name = "leidenalg" },
+    { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "tree-sitter" },
+    { name = "tree-sitter-language-pack" },
+]
+dev = [
+    { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pytest-timeout" },
+    { name = "sentence-transformers" },
+]
+postgresql = [
+    { name = "pgvector" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "psycopg-pool" },
+]
+sqlite = [
+    { name = "sqlite-vec" },
+]
+viz-tile = [
+    { name = "cachetools" },
+    { name = "datashader" },
+    { name = "igraph" },
+    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pandas", version = "3.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pillow" },
+    { name = "pyarrow" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cachetools", marker = "extra == 'viz-tile'", specifier = ">=5.0" },
+    { name = "datasets", marker = "extra == 'benchmarks'", specifier = ">=2.14.0" },
+    { name = "datashader", marker = "extra == 'viz-tile'", specifier = ">=0.16.3" },
+    { name = "fastmcp", specifier = ">=2.0.0" },
+    { name = "flashrank", specifier = ">=0.2.0" },
+    { name = "flashrank", marker = "extra == 'benchmarks'", specifier = ">=0.2.0" },
+    { name = "igraph", marker = "extra == 'codebase'", specifier = ">=0.11" },
+    { name = "igraph", marker = "extra == 'viz-tile'", specifier = ">=0.11" },
+    { name = "leidenalg", marker = "extra == 'codebase'", specifier = ">=0.10" },
+    { name = "networkx", marker = "extra == 'codebase'", specifier = ">=3.0" },
+    { name = "networkx", marker = "extra == 'dev'", specifier = ">=3.0" },
+    { name = "numpy", specifier = ">=1.24.0" },
+    { name = "pandas", marker = "extra == 'viz-tile'", specifier = ">=2.2" },
+    { name = "pgvector", marker = "extra == 'benchmarks'", specifier = ">=0.3" },
+    { name = "pgvector", marker = "extra == 'postgresql'", specifier = ">=0.3" },
+    { name = "pillow", marker = "extra == 'viz-tile'", specifier = ">=10.0" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'benchmarks'", specifier = ">=3.1" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'postgresql'", specifier = ">=3.1" },
+    { name = "psycopg-pool", marker = "extra == 'postgresql'", specifier = ">=3.2" },
+    { name = "pyarrow", marker = "extra == 'viz-tile'", specifier = ">=15.0" },
+    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "pydantic-settings", specifier = ">=2.0.0" },
+    { name = "pymupdf", marker = "extra == 'benchmarks'", specifier = ">=1.24.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0" },
+    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.3.0" },
+    { name = "sentence-transformers", specifier = ">=2.2.0" },
+    { name = "sentence-transformers", marker = "extra == 'benchmarks'", specifier = ">=2.2.0" },
+    { name = "sentence-transformers", marker = "extra == 'dev'", specifier = ">=2.2.0" },
+    { name = "sqlite-vec", marker = "extra == 'sqlite'", specifier = ">=0.1.1" },
+    { name = "tree-sitter", marker = "extra == 'codebase'", specifier = ">=0.24.0,<0.26" },
+    { name = "tree-sitter-language-pack", marker = "extra == 'codebase'", specifier = ">=0.24.0,<1.7" },
+]
+provides-extras = ["postgresql", "sqlite", "codebase", "viz-tile", "benchmarks", "dev"]
+
+[[package]]
 name = "idna"
 version = "3.15"
 source = { registry = "https://pypi.org/simple" }
@@ -1834,98 +1930,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/6a/51/63fe664f3908c97be
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl", hash = "sha256:d47fbf302e7d9cbbb9e2555a0d267983d2aa476bac30e90dfbe5669bd57f3762", size = 2068504, upload-time = "2025-12-08T17:02:38.159Z" },
 ]
-
-[[package]]
-name = "neuro-cortex-memory"
-version = "3.21.0"
-source = { editable = "." }
-dependencies = [
-    { name = "fastmcp" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-]
-
-[package.optional-dependencies]
-benchmarks = [
-    { name = "datasets" },
-    { name = "flashrank" },
-    { name = "pgvector" },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "pymupdf" },
-    { name = "sentence-transformers" },
-]
-codebase = [
-    { name = "igraph" },
-    { name = "leidenalg" },
-    { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "tree-sitter" },
-    { name = "tree-sitter-language-pack" },
-]
-dev = [
-    { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-timeout" },
-    { name = "sentence-transformers" },
-]
-postgresql = [
-    { name = "pgvector" },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "psycopg-pool" },
-]
-sqlite = [
-    { name = "sqlite-vec" },
-]
-viz-tile = [
-    { name = "cachetools" },
-    { name = "datashader" },
-    { name = "igraph" },
-    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "pandas", version = "3.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "pillow" },
-    { name = "pyarrow" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "cachetools", marker = "extra == 'viz-tile'", specifier = ">=5.0" },
-    { name = "datasets", marker = "extra == 'benchmarks'", specifier = ">=2.14.0" },
-    { name = "datashader", marker = "extra == 'viz-tile'", specifier = ">=0.16.3" },
-    { name = "fastmcp", specifier = ">=2.0.0" },
-    { name = "flashrank", marker = "extra == 'benchmarks'", specifier = ">=0.2.0" },
-    { name = "igraph", marker = "extra == 'codebase'", specifier = ">=0.11" },
-    { name = "igraph", marker = "extra == 'viz-tile'", specifier = ">=0.11" },
-    { name = "leidenalg", marker = "extra == 'codebase'", specifier = ">=0.10" },
-    { name = "networkx", marker = "extra == 'codebase'", specifier = ">=3.0" },
-    { name = "networkx", marker = "extra == 'dev'", specifier = ">=3.0" },
-    { name = "numpy", specifier = ">=1.24.0" },
-    { name = "pandas", marker = "extra == 'viz-tile'", specifier = ">=2.2" },
-    { name = "pgvector", marker = "extra == 'benchmarks'", specifier = ">=0.3" },
-    { name = "pgvector", marker = "extra == 'postgresql'", specifier = ">=0.3" },
-    { name = "pillow", marker = "extra == 'viz-tile'", specifier = ">=10.0" },
-    { name = "psycopg", extras = ["binary"], marker = "extra == 'benchmarks'", specifier = ">=3.1" },
-    { name = "psycopg", extras = ["binary"], marker = "extra == 'postgresql'", specifier = ">=3.1" },
-    { name = "psycopg-pool", marker = "extra == 'postgresql'", specifier = ">=3.2" },
-    { name = "pyarrow", marker = "extra == 'viz-tile'", specifier = ">=15.0" },
-    { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "pydantic-settings", specifier = ">=2.0.0" },
-    { name = "pymupdf", marker = "extra == 'benchmarks'", specifier = ">=1.24.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0" },
-    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.3.0" },
-    { name = "sentence-transformers", marker = "extra == 'benchmarks'", specifier = ">=2.2.0" },
-    { name = "sentence-transformers", marker = "extra == 'dev'", specifier = ">=2.2.0" },
-    { name = "sqlite-vec", marker = "extra == 'sqlite'", specifier = ">=0.1.1" },
-    { name = "tree-sitter", marker = "extra == 'codebase'", specifier = ">=0.24.0,<0.26" },
-    { name = "tree-sitter-language-pack", marker = "extra == 'codebase'", specifier = ">=0.24.0,<1.7" },
-]
-provides-extras = ["postgresql", "sqlite", "codebase", "viz-tile", "benchmarks", "dev"]
 
 [[package]]
 name = "numba"

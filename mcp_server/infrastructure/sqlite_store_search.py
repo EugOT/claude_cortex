@@ -6,10 +6,26 @@ and spread activation — replacing PL/pgSQL stored procedures.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from typing import Any
 
 import numpy as np
+
+
+def _decode_tags(raw: Any) -> list:
+    """Deserialize a SQLite ``tags`` TEXT column into a list.
+
+    SQLite stores tags as a JSON string; the ``recall`` output schema (and
+    parity with the PostgreSQL backend) requires a list. Mirrors the decode in
+    ``SqliteMemoryStore._normalize_memory_row``.
+    """
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return []
+    return raw or []
 
 
 class SqliteSearchMixin:
@@ -222,7 +238,7 @@ class SqliteSearchMixin:
                     "domain": row["domain"],
                     "created_at": row["created_at"],
                     "store_type": row["store_type"],
-                    "tags": row["tags"],
+                    "tags": _decode_tags(row["tags"]),
                     "importance": row["importance"],
                     "surprise_score": row["surprise_score"],
                 }

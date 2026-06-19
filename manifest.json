@@ -1,0 +1,101 @@
+{
+  "manifest_version": "0.4",
+  "name": "hypermnesia-mcp",
+  "display_name": "Cortex — Persistent Memory",
+  "version": "3.23.0",
+  "icon": "icon.png",
+  "description": "Persistent memory and cognitive profiling for Claude — remembers across sessions automatically. Scientific retrieval backed by 72 published references.",
+  "long_description": "Cortex gives Claude a durable, scientifically-grounded memory. It stores decisions, lessons, and context across sessions and retrieves them with a hybrid WRRF fusion (vector + full-text + trigram + heat + recency) reranked by a cross-encoder. Its 23 neuroscience-grounded mechanisms are drawn from a 72-reference bibliography (spreading activation, synaptic tagging, neuromodulation, LTP/LTD, predictive-coding write gates). This connector exposes 43 memory tools and runs fully local with zero external services using the built-in SQLite backend; advanced users can point it at PostgreSQL + pgvector. For the automatic session-lifecycle memory (injection at session start, auto-capture, compaction checkpointing), install the companion Claude Code plugin — its hooks drive that automation, which the MCP bundle format does not carry.",
+  "author": {
+    "name": "Clement Deust",
+    "email": "admin@ai-architect.tools",
+    "url": "https://ai-architect.tools"
+  },
+  "homepage": "https://github.com/cdeust/Cortex",
+  "documentation": "https://github.com/cdeust/Cortex#readme",
+  "support": "https://github.com/cdeust/Cortex/issues",
+  "license": "MIT",
+  "keywords": [
+    "persistent memory",
+    "long-term memory",
+    "memory for claude",
+    "agent recall",
+    "agent memory",
+    "hypermnesia",
+    "memory",
+    "persistent",
+    "mcp",
+    "claude",
+    "neuroscience",
+    "cognitive-profiling",
+    "agents"
+  ],
+  "privacy_policies": [
+    "https://github.com/cdeust/Cortex/blob/main/PRIVACY.md"
+  ],
+  "server": {
+    "type": "uv",
+    "entry_point": "mcp_server/__main__.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${__dirname}",
+        "--extra",
+        "sqlite",
+        "--extra",
+        "postgresql",
+        "python",
+        "-m",
+        "mcp_server"
+      ],
+      "env": {
+        "CORTEX_MEMORY_STORE_BACKEND": "${user_config.store_backend}",
+        "CORTEX_MEMORY_DATABASE_URL": "${user_config.database_url}"
+      }
+    }
+  },
+  "tools_generated": true,
+  "tools": [
+    { "name": "query_methodology", "title": "Query Methodology Profile", "description": "Return the cognitive profile + hot memories for the current domain.", "annotations": { "readOnlyHint": true, "destructiveHint": false } },
+    { "name": "remember", "title": "Remember", "description": "Store a memory through the predictive-coding write gate.", "annotations": { "readOnlyHint": false, "destructiveHint": false } },
+    { "name": "recall", "title": "Recall Memories", "description": "Retrieve memories via hybrid WRRF fusion + cross-encoder rerank.", "annotations": { "readOnlyHint": true, "destructiveHint": false } },
+    { "name": "consolidate", "title": "Consolidate Memory", "description": "Run maintenance: decay, compression, CLS, sleep compute.", "annotations": { "readOnlyHint": false, "destructiveHint": true } },
+    { "name": "checkpoint", "title": "Checkpoint State", "description": "Save/restore working state for hippocampal replay.", "annotations": { "readOnlyHint": false, "destructiveHint": false } },
+    { "name": "anchor", "title": "Anchor Memory", "description": "Pin a memory as compaction-resistant.", "annotations": { "readOnlyHint": false, "destructiveHint": false } },
+    { "name": "forget", "title": "Forget Memory", "description": "Delete a memory (guarded by protection flag).", "annotations": { "readOnlyHint": false, "destructiveHint": true } },
+    { "name": "narrative", "title": "Generate Narrative", "description": "Generate a project narrative from stored memories.", "annotations": { "readOnlyHint": true, "destructiveHint": false } },
+    { "name": "navigate_memory", "title": "Navigate Memory Graph", "description": "Successor-Representation co-access traversal.", "annotations": { "readOnlyHint": true, "destructiveHint": false } },
+    { "name": "get_causal_chain", "title": "Get Causal Chain", "description": "Trace entity relationships through the knowledge graph.", "annotations": { "readOnlyHint": true, "destructiveHint": false } },
+    { "name": "wiki_write", "title": "Write Wiki Page", "description": "Create a first-class wiki page (ADR, spec, note).", "annotations": { "readOnlyHint": false, "destructiveHint": false } },
+    { "name": "memory_stats", "title": "Memory Stats", "description": "Memory system diagnostics.", "annotations": { "readOnlyHint": true, "destructiveHint": false } }
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "python": ">=3.10"
+    }
+  },
+  "user_config": {
+    "store_backend": {
+      "type": "string",
+      "title": "Storage backend",
+      "description": "Where Cortex stores memory. \"sqlite\" (default) runs fully local with zero setup. \"postgresql\" uses an external PostgreSQL + pgvector database (set the URL below). \"auto\" tries PostgreSQL then falls back to SQLite.",
+      "default": "sqlite",
+      "required": false
+    },
+    "database_url": {
+      "type": "string",
+      "title": "PostgreSQL URL (advanced, optional)",
+      "description": "Only used when the storage backend is \"postgresql\" or \"auto\". Example: postgresql://user:password@host:5432/cortex. Leave empty to use the local SQLite backend.",
+      "default": "",
+      "required": false,
+      "sensitive": true
+    }
+  }
+}

@@ -148,7 +148,7 @@ jobs:
     # environment=pypi). This is the same entry that published <= 3.14.7.
     environment:
       name: pypi
-      url: https://pypi.org/p/neuro-cortex-memory
+      url: https://pypi.org/p/hypermnesia-mcp
     permissions:
       id-token: write
     steps:

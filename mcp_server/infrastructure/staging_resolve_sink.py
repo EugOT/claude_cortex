@@ -22,15 +22,16 @@ Pure infrastructure — no core imports.
 
 from __future__ import annotations
 
-from typing import Any
-
-import psycopg
+from typing import TYPE_CHECKING, Any
 
 from mcp_server.infrastructure.pooled_sink import (
     ConnectAcquire,
     PooledConnectionSink,
     RowAdapter,
 )
+
+if TYPE_CHECKING:
+    import psycopg
 
 
 class StagingResolveSink(PooledConnectionSink):

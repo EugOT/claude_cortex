@@ -18,7 +18,10 @@ from mcp_server.infrastructure.wiki_store import (
     write_page,
 )
 
+from mcp_server.handlers._tool_meta import IDEMPOTENT_WRITE
+
 schema = {
+    "annotations": IDEMPOTENT_WRITE,
     "description": (
         "Create a numbered ADR (Architecture Decision Record) from "
         "structured Context/Decision/Consequences fields. Atomically: "

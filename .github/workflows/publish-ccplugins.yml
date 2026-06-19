@@ -200,7 +200,7 @@ jobs:
           - \`plugins/cortex/README.md\` — slim mirror pointing at canonical docs
           - \`README.md\` index entry under _${CATEGORY}_ (alphabetical)
 
-          The plugin is a thin manifest; the actual code runs via \`uvx\` from the \`neuro-cortex-memory\` PyPI package, so there is nothing to vendor."
+          The plugin is a thin manifest; the actual code runs via \`uvx\` from the \`hypermnesia-mcp\` PyPI package, so there is nothing to vendor."
           if [ -n "$EXISTING" ]; then
             echo "Updating existing PR #$EXISTING"
             gh pr edit "$EXISTING" --repo $UPSTREAM --body "$BODY"

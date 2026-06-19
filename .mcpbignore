@@ -1,0 +1,59 @@
+# Cortex MCPB bundle — exclude everything not needed to run the uv server.
+# The `uv` runtime resolves dependencies from pyproject.toml + uv.lock at
+# install time, so the virtualenv and all dev / research / CI assets are
+# excluded from the bundle. Keep: manifest.json, pyproject.toml, uv.lock,
+# icon.png, mcp_server/, assets/banner.svg, README.md, LICENSE, PRIVACY.md.
+
+# Virtual env & caches (deps resolved at install via uv, not bundled)
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# VCS & CI
+.git/
+.github/
+.gitignore
+.npmignore
+.dockerignore
+.mcpbignore
+
+# Heavy / irrelevant content
+benchmarks/
+video/
+docs/
+tasks/
+tests_py/
+tests_js/
+_pipeline/
+.claude/
+
+# Claude Code plugin assets (not used by the MCPB / uv server runtime)
+.claude-plugin/
+agents/
+commands/
+skills/
+scripts/
+docker/
+Dockerfile
+
+# Build artifacts
+dist/
+build/
+*.whl
+*.tar.gz
+*.egg-info/
+*.mcpb
+
+# Repo-meta files not needed at runtime
+CHANGELOG.md
+CODE_OF_CONDUCT.md
+CONTRIBUTING.md
+SECURITY.md
+typecheck-baseline.json
+pyrightconfig.json
+glama.json
+package.json

@@ -21,10 +21,10 @@
   <text class="mono" x="32" y="174" fill="#e0e0e0" font-size="14" font-weight="700">persistent memory for Claude Code</text>
 
   <!-- Stats -->
-  <text class="mono" x="32" y="208" fill="#e0e0e0" font-size="12">33 MCP tools  ·  20 bio mechanisms  ·  7 hooks  ·  2080 tests  ·  41 citations</text>
+  <text class="mono" x="32" y="208" fill="#e0e0e0" font-size="12">43 MCP tools  ·  23 bio mechanisms  ·  9 hooks  ·  3000+ tests  ·  72 citations</text>
 
   <!-- Benchmarks -->
-  <text class="mono" x="32" y="244" fill="#bec3be" font-size="11">97.8% R@10 LongMemEval  ·  92.6% R@10 LoCoMo  ·  +33.4% BEAM-10M</text>
+  <text class="mono" x="32" y="244" fill="#bec3be" font-size="11">98.4% R@10 LongMemEval  ·  94.2% R@10 LoCoMo  ·  +33.4% BEAM-10M</text>
 
   <!-- Mechanism chain -->
   <text class="mono" x="32" y="272" fill="#96a09b" font-size="11">encode ── consolidate ── decay ── retrieve ── reconstruct</text>

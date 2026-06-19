@@ -1,6 +1,6 @@
 {
   "name": "cortex",
-  "description": "Persistent memory for Claude Code — remembers across sessions automatically. Install and forget. Scientific retrieval backed by 41 published papers.",
+  "description": "Persistent memory for Claude Code — remembers across sessions automatically. Install and forget. Scientific retrieval backed by 72 published references.",
   "version": "3.23.0",
   "author": {
     "name": "Clement Deust",

@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "neuro-cortex-memory"
+name = "hypermnesia-mcp"
 version = "3.23.0"
 description = "Scientifically-grounded memory system based on computational neuroscience research"
 readme = "README.md"
@@ -25,6 +25,16 @@ dependencies = [
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
     "numpy>=1.24.0",
+    # Recall quality depends essentially on these two: the embedding model
+    # (semantic vectors) and the cross-encoder reranker. Without them the
+    # engine degrades to low-quality hash embeddings + no rerank (see
+    # infrastructure/embedding_engine.py, core/reranker.py). They are NOT
+    # optional — promoted from the benchmarks/dev extras to base so every
+    # distribution ships full-quality recall by default. The plugin already
+    # installs them (scripts/setup.sh, scripts/launcher.py); this closes the
+    # gap for the MCPB build (`uv run`). uv.lock pins ST 5.4.1 / flashrank 0.2.10.
+    "sentence-transformers>=2.2.0",
+    "flashrank>=0.2.0",
 ]
 
 [project.urls]
@@ -40,12 +50,12 @@ Repository = "https://github.com/cdeust/Cortex"
 # best-effort secondary channel (see .github/workflows/release.yml).
 # The two console scripts below are for local CLI use from a checkout:
 #   - cortex-doctor: runs the environment doctor.
-#   - neuro-cortex-memory: starts the stdio MCP server (equivalent to
+#   - hypermnesia-mcp: starts the stdio MCP server (equivalent to
 #     `python -m mcp_server`). Registry indexers such as Glama build the
-#     repo with `uv sync` and launch it via `uv run neuro-cortex-memory`,
+#     repo with `uv sync` and launch it via `uv run hypermnesia-mcp`,
 #     so this entry point must exist and match the package name.
 cortex-doctor = "mcp_server.doctor:run"
-neuro-cortex-memory = "mcp_server.__main__:main"
+hypermnesia-mcp = "mcp_server.__main__:main"
 
 [project.optional-dependencies]
 postgresql = [

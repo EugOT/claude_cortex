@@ -1,19 +1,20 @@
 # Contributing to Cortex
 
 Thanks for considering a contribution. Cortex is a persistent memory
-engine built on **20 biological mechanisms** with **41 academic citations**
+engine built on **23 biological mechanisms** with a **72-reference bibliography**
 backing the algorithms. Every change is held to that bar.
 
 ---
 
 ## What this project is
 
-A Python 3.10+ MCP server with **47 tools, 9 automatic hooks**, persisting
-to PostgreSQL + pgvector. Implements rate-distortion forgetting,
+A Python 3.10+ MCP server with **43 standalone tools** (46 with the optional
+automatised-pipeline + prd-spec-generator integrations) and **9 automatic
+hooks**, persisting to PostgreSQL + pgvector. Implements rate-distortion forgetting,
 predictive-coding write gating, retrieval-induced reconsolidation, pattern
 separation, sleep-cycle consolidation, emotional-valence weighting, and
 more. See [README](README.md) for the full architecture and benchmark
-results (LongMemEval Recall@10 = 97.8%, LoCoMo Recall@10 = 92.6%, BEAM-10M
+results (LongMemEval Recall@10 = 98.4%, LoCoMo Recall@10 = 94.2%, BEAM-10M
 +33.4% over the published baseline).
 
 ---
@@ -34,9 +35,9 @@ pip install -e ".[postgresql,benchmarks,dev]"
 bash scripts/setup.sh        # macOS / Linux
 
 # Verify everything is wired
-uvx --python 3.13 --from "neuro-cortex-memory[postgresql]" cortex-doctor
+uvx --python 3.13 --from "hypermnesia-mcp[postgresql]" cortex-doctor
 
-# Run tests (2500+ tests across functional + benchmark suites)
+# Run tests (3000+ tests across functional + benchmark suites)
 pytest
 
 # Run a benchmark
@@ -62,7 +63,7 @@ A new mechanism PR must include:
 
 1. **Primary citation.** What published neuroscience or cognitive-science
    work motivates this mechanism? Include the paper's bibliographic
-   reference in `docs/papers/science.md`.
+   reference in `docs/papers/bibliography.md`.
 2. **The mathematical form.** Equations or pseudocode showing the exact
    computation. If you're adapting an algorithm from the literature,
    call out the divergence and justify it.
@@ -132,7 +133,7 @@ per run.
 
 ## Adding an MCP tool
 
-47 tools currently. Adding a new one:
+43 standalone tools currently (46 with the optional upstream integrations). Adding a new one:
 
 1. **Define the JSON schema** in the tool's module-level decorator.
 2. **Implement the handler** following the `BaseTool` protocol.

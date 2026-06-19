@@ -46,7 +46,9 @@ def is_mechanism_disabled(mechanism: "Mechanism | str") -> bool:
 
 
 class Mechanism(Enum):
-    """Enumeration of all ablatable Cortex mechanisms."""
+    """Enumeration of the 28 ablatable units (the 23 neuroscience-grounded
+    mechanisms plus retrieval/maintenance flags; some mechanisms expose more
+    than one ablation flag)."""
 
     OSCILLATORY_CLOCK = "oscillatory_clock"
     CASCADE = "consolidation_cascade"

@@ -14,7 +14,7 @@ Exit 0 on full green. Exit 1 with a numbered list of fixes otherwise.
 
 Invocation:
     python -m mcp_server.doctor
-    neuro-cortex-memory doctor       (once entry point is wired)
+    hypermnesia-mcp doctor       (once entry point is wired)
 
 Source: docs/program/phase-5-pool-admission-design.md §7 (marketplace
 readiness), I10 invariant.
@@ -73,7 +73,7 @@ def _pg_driver() -> Check:
             "psycopg driver",
             False,
             "not installed",
-            "Install the postgresql extra: `pip install neuro-cortex-memory[postgresql]`",
+            "Install the postgresql extra: `pip install hypermnesia-mcp[postgresql]`",
         )
     try:
         import psycopg_pool  # noqa: F401
@@ -82,7 +82,7 @@ def _pg_driver() -> Check:
             "psycopg_pool",
             False,
             "not installed (required for Phase 5 ConnectionPool)",
-            "Upgrade to v3.13.0+: `pip install -U neuro-cortex-memory[postgresql]`",
+            "Upgrade to v3.13.0+: `pip install -U hypermnesia-mcp[postgresql]`",
         )
     try:
         import pgvector  # noqa: F401

@@ -1,9 +1,14 @@
-"""Tool registration: upstream-ingest tools (2 tools).
+"""Tool registration: upstream-integration tools (3 tools).
 
 ingest_codebase — pulls from ai-automatised-pipeline MCP
+change_impact   — pulls from ai-automatised-pipeline MCP (ADR-0046)
 ingest_prd      — pulls from prd-spec-generator MCP
 
-Cortex consumes upstream artefacts; it does not drive those pipelines.
+Cortex consumes upstream artefacts; it does not drive those pipelines. These
+tools are CONDITIONALLY registered: each only registers when its upstream MCP
+server is reachable (see register()). On a standalone install with no upstream
+configured, none register — so every advertised tool works out of the box.
+source: Anthropic MCP Directory submission decision 2026-06-19.
 """
 
 from __future__ import annotations
@@ -20,10 +25,22 @@ from mcp_server.tool_error_handler import safe_handler
 from mcp_server.handlers._tool_meta import tool_kwargs
 
 
-def register(mcp: FastMCP) -> None:
-    _register_ingest_codebase(mcp)
-    _register_ingest_prd(mcp)
-    _register_change_impact(mcp)
+def register(mcp: FastMCP, *, codebase: bool = True, prd: bool = True) -> None:
+    """Register the upstream-integration tools, gated by upstream availability.
+
+    ``codebase`` registers ingest_codebase + change_impact (both consume the
+    automatised-pipeline ``codebase`` MCP). ``prd`` registers ingest_prd (it
+    consumes the prd-spec-generator ``prd-gen`` MCP). The composition root
+    (__main__) passes the real availability; both default True so any other
+    caller keeps the full set. When a flag is False the corresponding tools are
+    NOT advertised — the standalone tool set is exactly what works without an
+    upstream. source: Anthropic MCP Directory submission decision 2026-06-19.
+    """
+    if codebase:
+        _register_ingest_codebase(mcp)
+        _register_change_impact(mcp)
+    if prd:
+        _register_ingest_prd(mcp)
 
 
 def _register_ingest_codebase(mcp: FastMCP) -> None:

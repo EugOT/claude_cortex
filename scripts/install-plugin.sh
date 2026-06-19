@@ -11,10 +11,12 @@ set -euo pipefail
 #      truth.
 #
 # Stale targets removed:
-#   - uv tool install:  neuro-cortex-memory  (PyPI distribution name)
-#       and the shims it drops in ~/.local/bin: cortex-doctor,
-#       cortex-hook, neuro-cortex-memory
-#   - pip / pip3 site-packages copies of: neuro-cortex-memory, cortex-mcp
+#   - uv tool install:  hypermnesia-mcp  (current PyPI distribution name)
+#       and the legacy neuro-cortex-memory, plus the shims they drop in
+#       ~/.local/bin: cortex-doctor, cortex-hook, hypermnesia-mcp,
+#       neuro-cortex-memory
+#   - pip / pip3 site-packages copies of: hypermnesia-mcp,
+#       neuro-cortex-memory, cortex-mcp
 #   - Older cortex versions sitting in
 #       ~/.claude/plugins/cache/cortex-plugins/cortex/<X.Y.Z>
 #       (only when this script runs from inside the cache, so dev installs
@@ -60,21 +62,23 @@ say "Scanning for stale Cortex installs"
 
 PRUNED=0
 
-# 2a) Stale uv tool: neuro-cortex-memory (PyPI distribution name).
-#     `uv tool uninstall` also removes the venv at
-#     ~/.local/share/uv/tools/neuro-cortex-memory and the shims at
-#     ~/.local/bin/{cortex-doctor,cortex-hook,neuro-cortex-memory}.
+# 2a) Stale uv tool: hypermnesia-mcp (current PyPI distribution name) and
+#     the legacy neuro-cortex-memory. `uv tool uninstall` also removes the
+#     venv at ~/.local/share/uv/tools/<name> and the shims at
+#     ~/.local/bin/{cortex-doctor,cortex-hook,<name>}.
 if command -v uv >/dev/null 2>&1; then
-    if uv tool list 2>/dev/null | grep -q '^neuro-cortex-memory '; then
-        warn "Removing stale uv tool: neuro-cortex-memory"
-        uv tool uninstall neuro-cortex-memory >/dev/null 2>&1 \
-            && PRUNED=$((PRUNED + 1)) \
-            || warn "uv tool uninstall failed — leaving in place"
-    fi
+    for tool in hypermnesia-mcp neuro-cortex-memory; do
+        if uv tool list 2>/dev/null | grep -q "^${tool} "; then
+            warn "Removing stale uv tool: ${tool}"
+            uv tool uninstall "${tool}" >/dev/null 2>&1 \
+                && PRUNED=$((PRUNED + 1)) \
+                || warn "uv tool uninstall ${tool} failed — leaving in place"
+        fi
+    done
 fi
 
 # 2b) Stale pip / pip3 packages. Two known PyPI names that ship Cortex.
-for pkg in neuro-cortex-memory cortex-mcp; do
+for pkg in hypermnesia-mcp neuro-cortex-memory cortex-mcp; do
     for pip_cmd in pip3 pip; do
         if command -v "$pip_cmd" >/dev/null 2>&1; then
             if "$pip_cmd" show "$pkg" >/dev/null 2>&1; then
@@ -114,7 +118,7 @@ esac
 
 # 2d) Orphan shims in ~/.local/bin pointing at a non-existent venv
 #     (e.g. uv-tool python interpreter was removed but the shim survived).
-for shim in cortex-doctor cortex-hook neuro-cortex-memory; do
+for shim in cortex-doctor cortex-hook hypermnesia-mcp neuro-cortex-memory; do
     path="${HOME}/.local/bin/$shim"
     if [ -f "$path" ]; then
         # First line of a uv-tool shim is `#!/path/to/python`.

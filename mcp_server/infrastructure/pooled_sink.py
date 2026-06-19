@@ -11,14 +11,18 @@ Pure infrastructure — no core imports.
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
-from typing import Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
-import psycopg
+if TYPE_CHECKING:
+    import psycopg
 
 # A zero-arg callable returning a context manager that yields a psycopg
 # connection (e.g. ``store.batch_pool.connection``). Injected so this layer
-# never reaches into the store or psycopg_pool directly.
-ConnectAcquire = Callable[[], AbstractContextManager[psycopg.Connection]]
+# never reaches into the store or psycopg_pool directly. The psycopg import is
+# typing-only (TYPE_CHECKING) so this module loads in a SQLite-only install
+# where the optional PostgreSQL driver is absent; the return type is a quoted
+# forward reference so the alias evaluates without importing psycopg at runtime.
+ConnectAcquire = Callable[[], "AbstractContextManager[psycopg.Connection]"]
 RowAdapter = Callable[[Any], Sequence[Any]]
 
 

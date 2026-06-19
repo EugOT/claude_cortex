@@ -1,11 +1,29 @@
 """Tests for mcp_server.__main__ entry point."""
 
+import asyncio
 import signal
 from unittest.mock import patch
 
 import pytest
+from fastmcp import FastMCP
 
-from mcp_server.__main__ import main, _shutdown, mcp
+from mcp_server.__main__ import main, _shutdown, mcp, register_all
+
+
+# The 3 upstream-integration tools, conditionally registered by upstream
+# availability (source: MCP Directory submission decision 2026-06-19).
+_UPSTREAM_TOOLS = {"ingest_codebase", "change_impact", "ingest_prd"}
+
+
+def _tool_names(*, codebase: bool, prd: bool) -> set[str]:
+    """Build a fresh server with explicit availability flags; return tool names.
+
+    Deterministic — independent of whether automatised-pipeline / prd-spec-gen
+    happen to be installed on the machine running the test.
+    """
+    server = FastMCP(name="test", version="0.0.0")
+    register_all(server, codebase=codebase, prd=prd)
+    return {t.name for t in asyncio.run(server.list_tools())}
 
 
 class TestMain:
@@ -28,53 +46,54 @@ class TestMain:
             # Should call mcp.run with stdio transport
             mock_run.assert_called_once_with(transport="stdio")
 
-    def test_mcp_server_has_tools(self):
-        """FastMCP instance should have all 46 tools registered."""
-        import asyncio
+    def test_standalone_baseline_is_43_tools(self):
+        """With no upstream available, exactly the 43 standalone tools register.
 
-        tools = asyncio.run(mcp.list_tools())
-        tool_names = {t.name for t in tools}
-        assert "query_methodology" in tool_names
-        assert "detect_domain" in tool_names
-        assert "rebuild_profiles" in tool_names
-        assert "list_domains" in tool_names
-        assert "record_session_end" in tool_names
-        # get_methodology_graph / open_visualization / query_workflow_graph
-        # were extracted to the cortex-viz MCP.
-        assert "get_methodology_graph" not in tool_names
-        assert "open_visualization" not in tool_names
-        assert "explore_features" in tool_names
-        assert "remember" in tool_names
-        assert "recall" in tool_names
-        assert "memory_stats" in tool_names
-        assert "checkpoint" in tool_names
-        assert "consolidate" in tool_names
-        assert "narrative" in tool_names
-        assert "import_sessions" in tool_names
-        assert "codebase_analyze" in tool_names
-        assert "wiki_write" in tool_names
-        assert "wiki_read" in tool_names
-        assert "wiki_list" in tool_names
-        assert "wiki_link" in tool_names
-        assert "wiki_adr" in tool_names
-        assert "wiki_reindex" in tool_names
-        assert "wiki_purge" in tool_names
-        assert "ingest_codebase" in tool_names
-        assert "ingest_prd" in tool_names
-        # ADR-0046 — automatised-pipeline integration tools.
-        assert "wiki_verify" in tool_names
-        assert "unified_search" in tool_names
-        assert "change_impact" in tool_names
-        # query_workflow_graph extracted to cortex-viz MCP.
-        assert "query_workflow_graph" not in tool_names
-        # Verification campaign — read/write ratio telemetry (Popper C6).
-        assert "get_telemetry" in tool_names
-        # ADR-2244 Phase 3.2 — page rename with redirect stub.
-        assert "wiki_rename" in tool_names
-        # 46 tools after the cortex-viz extraction removed 3 visualization
-        # tools (get_methodology_graph, open_visualization,
-        # query_workflow_graph) from the prior 49.
-        assert len(tool_names) == 46
+        The 3 upstream-integration tools (ingest_codebase, change_impact,
+        ingest_prd) MUST NOT be advertised — every advertised tool then works
+        out of the box. source: MCP Directory submission decision 2026-06-19.
+        """
+        names = _tool_names(codebase=False, prd=False)
+        # Core memory / profiling / wiki tools are always present.
+        assert "query_methodology" in names
+        assert "detect_domain" in names
+        assert "rebuild_profiles" in names
+        assert "list_domains" in names
+        assert "record_session_end" in names
+        assert "explore_features" in names
+        assert "remember" in names
+        assert "recall" in names
+        assert "memory_stats" in names
+        assert "checkpoint" in names
+        assert "consolidate" in names
+        assert "narrative" in names
+        assert "import_sessions" in names
+        assert "codebase_analyze" in names  # native AST — no upstream needed
+        assert "unified_search" in names  # ap_bridge degrades to native AST
+        assert "wiki_verify" in names
+        assert "get_telemetry" in names
+        assert "wiki_write" in names
+        assert "wiki_rename" in names
+        # Extracted to cortex-viz MCP — never registered here.
+        assert "get_methodology_graph" not in names
+        assert "open_visualization" not in names
+        assert "query_workflow_graph" not in names
+        # The upstream-integration tools are gated OFF.
+        assert names.isdisjoint(_UPSTREAM_TOOLS)
+        assert len(names) == 43
+
+    def test_with_upstreams_registers_46_tools(self):
+        """When both upstreams are available, the 3 integration tools register."""
+        names = _tool_names(codebase=True, prd=True)
+        assert _UPSTREAM_TOOLS <= names
+        assert len(names) == 46
+
+    def test_codebase_only_adds_two_tools(self):
+        """codebase upstream gates ingest_codebase + change_impact together."""
+        names = _tool_names(codebase=True, prd=False)
+        assert {"ingest_codebase", "change_impact"} <= names
+        assert "ingest_prd" not in names
+        assert len(names) == 45
 
     def test_mcp_server_name_and_version(self):
         assert mcp.name == "methodology-agent"

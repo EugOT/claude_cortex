@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp_server.errors import McpConnectionError
+from mcp_server.handlers._tool_meta import IDEMPOTENT_WRITE
 from mcp_server.handlers.ingest_helpers import call_upstream, normalise_mcp_payload
 from mcp_server.infrastructure.config import WIKI_ROOT
 from mcp_server.infrastructure.memory_config import get_memory_settings
@@ -39,6 +40,7 @@ _UPSTREAM_SERVER = "prd-gen"
 # ── Schema ──────────────────────────────────────────────────────────────
 
 schema = {
+    "annotations": IDEMPOTENT_WRITE,
     "description": (
         "Ingest a PRD (Product Requirements Document) into Cortex's "
         "store. Source: a file path, raw markdown, or a prd-gen pipeline "

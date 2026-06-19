@@ -57,7 +57,7 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
 # MCP servers typically run stdio transport; no ports to expose.
 # Prometheus metrics endpoint is served by the sidecar in Phase 7.1.
 #
-# Use `python -m mcp_server` because pyproject.toml registers only one
-# console script (`cortex-doctor`); there is no `neuro-cortex-memory`
-# entry point. The package's __main__.py documents this invocation.
+# Use `python -m mcp_server` — the invocation documented in the package's
+# __main__.py — so the image never depends on a console-script name
+# (`hypermnesia-mcp` / `cortex-doctor`) staying stable across renames.
 ENTRYPOINT ["python", "-m", "mcp_server"]

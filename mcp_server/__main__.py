@@ -24,6 +24,10 @@ from mcp_server import (
     tool_registry_wiki,
 )
 from mcp_server.infrastructure.mcp_client_pool import close_all
+from mcp_server.infrastructure.upstream_availability import (
+    codebase_upstream_available,
+    prd_upstream_available,
+)
 
 # ── Server Instance ────────────────────────────────────────────────────────
 
@@ -40,13 +44,29 @@ mcp = FastMCP(
 
 # ── Tool Registration ──────────────────────────────────────────────────────
 
-tool_registry_core.register(mcp)
-tool_registry_memory.register(mcp)
-tool_registry_manage.register(mcp)
-tool_registry_nav.register(mcp)
-tool_registry_advanced.register(mcp)
-tool_registry_wiki.register(mcp)
-tool_registry_ingest.register(mcp)
+
+def register_all(mcp: FastMCP, *, codebase: bool, prd: bool) -> None:
+    """Wire every tool registry onto ``mcp``.
+
+    The 43 standalone tools always register. The 3 upstream-integration tools
+    register only when their upstream MCP server is available — ``codebase``
+    gates ingest_codebase + change_impact (automatised-pipeline), ``prd`` gates
+    ingest_prd (prd-spec-generator). source: MCP Directory decision 2026-06-19.
+    """
+    tool_registry_core.register(mcp)
+    tool_registry_memory.register(mcp)
+    tool_registry_manage.register(mcp)
+    tool_registry_nav.register(mcp)
+    tool_registry_advanced.register(mcp)
+    tool_registry_wiki.register(mcp)
+    tool_registry_ingest.register(mcp, codebase=codebase, prd=prd)
+
+
+register_all(
+    mcp,
+    codebase=codebase_upstream_available(),
+    prd=prd_upstream_available(),
+)
 
 # ── Lifecycle ──────────────────────────────────────────────────────────────
 

@@ -1,68 +1,75 @@
+<!-- mcp-name: io.github.cdeust/hypermnesia-mcp -->
+
+<p align="center">
+  <img src="assets/banner.svg" alt="Cortex — persistent memory for Claude Code" width="820">
+</p>
+
 <p align="center">
   <a href="https://github.com/cdeust/Cortex/actions/workflows/ci.yml"><img src="https://github.com/cdeust/Cortex/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/tests-3000+_passing-brightgreen.svg" alt="Tests">
-  <img src="https://img.shields.io/badge/citations-45_papers-orange.svg" alt="Citations">
-  <img src="https://img.shields.io/badge/version-3.21.0-brightgreen.svg" alt="Version 3.21.0">
-  <a href="https://glama.ai/mcp/servers/cdeust/Cortex"><img src="https://glama.ai/mcp/servers/cdeust/Cortex/badges/score.svg" alt="Glama score: security A, license A"></a>
+  <img src="https://img.shields.io/badge/references-72_papers-orange.svg" alt="References">
+  <img src="https://img.shields.io/badge/version-3.23.0-brightgreen.svg" alt="Version 3.23.0">
 </p>
 
 <p align="center">
-  <a href="#getting-started">Getting Started</a> · <a href="#whats-new">What's New</a> · <a href="#the-science-under-the-hood">Science</a> · <a href="#retrieval-that-actually-works">Benchmarks</a> · <a href="#the-views">Views</a> · <a href="#the-autonomous-wiki">Wiki</a> · <a href="#architecture">Architecture</a>
+  The single-click MCP distribution of <a href="https://github.com/cdeust/Cortex"><strong>Cortex</strong></a> — the established, independently-built memory engine<br>
+  <a href="https://github.com/cdeust/Cortex/stargazers"><img src="https://img.shields.io/github/stars/cdeust/Cortex?style=social" alt="Stars on cdeust/Cortex"></a>
+  <a href="https://github.com/cdeust/Cortex/network/members"><img src="https://img.shields.io/github/forks/cdeust/Cortex?style=social" alt="Forks on cdeust/Cortex"></a>
+</p>
+
+<p align="center">
+  <a href="#getting-started">Getting Started</a> · <a href="#configuration">Configuration</a> · <a href="#examples">Examples</a> · <a href="#whats-new">What's New</a> · <a href="#the-science-under-the-hood">Science</a> · <a href="#retrieval-that-actually-works">Benchmarks</a> · <a href="#the-autonomous-wiki">Wiki</a> · <a href="#architecture">Architecture</a>
 </p>
 
 <p align="center">
   <strong>Companion projects:</strong><br>
-  <a href="https://github.com/cdeust/cortex-know-when-to-stop-training-model">cortex-beam-abstain</a> — community-trained retrieval abstention model for RAG systems<br>
+  <a href="https://github.com/cdeust/cortex-know-when-to-stop-training-model">cortex-beam-abstain</a> (repo <code>cortex-know-when-to-stop-training-model</code>) — community-trained retrieval abstention model for RAG systems<br>
   <a href="https://github.com/cdeust/zetetic-team-subagents">zetetic-team-subagents</a> — specialist Claude Code agents Cortex orchestrates with<br>
   <a href="https://github.com/cdeust/automatised-pipeline">automatised-pipeline</a> — automated 11-stage pipeline (findings → PRs) that Cortex drives via <code>run_pipeline</code><br>
-  <a href="https://github.com/cdeust/prd-spec-generator">prd-spec-generator</a> — stateless reducer that turns a feature description into a 9-file PRD (consumes Cortex memory + the pipeline's graph intel)
+  <a href="https://github.com/cdeust/cortex-viz">cortex-viz</a> — read-only visualization MCP (galaxy graph, execution trace, wiki browser) over the same store
+</p>
+
+<p align="center">
+  <sub><em><strong>Independent project:</strong> Cortex is an independent, open-source project. It is <strong>not an Anthropic product</strong> and is not affiliated with, sponsored by, or endorsed by Anthropic.</em></sub>
 </p>
 
 ---
 
-Claude Code forgets you every time you close the tab. Every architecture decision you explained. Every debugging session where you traced a bug through four layers of abstraction. Every "remember, we decided to use event sourcing, not CRUD" correction. Gone. Next session, you're a stranger to your own tools.
+Claude forgets you every time you close the tab. Every architecture decision you explained. Every debugging session where you traced a bug through four layers of abstraction. Every "remember, we decided to use event sourcing, not CRUD" correction. Gone. Next session, you're a stranger to your own tools.
 
-Cortex is a persistent memory engine for Claude Code built on computational neuroscience. It remembers what you worked on, how you think, what you decided and why — not as a text dump shoved into context, but as a living memory system that consolidates, forgets intelligently, and reconstructs the right context at the right time.
+Cortex is a persistent memory engine for Claude built on computational neuroscience. It remembers what you worked on, how you think, what you decided and why — not as a text dump shoved into context, but as a living memory system that consolidates, forgets intelligently, and reconstructs the right context at the right time.
 
-It runs **entirely on your machine**: PostgreSQL + pgvector, a 22 MB embedding model, no LLM in the retrieval loop, no data leaving localhost.
+It runs **entirely on your machine** — a local SQLite database by default (zero setup, no services to install), or PostgreSQL + pgvector when you want it. A 22 MB embedding model, no LLM in the retrieval loop, no data leaving localhost.
 
-> **26 neuroscience mechanisms · 49 MCP tools · 9 lifecycle hooks · a self-curating per-project wiki — all local, all open-source.**
+> **23 neuroscience mechanisms · 43 memory tools · 9 lifecycle hooks · a self-curating per-project wiki — all local, all open-source.**
 
 ---
 
 ## Getting Started
 
-The plugin marketplace is the **only supported install path** ([ADR-0050](docs/adr/ADR-0050-marketplace-only-no-uvx.md)):
+Cortex ships as a single-click MCP bundle (`.mcpb`). Download the latest **`hypermnesia-mcp.mcpb`** from [Releases](https://github.com/cdeust/Cortex/releases), then open it in Claude Desktop — **Settings → Extensions** installs it in one click.
 
+It runs immediately on the built-in **SQLite backend**: zero configuration, no database to provision, nothing to set up. Memory persists to a local file under `~/.claude/methodology/`. That's the whole install.
+
+Want PostgreSQL + pgvector instead (for very large stores or a shared team database)? It's a single configuration field — see [Configuration](#configuration) below. SQLite is the default; PostgreSQL is opt-in.
+
+<details>
+<summary><strong>More options</strong> (Claude Code plugin, Clone, Docker)</summary>
+
+**Claude Code plugin (marketplace):**
 ```bash
 claude plugin marketplace add cdeust/Cortex
 claude plugin install cortex
 ```
+The plugin path also registers the lifecycle hooks (session-start context injection, compaction checkpointing, the autonomous wiki cycle) and the `/cortex-setup-project` command. If you point the plugin at PostgreSQL, run `/cortex-setup-project` once — it handles pgvector installation, database creation, the embedding-model download, profile building, codebase seeding, and hook registration.
 
-> **PyPI / `pip install neuro-cortex-memory` is deprecated.** Kept best-effort for legacy users only and may lag the marketplace or be removed. Versions `3.14.6` and `3.14.7` on PyPI are affected by [GHSA-gvpp-v77h-5w8g](https://github.com/cdeust/Cortex/security/advisories/GHSA-gvpp-v77h-5w8g) (local ACE, CVSS 7.8) — do not use them; install via the marketplace instead.
-
-Restart your Claude Code session, then run:
-
-```
-/cortex-setup-project
-```
-
-This handles everything: PostgreSQL + pgvector installation, database creation, embedding model download, cognitive profile building from session history, codebase seeding, conversation import, and hook registration. Zero manual steps.
-
-After install, verify everything is wired correctly:
-
+If you configured the **PostgreSQL** backend, verify the connection:
 ```bash
 python3 -m mcp_server.doctor
 ```
-
-Seven checks in two seconds: Python, PG driver, `DATABASE_URL`, PG connection, extensions, writable methodology dir, pool-capacity invariant. Exit 0 means ready.
-
-> **Using Claude Cowork?** Install [Cortex-cowork](https://github.com/cdeust/Cortex-cowork) instead — uses SQLite, no PostgreSQL required.
-
-<details>
-<summary><strong>More options</strong> (Clone, Docker, Manual setup)</summary>
+Seven checks in two seconds: Python, the PG driver, `DATABASE_URL`, connection, extensions, a writable methodology dir, and the pool-capacity invariant. Exit 0 means the PostgreSQL path is ready. (On the default SQLite backend the PostgreSQL checks report "not set" and can be ignored — SQLite needs no doctor.)
 
 **Clone + setup script:**
 ```bash
@@ -82,25 +89,85 @@ docker run -it \
   cortex-runtime
 ```
 
-**Manual:** See [detailed manual setup instructions](docs/manual-setup.md).
-
 **WSL / TLS client-cert / remote PostgreSQL:** See [deployment scenarios](docs/deployment-scenarios.md).
 
 </details>
 
 ---
 
+## Configuration
+
+Cortex needs **no configuration** to run — the SQLite backend is the default and requires nothing. Two optional settings let you change the storage backend; in the single-click bundle they appear as fields in Claude Desktop's extension settings, and everywhere else they map to environment variables.
+
+| Setting | Env var | Default | What it does |
+|---|---|---|---|
+| **Storage backend** | `CORTEX_MEMORY_STORE_BACKEND` | `sqlite`\* | `sqlite` runs fully local with zero setup. `postgresql` uses an external PostgreSQL + pgvector database (set the URL below). `auto` tries PostgreSQL and falls back to SQLite. |
+| **PostgreSQL URL** | `CORTEX_MEMORY_DATABASE_URL` | *(empty)* | Only used when the backend is `postgresql` or `auto`. Example: `postgresql://user:password@host:5432/cortex`. Leave empty to stay on SQLite. Treated as sensitive. |
+
+\* The single-click bundle pins the backend to `sqlite` through the manifest. If you run the server directly (clone / Docker) without setting the variable, the underlying code default is `auto` — it tries PostgreSQL and falls back to SQLite.
+
+That's the entire surface most users touch. Both backends expose the **same 43 memory tools** (46 with the optional automatised-pipeline + prd-spec-generator integrations) and the same retrieval contract; PostgreSQL adds server-side PL/pgSQL fusion and HNSW indexing that pays off at very large scale. Every other knob uses the `CORTEX_MEMORY_` prefix — see `mcp_server/infrastructure/memory_config.py`.
+
+---
+
+## Examples
+
+A live, end-to-end run on the **SQLite backend** (43 tools registered) — store three memories, recall them by meaning, then check the store. The output is taken from the in-process FastMCP client (recall lists trimmed to the top hit). The harness writes with `force: true` for determinism, and the demo store already held a few earlier memories — so `memory_stats` totals exceed the three inserted here.
+
+**1 — Store a memory.** It is stored with a heat score (`force: true` skips the dedup write-gate to keep the demo deterministic; omit it and a near-duplicate would be gated).
+
+```js
+remember({
+  content: "Cortex stores memory in a local SQLite database by default — zero setup, no PostgreSQL required.",
+  tags: ["architecture", "decision"],
+  force: true
+})
+// → { stored: true, memory_id: 490, action: "stored", heat: 0.796 }
+```
+
+**2 — Recall by meaning, not keywords.** The fused retrieval ranks the relevant memory first.
+
+```js
+recall({ query: "how does cortex store memory by default?" })
+// → memories[0] = {
+//     content: "Cortex stores memory in a local SQLite database by default — zero setup, no PostgreSQL required.",
+//     score: 0.0167, heat: 0.846, tags: ["architecture", "decision"]
+//   }
+```
+
+**3 — A different query surfaces a different memory.** Stored "Anchored memories survive context compaction with maximum priority."; this recall puts it on top.
+
+```js
+recall({ query: "what survives context compaction?" })
+// → memories[0] = {
+//     content: "Anchored memories survive context compaction with maximum priority.",
+//     heat: 0.565, tags: ["compaction"]
+//   }
+```
+
+**4 — Inspect the store.** `has_vector_search: true` confirms semantic search is live on SQLite.
+
+```js
+memory_stats({})
+// → { total_memories: 14, episodic_count: 8, semantic_count: 6,
+//     avg_heat: 0.942, has_vector_search: true }
+```
+
+You rarely call these by hand: the lifecycle hooks (plugin install) inject the right memories at session start and capture new ones as you work. The tools are there when you want explicit control — `anchor` to pin an architecture constraint, `consolidate` to run a maintenance cycle, `narrative` to get the project's story so far.
+
+---
+
 ## What's new
 
-**v3.21.0 — visualization extracted to cortex-viz.** The entire visualization stack — the galaxy graph, execution trace, the Knowledge / Board / Wiki / Pipeline views, and their HTTP server — moves to a standalone companion MCP, **[cortex-viz](https://github.com/cdeust/cortex-viz)**, which reads this same PostgreSQL store read-only. Cortex is a focused memory engine again (−50k lines). **Breaking:** the `open_visualization`, `get_methodology_graph`, and `query_workflow_graph` MCP tools are removed from Cortex — install cortex-viz to get them back (its `/cortex-visualize` skill replaces the old one). 46 MCP tools remain; no memory, retrieval, or wiki behaviour changed; full suite green (3214 tests).
+**v3.23.0 — single-click bundle + registry-indexer build fix.** Cortex now ships as an MCP bundle (`.mcpb`) with a `uv` runtime and a selectable storage backend — **SQLite by default, PostgreSQL optional** — so it installs in one click with zero setup. Also: a `neuro-cortex-memory` console script so `uv run neuro-cortex-memory` resolves from a checkout; registry indexers that build with `uv sync` and launch via that script now start the server and register all 43 standalone tools **without** a PostgreSQL connection (46 when the automatised-pipeline + prd-spec-generator integrations are configured; so `tools/list` answers inside a DB-less container).
 
-**v3.20.0 — graph intelligence + memory knowledge-updates.** The codebase graph gains Leiden community detection, centrality and god-node analysis, and native tree-sitter symbol extraction across 7 languages — no `automatised-pipeline` dependency required. Memory learns to handle *knowledge updates*: a memory that supersedes prior knowledge records an explicit supersession edge so recall ranks the newest version above what it replaces; a MinHash entity-dedup engine (with AST-symbol origin flagging) collapses near-duplicate entities during a consolidate-time merge cycle; and a new `include_related` recall mode returns a memory's graph neighbours in one call. The visualizer adds a node-click orchestrator over an uncapped galaxy with O(1)-amortized canvas hit-testing. Supersedes the never-tagged 3.19.6 (its launcher self-heal for corrupt dependency installs and SSE-only galaxy delivery are included).
+**v3.22.0 — security + reliability hardening (P0/P1 audit).** Security: a headless-authoring RCE fix (the subprocess toolset is restricted and the untrusted repo's settings/hooks are ignored), DSN/secret redaction (libpq `?password=` query params and psycopg exception leaks), and pip supply-chain hardening. Fixed: the SQLite backend's incomplete `heat→heat_base` rename — all 11 indexes were never created (full table scans) and search/stats queried a dropped column; both are corrected, with a dedicated SQLite-backend CI job and deployment docs (WSL, TLS client-cert `DATABASE_URL`, remote PostgreSQL). 46 MCP tools.
 
-**v3.19.1 — ingest stdio pipe deadlock fix.** `ingest_codebase` could hang forever (hours at 0% CPU): a pooled MCP client bound to a closed per-call event loop was reused with a dead reader task, so once the analyzer's response exceeded the 64KB OS pipe buffer both sides slept indefinitely — the upstream cause of "graph shows only the global domain" reports. The client now detects a dead or foreign event loop and reconnects, and a new `CORTEX_MCP_CALL_TIMEOUT_S` (default 600s) makes a wedged call fail loudly in minutes with a diagnostic naming the cause.
+**v3.21.0 — visualization extracted to cortex-viz.** The entire visualization stack — the galaxy graph, execution trace, the Knowledge / Board / Wiki / Pipeline views, and their HTTP server — moves to a standalone companion MCP, **[cortex-viz](https://github.com/cdeust/cortex-viz)**, which reads this same store read-only. Cortex is a focused memory engine again (−50k lines). **Breaking:** the `open_visualization`, `get_methodology_graph`, and `query_workflow_graph` MCP tools are removed from Cortex — install cortex-viz to get them back (its `/cortex-visualize` skill replaces the old one). 46 MCP tools remain; no memory, retrieval, or wiki behaviour changed; full suite green (3214 tests).
 
-**v3.19.0 — memory hygiene + scoring integrity.** The headline is a fix to an auto-capture scoring inversion at all three roots: prospective-trigger injection no longer harvests garbage keyword triggers from raw tool dumps; WRRF fusion excludes mechanical freshness (`post_tool_capture`) from the hot/recency pools so churn isn't mistaken for importance; and `rate_memory` feedback now wires into rank as a metamemory confidence prior (Kraaij 2002). Oversized auto-captures store a deterministic gist plus a content-addressed artifact pointer — full output one `Read` away, no truncation. The `cortex-visualize` Graph galaxy is restored alongside the live Trace view. And pytest now refuses destructive isolation against any populated non-test database, after a 2026-06-10 incident lost 537k production rows to a misconfigured CI run. Benchmarks regression-free (LongMemEval R@10 98.4% / MRR 0.9124; LoCoMo MRR 0.8278).
+**v3.20.0 — graph intelligence + memory knowledge-updates.** The codebase graph gains Leiden community detection, centrality and god-node analysis, and native tree-sitter symbol extraction across 7 languages — no `automatised-pipeline` dependency required. Memory learns to handle *knowledge updates*: a memory that supersedes prior knowledge records an explicit supersession edge so recall ranks the newest version above what it replaces; a MinHash entity-dedup engine (with AST-symbol origin flagging) collapses near-duplicate entities during a consolidate-time merge cycle; and a new `include_related` recall mode returns a memory's graph neighbours in one call.
 
-Recent releases also brought a **progressive graph build** (bounded memory, keyset streaming — no more OOM on large stores), a **self-healing automatised-pipeline MCP bridge**, **git-diff + AST symbols for any file type**, a **cross-lens Wiki graph** in the visualizer, and **CodeQL path-injection hardening**.
+**v3.19.0 — memory hygiene + scoring integrity.** A fix to an auto-capture scoring inversion at all three roots: prospective-trigger injection no longer harvests garbage keyword triggers from raw tool dumps; WRRF fusion excludes mechanical freshness (`post_tool_capture`) from the hot/recency pools so churn isn't mistaken for importance; and `rate_memory` feedback now wires into rank as a metamemory confidence prior (Kraaij 2002). Oversized auto-captures store a deterministic gist plus a content-addressed artifact pointer — full output one `Read` away, no truncation. Benchmarks regression-free (LongMemEval R@10 98.4% / MRR 0.9124; LoCoMo MRR 0.8278).
 
 → **[Full changelog and release notes](https://github.com/cdeust/Cortex/releases)**
 
@@ -108,9 +175,9 @@ Recent releases also brought a **progressive graph build** (bounded memory, keys
 
 ## The science under the hood
 
-Cortex doesn't store memories the way a database stores rows. It treats them the way a brain treats experiences. Every mechanism traces to a published paper — **45 citations total** ([docs/papers/science.md](docs/papers/science.md)).
+Cortex doesn't store memories the way a database stores rows. It treats them the way a brain treats experiences. Every mechanism traces to a published paper — a **72-reference bibliography** ([docs/papers/bibliography.md](docs/papers/bibliography.md)).
 
-**Memories have temperature.** Every memory starts hot. Access it and it stays hot; ignore it and it cools. Below a threshold it compresses: full text → summary → keywords → fades entirely. This is [rate-distortion optimal forgetting](docs/papers/science.md) — the framework your brain uses to decide what's worth keeping. Important memories resist compression; surprising ones get a heat boost; boring, redundant ones quietly disappear. *(Anderson & Lebiere 1998; Ebbinghaus 1885)*
+**Memories have temperature.** Every memory starts hot. Access it and it stays hot; ignore it and it cools. Below a threshold it compresses: full text → summary → keywords → fades entirely. This is [rate-distortion optimal forgetting](docs/papers/thermodynamic-memory-vs-flat-importance.md) — the framework your brain uses to decide what's worth keeping. Important memories resist compression; surprising ones get a heat boost; boring, redundant ones quietly disappear. *(Anderson & Lebiere 1998; Ebbinghaus 1885)*
 
 **Storage has a gatekeeper.** Not everything deserves to be remembered. Cortex maintains a predictive model of what it already knows and only stores information that violates its expectations. Tell it the same thing twice and the write gate blocks the second attempt. This is predictive coding — the mechanism your neocortex uses to filter sensory input. Only prediction errors get through. *(Friston 2005; Bastos et al. 2012)*
 
@@ -130,7 +197,7 @@ The two arXiv-ready papers go deeper: **[Thermodynamic Memory vs. Flat-Importanc
 
 **Monday.** You spend an hour debugging a webhook handler. After tracing through four layers, you find the root cause: a race condition in the Redis session store where TTL expiry can fire between the auth check and the permission lookup. You discuss the fix with Claude, decide on an approach, implement it. Session ends.
 
-**Thursday.** Different project, but a user reports intermittent logouts. You open Claude Code. Before you even describe the bug, Cortex has already injected three memories: Monday's race-condition analysis, a decision from two weeks ago to use Redis for all session state, and a lesson from an older session about TTL edge cases in distributed caches.
+**Thursday.** Different project, but a user reports intermittent logouts. You open Claude. Before you even describe the bug, Cortex has already injected three memories: Monday's race-condition analysis, a decision from two weeks ago to use Redis for all session state, and a lesson from an older session about TTL edge cases in distributed caches.
 
 Claude doesn't just have your conversation history. It has *context* — it connects the current problem to past decisions and skips the part where you re-explain your architecture.
 
@@ -183,7 +250,7 @@ LoCoMo (Maharana et al., ACL 2024): 1,986 questions across 10 conversations — 
 | Single-hop | 0.741 | 94.0% |
 | Temporal | 0.577 | 78.3% |
 
-No LLM at query time. Five signals fused server-side in PL/pgSQL — vector similarity, full-text search, trigram matching, thermodynamic heat, recency — then reranked by a cross-encoder.
+No LLM at query time. Five signals fused — vector similarity, full-text search, trigram matching, thermodynamic heat, recency — then reranked by a cross-encoder. On PostgreSQL the fusion runs server-side in PL/pgSQL; on SQLite the same five signals are fused in-process.
 
 ### BEAM — 10 million tokens of conversation
 
@@ -208,7 +275,7 @@ Every system in the paper collapses at this scale; the best reported (LIGHT on L
 
 <sub>2026-04 family, same code revision, 196 Qs / 10 conversations — `benchmarks/beam/variance/assembler_10m_stagefixed.txt` and `assembler_10m_temporal.txt`. Reproduced 2026-06-11 on current code (fresh DBs, same 196 Qs): oracle 0.496, temporal **0.523** — the temporal advantage persists across code revisions (`benchmarks/results/beam10m_paired/RESULTS.md`).</sub>
 
-The finding that surprised us: **label-free temporal day-level partitioning outperforms BEAM's ground-truth topic labels** (0.471 vs 0.429). Temporal proximity is a stronger stage signal than topic boundaries for conversational memory, so the [Stage-Aware Context Assembly](docs/research-post-context-assembly.md) architecture deploys without any oracle metadata. It was originally designed in September 2025 for 9-page PRDs on Apple Intelligence's 4,096-token window ([ai-prd-builder](https://github.com/cdeust/ai-prd-builder), commit [`462de01`](https://github.com/cdeust/ai-prd-builder/commit/462de01)) — one month before the BEAM paper existed — because the problem is the same at both scales: you can't fit everything in context, so you have to be smart about what goes in.
+The finding that surprised us: **label-free temporal day-level partitioning outperforms BEAM's ground-truth topic labels** (0.471 vs 0.429). Temporal proximity is a stronger stage signal than topic boundaries for conversational memory, so the [Stage-Aware Context Assembly](docs/papers/research-post-context-assembly.md) architecture deploys without any oracle metadata. It was originally designed in September 2025 for 9-page PRDs on Apple Intelligence's 4,096-token window ([ai-prd-builder](https://github.com/cdeust/ai-prd-builder), commit [`462de01`](https://github.com/cdeust/ai-prd-builder/commit/462de01)) — one month before the BEAM paper existed — because the problem is the same at both scales: you can't fit everything in context, so you have to be smart about what goes in.
 
 > **Honest caveat:** BEAM defines no retrieval MRR metric — the paper uses LLM-as-judge nugget scoring. Our "MRR" is a retrieval proxy (rank of the first substring-matching memory); LIGHT's scores are end-to-end QA. The two are *not* commensurable, so we make no head-to-head BEAM claim and use BEAM only for within-system, same-harness comparisons.
 
@@ -224,7 +291,7 @@ python benchmarks/locomo/run_benchmark.py                     # ~40 min
 python benchmarks/longmemeval/run_benchmark.py --variant s    # ~45 min
 ```
 
-All scores on a fresh database (DROP + CREATE per run), TRUNCATE between conversations, FlashRank preflight verified. Full methodology: [docs/research-post-context-assembly.md](docs/research-post-context-assembly.md).
+All scores on a fresh database (DROP + CREATE per run), TRUNCATE between conversations, FlashRank preflight verified. Full methodology: [docs/papers/research-post-context-assembly.md](docs/papers/research-post-context-assembly.md).
 
 </details>
 
@@ -232,7 +299,7 @@ All scores on a fresh database (DROP + CREATE per run), TRUNCATE between convers
 
 ## Context that survives compaction
 
-Claude Code has a 200k/1M token context window. During long sessions, when it fills, it compacts: summarizes older messages, strips tool outputs, paraphrases instructions. Important nuance evaporates; decisions you anchored early dissolve into vague summaries.
+Claude has a 200k/1M token context window. During long sessions, when it fills, it compacts: summarizes older messages, strips tool outputs, paraphrases instructions. Important nuance evaporates; decisions you anchored early dissolve into vague summaries.
 
 **Hippocampal Replay** fixes this — named after the phenomenon where your brain replays important experiences during sleep to consolidate them. It treats compaction as "sleep" and replays what matters when Claude "wakes up." Before compaction hits, a hook drains your active context — what you were working on, which files were open, what decisions you'd made, what errors were unresolved — and stores it as a checkpoint. After compaction, a second hook reconstructs context intelligently: the latest checkpoint, anything you'd anchored as critical, the hottest project memories, and predictions about what you'll need next.
 
@@ -244,13 +311,7 @@ cortex:anchor({ content: "We're using event-sourcing. All state changes go throu
 
 Anchored memories get maximum protection — they always survive compaction, no matter what.
 
----
-
-## Visualization
-
-> **🎨 The visual layer now lives in its own MCP: [cortex-viz](https://github.com/cdeust/cortex-viz).**
->
-> The galaxy graph, the per-session execution trace, and the Knowledge / Board / Wiki / Pipeline views were **extracted from Cortex** so it stays a focused memory engine. **cortex-viz** reads this same PostgreSQL store **read-only** and serves all six reading angles in the browser. Install it alongside Cortex and launch with `open_visualization` (or `/cortex-visualize`). **→ See the [cortex-viz README](https://github.com/cdeust/cortex-viz#the-views) for the views and screenshots.**
+> The compaction checkpoint, session-start injection, and the autonomous wiki cycle are **lifecycle hooks** registered by the Claude Code plugin install. The single-click `.mcpb` bundle is a Directory connector — it delivers the 43 memory tools but **no hooks** (the MCPB format carries none). For the automatic session-lifecycle memory (session-start injection, auto-capture, compaction checkpointing, the autonomous wiki cycle), install the Claude Code plugin (see [More options](#getting-started)); the plugin also auto-registers the 3 upstream-integration tools when automatised-pipeline / prd-spec-generator are present (46 total).
 
 ---
 
@@ -280,6 +341,8 @@ Every page is editable in place in a full scientific writing environment — the
 - **LaTeX math** via KaTeX, **BibTeX citations** (`[@friston2010]` → `(Friston 2010)` with an auto APA bibliography), and **figure / equation / table auto-numbering** with cross-refs.
 - **Pandoc export** — one click to PDF (via LaTeX), TEX, DOCX, or HTML. Journal-submittable from the same source.
 
+> The wiki's editor, galaxy graph, and views render through the standalone **[cortex-viz](https://github.com/cdeust/cortex-viz)** MCP, which reads this same store read-only.
+
 ---
 
 ## Agent Integration
@@ -294,7 +357,7 @@ Cortex works with teams of specialized agents — and it **uses one itself**: th
 <img src="docs/diagram-team-memory.svg" alt="Transactive Memory System" width="80%"/>
 </p>
 
-Works with any custom agents. See [zetetic-team-subagents](https://github.com/cdeust/zetetic-team-subagents) for a ready-made team of **27 specialists**, each with scoped memory.
+Works with any custom agents. See [zetetic-team-subagents](https://github.com/cdeust/zetetic-team-subagents) for a ready-made team of specialists, each with scoped memory.
 
 ---
 
@@ -311,17 +374,17 @@ Clean Architecture with strict dependency rules — inner layers never import ou
 | **shared/** | Pure utilities (text, hash, similarity, types) | 18 |
 | **core/** | Neuroscience + retrieval + wiki-curation logic | 177 |
 | **core/context_assembly/** | Structured context assembler + stage detector | 10 |
-| **infrastructure/** | PostgreSQL, embeddings, file I/O, MCP client | 59 |
-| **handlers/** | MCP tools + consolidation cycles (46 MCP-exposed) | 105 |
+| **infrastructure/** | SQLite + PostgreSQL stores, embeddings, file I/O, MCP client | 59 |
+| **handlers/** | MCP tools + consolidation cycles (43 MCP-exposed; 46 with upstream integrations) | 105 |
 | **hooks/** | Lifecycle automation (incl. autonomous consolidate spawn) | 9 registered |
 | **server/** | MCP tool registration + composition roots | — |
 | **observability/** | Prometheus text-format metrics | 2 |
 
-**Storage:** PostgreSQL 15+ with pgvector (HNSW) and pg_trgm. All retrieval in PL/pgSQL stored procedures — WRRF fusion, vector search, FTS, trigram, heat, recency, all server-side.
+**Storage:** SQLite by default (a single local file, zero setup) or PostgreSQL 15+ with pgvector (HNSW) and pg_trgm. Both back the same 43 tools and the same WRRF fusion of five signals — vector search, FTS, trigram, heat, recency. On PostgreSQL it runs server-side in PL/pgSQL stored procedures; on SQLite the equivalent fusion runs in-process (vector search included, as the live `memory_stats` `has_vector_search` flag confirms).
 
-**Concurrency:** `psycopg_pool.ConnectionPool` with two latency classes — `interactive_pool` (min=2, max=8) for recall/remember/anchor, `batch_pool` (min=1, max=2) for consolidate/ingest. Tool handlers run on worker threads via `asyncio.to_thread`; per-tool admission semaphores bound fan-out. Heat is computed at read time by `effective_heat()`, so homeostatic maintenance writes one scalar per domain per run instead of N rows.
+**Concurrency (PostgreSQL):** `psycopg_pool.ConnectionPool` with two latency classes — `interactive_pool` (min=2, max=8) for recall/remember/anchor, `batch_pool` (min=1, max=2) for consolidate/ingest. Tool handlers run on worker threads via `asyncio.to_thread`; per-tool admission semaphores bound fan-out. Heat is computed at read time by `effective_heat()`, so homeostatic maintenance writes one scalar per domain per run instead of N rows.
 
-**Configuration:** set `DATABASE_URL` (default `postgresql://localhost:5432/cortex`); all parameters use the `CORTEX_MEMORY_` prefix — see `mcp_server/infrastructure/memory_config.py`. Wiki cycle TTL is `CORTEX_CONSOLIDATE_TTL_HOURS` (default 6h).
+**Configuration:** select the backend with `CORTEX_MEMORY_STORE_BACKEND` (`sqlite` / `postgresql` / `auto`); set `CORTEX_MEMORY_DATABASE_URL` for the PostgreSQL path. All other parameters use the `CORTEX_MEMORY_` prefix — see `mcp_server/infrastructure/memory_config.py`. Wiki cycle TTL is `CORTEX_CONSOLIDATE_TTL_HOURS` (default 6h).
 
 ---
 
@@ -338,7 +401,11 @@ The full per-mechanism evidence lives in the thermodynamic paper (§6.3); the BE
 
 ## Security
 
-Runs **100% locally** — MCP over stdio, PostgreSQL on localhost (the optional [cortex-viz](https://github.com/cdeust/cortex-viz) companion binds its server to 127.0.0.1). No data leaves your machine. Audit score: **91/100**.
+Runs **100% locally** — MCP over stdio, the storage backend (SQLite file or PostgreSQL on localhost) never leaves your machine (the optional [cortex-viz](https://github.com/cdeust/cortex-viz) companion binds its server to 127.0.0.1). No data leaves your machine. SafeSkill scan: **94/100** (code 97, content 88 — [docs/safeskill-report.json](docs/safeskill-report.json)).
+
+## Privacy Policy
+
+Cortex is **local-first**: your memories, conversations, and profiles stay on your machine — stored in a local SQLite database (`~/.claude/methodology/memory.db`) by default, or in a PostgreSQL database you control. Cortex sends **no** memories, content, or telemetry to the author, Anthropic, or any third party. The only outbound network activity is a one-time download of open-source embedding/reranking models from Hugging Face (model files only), plus any integrations you explicitly configure. Full policy: **[PRIVACY.md](PRIVACY.md)**.
 
 ## Development
 
