@@ -1231,7 +1231,7 @@ wheels = [
 
 [[package]]
 name = "hypermnesia-mcp"
-version = "3.23.0"
+version = "3.24.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },

@@ -89,6 +89,13 @@ docker run -it \
   cortex-runtime
 ```
 
+**PyPI (`uvx` / `pip`) — deprecated secondary channel:**
+```bash
+uvx hypermnesia-mcp          # run the MCP server directly
+pip install hypermnesia-mcp  # or install into your environment
+```
+The server is published on PyPI as **`hypermnesia-mcp`** (registry name `io.github.cdeust/hypermnesia-mcp`). The supported install paths are the `.mcpb` bundle and the Claude Code marketplace above; PyPI is kept best-effort for legacy `pip` / `uvx` users.
+
 **WSL / TLS client-cert / remote PostgreSQL:** See [deployment scenarios](docs/deployment-scenarios.md).
 
 </details>
