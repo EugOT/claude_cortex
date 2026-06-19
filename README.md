@@ -10,13 +10,11 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/tests-3000+_passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/references-72_papers-orange.svg" alt="References">
-  <img src="https://img.shields.io/badge/version-3.23.0-brightgreen.svg" alt="Version 3.23.0">
+  <img src="https://img.shields.io/badge/version-3.24.0-brightgreen.svg" alt="Version 3.24.0">
 </p>
 
 <p align="center">
-  The single-click MCP distribution of <a href="https://github.com/cdeust/Cortex"><strong>Cortex</strong></a> — the established, independently-built memory engine<br>
-  <a href="https://github.com/cdeust/Cortex/stargazers"><img src="https://img.shields.io/github/stars/cdeust/Cortex?style=social" alt="Stars on cdeust/Cortex"></a>
-  <a href="https://github.com/cdeust/Cortex/network/members"><img src="https://img.shields.io/github/forks/cdeust/Cortex?style=social" alt="Forks on cdeust/Cortex"></a>
+  <strong>Persistent memory &amp; cognitive profiling for Claude Code</strong> — local-first, single-click MCP install.
 </p>
 
 <p align="center">
