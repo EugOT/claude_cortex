@@ -15,155 +15,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Test (Python ${{ matrix.python-version }})
+  native:
+    name: Zig native verification
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - python-version: "3.10"
-            pixi-env: py310
-          - python-version: "3.11"
-            pixi-env: py311
-          - python-version: "3.12"
-            pixi-env: py312
-          - python-version: "3.13"
-            pixi-env: py313
-
-    env:
-      DATABASE_URL: postgresql://cortex:cortex@localhost:5432/cortex
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Pixi
-        # prefix-dev/setup-pixi v0.9.6
-        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11
         with:
-          pixi-version: v0.70.2
-          environments: ${{ matrix.pixi-env }}
-          cache: true
+          fetch-depth: 0
 
-      # Provision PostgreSQL + pgvector on the runner itself, instead of a
-      # Docker-Hub service container. Anonymous `pgvector/pgvector:pg17` pulls
-      # from registry-1.docker.io are rate-limited and outage-prone (observed:
-      # "context deadline exceeded" failing container init before any test ran,
-      # CI run 27190427877). The runner ships PostgreSQL preinstalled; pgvector
-      # comes from the PGDG apt repo (apt.postgresql.org) — no registry, no pull
-      # rate limit. source: runner image (actions/runner-images) + PGDG.
-      - name: Set up PostgreSQL + pgvector (runner-local, no registry pull)
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Format check
+        run: zig build fmt
+
+      - name: Compile check
+        run: zig build check
+
+      - name: Unit and functional tests
+        run: zig build test
+
+      - name: Docs generation
+        run: zig build docs
+
+      - name: Zero Python or JavaScript surface
         run: |
-          set -euxo pipefail
-          sudo systemctl start postgresql
-          PG_VER="$(pg_lsclusters -h | awk 'NR==1 {print $1}')"
-          # Ensure the PGDG apt repo (canonical pgvector source); idempotent.
-          sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
-          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list
-          for i in 1 2 3; do sudo apt-get update && break || sleep 5; done
-          for i in 1 2 3; do sudo apt-get install -y "postgresql-${PG_VER}-pgvector" && break || sleep 5; done
-          # Role + DB expected by DATABASE_URL.
-          sudo -u postgres psql -v ON_ERROR_STOP=1 \
-            -c "CREATE ROLE cortex LOGIN SUPERUSER PASSWORD 'cortex';"
-          sudo -u postgres createdb -O cortex cortex
-          sudo -u postgres psql -v ON_ERROR_STOP=1 -d cortex \
-            -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
-          # Wait until reachable over TCP with password auth.
-          for i in $(seq 1 30); do
-            PGPASSWORD=cortex pg_isready -h localhost -U cortex -d cortex && break || sleep 1
-          done
-          PGPASSWORD=cortex psql -h localhost -U cortex -d cortex -c "SELECT version();"
+          set -eu
+          forbidden="$(git ls-files | grep -E '(\.(py|pyi|ipynb|js|mjs|cjs|jsx|ts|tsx)$|(^|/)(package\.json|pyproject\.toml|setup\.py|requirements\.txt|tox\.ini|pytest\.ini|tsconfig\.json|bun\.lock|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|pixi\.lock|uv\.lock)$)' || true)"
+          test -z "$forbidden" || { printf '%s\n' "$forbidden"; exit 1; }
+          ! grep -RInE '(^#!.*(python|node|deno|bun)|(^|[[:space:]])(python[0-9]?|node|deno|bun|npm|npx|yarn|pnpm)([[:space:]]+(-m|--test|run|install|add|exec|x|scripts?/|benchmarks?/)|$))' -- README.md docs .claude-plugin build.zig build.zig.zon src .gitleaks.toml
 
-      - name: Cache HuggingFace models
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/huggingface
-          key: ${{ runner.os }}-hf-all-MiniLM-L6-v2
-
-      - name: Install dependencies
-        run: pixi install --locked -e ${{ matrix.pixi-env }}
-
-      - name: Pre-download embedding model
-        run: pixi run -e ${{ matrix.pixi-env }} -- python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2', device='cpu')"
-        continue-on-error: true
-
-      - name: Run tests
-        run: pixi run -e ${{ matrix.pixi-env }} test
-
-      - name: Run tests with coverage
-        if: matrix.python-version == '3.12'
-        run: pixi run -e py312 test-cov
-
-      - name: Upload coverage
-        if: matrix.python-version == '3.12'
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage.xml
-
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Pixi
-        # prefix-dev/setup-pixi v0.9.6
-        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11
-        with:
-          pixi-version: v0.70.2
-          environments: default
-          cache: true
-
-      - name: Check formatting
-        run: pixi run format-check
-
-      - name: Check linting
-        run: pixi run lint
-
-  typecheck:
-    name: Type Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Pixi
-        # prefix-dev/setup-pixi v0.9.6
-        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11
-        with:
-          pixi-version: v0.70.2
-          environments: default
-          cache: true
-
-      - name: Run type checker
-        run: pixi run typecheck
-        # Current main is not type-clean yet; keep the gate visible and
-        # reproducible without red-Xing unrelated PRs until the baseline is paid
-        # down and pyright can be promoted to required.
-        continue-on-error: true
-
-  build:
-    name: Build Package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Pixi
-        # prefix-dev/setup-pixi v0.9.6
-        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11
-        with:
-          pixi-version: v0.70.2
-          environments: default
-          cache: true
-
-      - name: Build sdist and wheel
-        run: pixi run build
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

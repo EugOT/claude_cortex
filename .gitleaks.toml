@@ -4,7 +4,7 @@ title = "claude_cortex gitleaks config"
 useDefault = true
 
 [[allowlists]]
-description = "Intentional secret-shape fixtures; values are documented non-real test data"
+description = "Historical non-real secret-shape fixtures removed from the current native tree; retained only so full-history scans can pass deterministically"
 paths = [
   '''(^|/)\.claude/memory/pii-fixtures/tp-known-secrets\.txt$''',
 ]

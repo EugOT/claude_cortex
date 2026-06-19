@@ -1,7 +1,7 @@
 {
   "name": "cortex",
-  "description": "Persistent memory for Claude Code — remembers across sessions automatically. Install and forget. Scientific retrieval backed by 41 published papers.",
-  "version": "3.19.6",
+  "description": "Native Zig local memory for Claude Code with MCP tools, Markdown wiki storage, and session checkpoints.",
+  "version": "4.0.0-native",
   "author": {
     "name": "Clement Deust",
     "email": "admin@ai-architect.tools"
@@ -14,34 +14,39 @@
     "persistent",
     "mcp",
     "claude-code",
-    "neuroscience",
-    "agents"
+    "native",
+    "zig"
   ],
   "userConfig": {
+    "cortex_home": {
+      "type": "string",
+      "title": "Cortex home",
+      "description": "Optional local data directory. Leave empty to use the Claude plugin data directory or the default home directory.",
+      "default": ""
+    },
     "database_url": {
       "type": "string",
-      "title": "Cortex database URL",
-      "description": "PostgreSQL connection string (postgresql://[user[:pass]@]host[:port]/dbname). Leave as the default for a local install; set this to point Cortex at a remote or credentialed database. Your value persists across plugin updates.",
-      "default": "postgresql://127.0.0.1:5432/cortex"
+      "title": "Database URL (deprecated)",
+      "description": "Deprecated compatibility setting from the previous PostgreSQL runtime. Native Cortex ignores this value; use Cortex home for local file-backed storage.",
+      "default": ""
     }
   },
   "mcpServers": {
     "cortex": {
-      "command": "python3",
+      "command": "${CLAUDE_PLUGIN_ROOT}/zig-out/bin/cortex",
       "args": [
-        "${CLAUDE_PLUGIN_ROOT}/scripts/launcher.py",
-        "mcp_server"
+        "mcp"
       ],
       "env": {
-        "DATABASE_URL": "${user_config.database_url}",
-        "CORTEX_RUNTIME": "",
-        "CORTEX_MEMORY_AP_ENABLED": "1"
+        "CORTEX_HOME": "${user_config.cortex_home}",
+        "CORTEX_DATABASE_URL": "${user_config.database_url}",
+        "CORTEX_RUNTIME": "native-zig"
       }
     }
   },
   "postInstall": {
-    "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/install-plugin.sh",
-    "message": "Installing Cortex (PostgreSQL + pgvector + Python deps + embedding model) and removing any stale older Cortex installs..."
+    "command": "cd ${CLAUDE_PLUGIN_ROOT} && zig build -Doptimize=ReleaseSafe",
+    "message": "Building the native Cortex binary. Requires Zig 0.16 or newer on PATH."
   },
   "hooks": {
     "SessionStart": [
@@ -49,8 +54,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'PY=$(command -v python3 || command -v python) && ROOT=\"${CLAUDE_PLUGIN_ROOT:-$PWD}\" && \"$PY\" \"$ROOT/scripts/launcher.py\" mcp_server.hooks.session_start'",
-            "timeout": 30
+            "command": "${CLAUDE_PLUGIN_ROOT}/zig-out/bin/cortex hook session-start",
+            "timeout": 10
           }
         ]
       }
@@ -60,7 +65,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'PY=$(command -v python3 || command -v python) && ROOT=\"${CLAUDE_PLUGIN_ROOT:-$PWD}\" && \"$PY\" \"$ROOT/scripts/launcher.py\" mcp_server.hooks.auto_recall'",
+            "command": "${CLAUDE_PLUGIN_ROOT}/zig-out/bin/cortex hook user-prompt-submit",
             "timeout": 5
           }
         ]
@@ -71,23 +76,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'PY=$(command -v python3 || command -v python) && ROOT=\"${CLAUDE_PLUGIN_ROOT:-$PWD}\" && \"$PY\" \"$ROOT/scripts/launcher.py\" mcp_server.hooks.post_tool_capture'",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "bash -c 'PY=$(command -v python3 || command -v python) && ROOT=\"${CLAUDE_PLUGIN_ROOT:-$PWD}\" && \"$PY\" \"$ROOT/scripts/launcher.py\" mcp_server.hooks.preemptive_context'",
+            "command": "${CLAUDE_PLUGIN_ROOT}/zig-out/bin/cortex hook post-tool-use",
             "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "bash -c 'PY=$(command -v python3 || command -v python) && ROOT=\"${CLAUDE_PLUGIN_ROOT:-$PWD}\" && \"$PY\" \"$ROOT/scripts/launcher.py\" mcp_server.hooks.pipeline_impact_bump'",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "bash -c 'PY=$(command -v python3 || command -v python) && ROOT=\"${CLAUDE_PLUGIN_ROOT:-$PWD}\" && \"$PY\" \"$ROOT/scripts/launcher.py\" mcp_server.hooks.post_commit_reindex'",
-            "timeout": 10
           }
         ]
       }
@@ -97,31 +87,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'PY=$(command -v python3 || command -v python) && ROOT=\"${CLAUDE_PLUGIN_ROOT:-$PWD}\" && \"$PY\" \"$ROOT/scripts/launcher.py\" mcp_server.hooks.session_lifecycle'",
-            "timeout": 30
-          }
-        ]
-      }
-    ],
-    "Notification": [
-      {
-        "matcher": "compacted",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'PY=$(command -v python3 || command -v python) && ROOT=\"${CLAUDE_PLUGIN_ROOT:-$PWD}\" && \"$PY\" \"$ROOT/scripts/launcher.py\" mcp_server.hooks.compaction_checkpoint'",
+            "command": "${CLAUDE_PLUGIN_ROOT}/zig-out/bin/cortex hook session-end",
             "timeout": 10
-          }
-        ]
-      }
-    ],
-    "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'PY=$(command -v python3 || command -v python) && ROOT=\"${CLAUDE_PLUGIN_ROOT:-$PWD}\" && \"$PY\" \"$ROOT/scripts/launcher.py\" mcp_server.hooks.agent_briefing'",
-            "timeout": 5
           }
         ]
       }
