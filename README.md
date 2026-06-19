@@ -407,6 +407,12 @@ Runs **100% locally** — MCP over stdio, the storage backend (SQLite file or Po
 
 Cortex is **local-first**: your memories, conversations, and profiles stay on your machine — stored in a local SQLite database (`~/.claude/methodology/memory.db`) by default, or in a PostgreSQL database you control. Cortex sends **no** memories, content, or telemetry to the author, Anthropic, or any third party. The only outbound network activity is a one-time download of open-source embedding/reranking models from Hugging Face (model files only), plus any integrations you explicitly configure. Full policy: **[PRIVACY.md](PRIVACY.md)**.
 
+## Support
+
+- **Issues & bug reports:** [GitHub Issues](https://github.com/cdeust/Cortex/issues)
+- **Security disclosures:** see [SECURITY.md](SECURITY.md)
+- **Contact:** [admin@ai-architect.tools](mailto:admin@ai-architect.tools)
+
 ## Development
 
 ```bash

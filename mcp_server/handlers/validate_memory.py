@@ -14,14 +14,14 @@ from typing import Any
 from mcp_server.core.staleness import assess_staleness, collect_all_refs
 from mcp_server.infrastructure.memory_config import get_memory_settings
 from mcp_server.infrastructure.memory_store import MemoryStore, get_shared_store
-from mcp_server.handlers._tool_meta import READ_ONLY
+from mcp_server.handlers._tool_meta import IDEMPOTENT_WRITE
 from mcp_server.handlers._telemetry_wrap import instrument
 
 # ── Schema ────────────────────────────────────────────────────────────────
 
 schema = {
     "title": "Validate memory",
-    "annotations": READ_ONLY,
+    "annotations": IDEMPOTENT_WRITE,
     "description": (
         "Reconcile memory content against the current filesystem state: "
         "extract file/path references from each memory (sandboxed under "
