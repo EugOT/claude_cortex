@@ -1,13 +1,15 @@
 ---
 name: methodology
-description: View your cognitive methodology profile and reasoning patterns
+description: Inspect native Crtx memory status and retrieval context
 ---
 
-Use the `methodology-agent:query_methodology` tool with the current working directory to retrieve the user's cognitive profile for this domain.
+Use the native MCP tool catalog:
 
-Display the `context` field as a summary paragraph, then offer:
-1. Run `methodology-agent:rebuild_profiles` if the profile seems stale or the user wants a fresh analysis
-2. Run `methodology-agent:list_domains` to show all detected domains
-3. Run `methodology-agent:get_methodology_graph` to get visualization data
+1. Run `cortex:query_methodology` to get the current local-memory context.
+2. Run `cortex:list_domains` to see domains present in the native JSONL store.
+3. Run `cortex:get_methodology_graph` to inspect the native supersession graph.
+4. Run `cortex:memory_stats` when safety, redaction, or access evidence matters.
 
-If no profile exists yet, run `methodology-agent:rebuild_profiles` first to build one from session history.
+If the store is empty, capture only concrete evidence with `cortex:remember`.
+Avoid speculative cognitive-profile claims; the native rewrite preserves only
+implemented retrieval, provenance, wiki, checkpoint, and supersession behavior.

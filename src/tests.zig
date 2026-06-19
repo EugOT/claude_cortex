@@ -123,6 +123,126 @@ test "functional duplicate remembers receive distinct ids" {
     try std.testing.expect(!std.mem.eql(u8, first_id.string, second_id.string));
 }
 
+test "functional write gate rejects near duplicates unless forced" {
+    var fixture = try TestStore.init();
+    defer fixture.deinit();
+    const store = &fixture.store;
+
+    const first = try store.remember(.{
+        .content = "Native Cortex stores scientific retrieval evidence locally.",
+        .domain = "safety",
+    });
+    defer std.testing.allocator.free(first);
+    try std.testing.expect(std.mem.indexOf(u8, first, "\"stored\":true") != null);
+
+    const rejected = try store.remember(.{
+        .content = "native cortex stores scientific retrieval evidence locally",
+        .domain = "safety",
+    });
+    defer std.testing.allocator.free(rejected);
+    try std.testing.expect(std.mem.indexOf(u8, rejected, "\"stored\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, rejected, "near_duplicate") != null);
+
+    const forced = try store.remember(.{
+        .content = "native cortex stores scientific retrieval evidence locally",
+        .domain = "safety",
+        .force = true,
+    });
+    defer std.testing.allocator.free(forced);
+    try std.testing.expect(std.mem.indexOf(u8, forced, "\"stored\":true") != null);
+}
+
+test "functional secret redaction happens before recall" {
+    var fixture = try TestStore.init();
+    defer fixture.deinit();
+    const store = &fixture.store;
+
+    const remembered = try store.remember(.{
+        .content = "Credential handling note: api_" ++
+            "key=abc123 must never be persisted.",
+        .domain = "security",
+        .force = true,
+    });
+    defer std.testing.allocator.free(remembered);
+    try std.testing.expect(std.mem.indexOf(u8, remembered, "\"redacted\":true") != null);
+
+    const recalled = try store.recall(.{ .query = "credential persisted", .domain = "security" });
+    defer std.testing.allocator.free(recalled);
+    try std.testing.expect(std.mem.indexOf(u8, recalled, "api_key=[redacted]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, recalled, "abc123") == null);
+}
+
+test "functional supersession hides old memories and exposes related context" {
+    var fixture = try TestStore.init();
+    defer fixture.deinit();
+    const store = &fixture.store;
+
+    const old_memory = try store.remember(.{
+        .content = "Old recall used substring-only ranking.",
+        .tags = &.{"retrieval"},
+        .domain = "cortex",
+        .force = true,
+    });
+    defer std.testing.allocator.free(old_memory);
+    var old_json = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, old_memory, .{});
+    defer old_json.deinit();
+    const old_id = old_json.value.object.get("memory_id") orelse return error.MissingMemoryIdField;
+    try std.testing.expect(old_id == .string);
+
+    const new_memory = try store.remember(.{
+        .content = "New recall uses lexical Jaccard ranking with explicit supersession.",
+        .tags = &.{"retrieval"},
+        .domain = "cortex",
+        .supersedes = &.{old_id.string},
+        .force = true,
+    });
+    defer std.testing.allocator.free(new_memory);
+    var new_json = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, new_memory, .{});
+    defer new_json.deinit();
+    const new_id = new_json.value.object.get("memory_id") orelse return error.MissingMemoryIdField;
+    try std.testing.expect(new_id == .string);
+
+    const default_recall = try store.recall(.{ .query = "recall ranking", .domain = "cortex" });
+    defer std.testing.allocator.free(default_recall);
+    var default_json = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, default_recall, .{});
+    defer default_json.deinit();
+    const default_memories = default_json.value.object.get("memories") orelse return error.MissingMemoriesField;
+    try std.testing.expect(default_memories == .array);
+    var found_new = false;
+    for (default_memories.array.items) |item| {
+        try std.testing.expect(item == .object);
+        const item_id = item.object.get("id") orelse return error.MissingMemoryIdField;
+        try std.testing.expect(item_id == .string);
+        if (std.mem.eql(u8, item_id.string, new_id.string)) found_new = true;
+        try std.testing.expect(!std.mem.eql(u8, item_id.string, old_id.string));
+    }
+    try std.testing.expect(found_new);
+
+    const full_recall = try store.recall(.{
+        .query = "substring ranking",
+        .domain = "cortex",
+        .include_superseded = true,
+        .include_related = true,
+    });
+    defer std.testing.allocator.free(full_recall);
+    try std.testing.expect(std.mem.indexOf(u8, full_recall, old_id.string) != null);
+    try std.testing.expect(std.mem.indexOf(u8, full_recall, "\"related_count\"") != null);
+
+    const graph = try store.memoryGraph();
+    defer std.testing.allocator.free(graph);
+    try std.testing.expect(std.mem.indexOf(u8, graph, "supersedes") != null);
+    try std.testing.expect(std.mem.indexOf(u8, graph, old_id.string) != null);
+
+    const domains = try store.listDomains();
+    defer std.testing.allocator.free(domains);
+    try std.testing.expect(std.mem.indexOf(u8, domains, "cortex") != null);
+
+    const stats = try store.memoryStats();
+    defer std.testing.allocator.free(stats);
+    try std.testing.expect(std.mem.indexOf(u8, stats, "\"access_events\":") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stats, "\"total_relationships\":1") != null);
+}
+
 test "functional checkpoint save restore" {
     var fixture = try TestStore.init();
     defer fixture.deinit();

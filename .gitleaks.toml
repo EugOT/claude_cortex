@@ -1,4 +1,4 @@
-title = "claude_cortex gitleaks config"
+title = "Crtx native gitleaks config"
 
 [extend]
 useDefault = true

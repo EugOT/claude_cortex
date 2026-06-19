@@ -5,6 +5,7 @@ pub const version = build_options.version;
 
 const max_store_bytes: usize = 64 * 1024 * 1024;
 const max_rpc_line_bytes: usize = 1024 * 1024;
+const duplicate_similarity_threshold: f64 = 0.86;
 
 pub const ToolName = []const u8;
 
@@ -68,6 +69,7 @@ pub const RememberInput = struct {
     source: []const u8 = "user",
     force: bool = false,
     is_global: bool = false,
+    supersedes: []const []const u8 = &.{},
 };
 
 pub const RecallInput = struct {
@@ -76,18 +78,31 @@ pub const RecallInput = struct {
     directory: []const u8 = "",
     max_results: usize = 10,
     min_heat: f64 = 0.0,
+    include_related: bool = false,
+    include_superseded: bool = false,
 };
 
 const MemoryRecord = struct {
-    id: []const u8,
-    content: []const u8,
-    tags: []const []const u8,
-    directory: []const u8,
-    domain: []const u8,
-    source: []const u8,
-    created_at: []const u8,
-    heat: f64,
-    is_global: bool,
+    kind: []const u8 = "memory",
+    id: []const u8 = "",
+    content: []const u8 = "",
+    tags: []const []const u8 = &.{},
+    directory: []const u8 = "",
+    domain: []const u8 = "",
+    source: []const u8 = "",
+    created_at: []const u8 = "",
+    heat: f64 = 0.0,
+    is_global: bool = false,
+    supersedes: []const []const u8 = &.{},
+    redacted: bool = false,
+    redaction_count: usize = 0,
+    fingerprint: []const u8 = "",
+};
+
+const AccessRecord = struct {
+    kind: []const u8 = "access",
+    memory_id: []const u8 = "",
+    accessed_at: []const u8 = "",
 };
 
 const ScoredMemory = struct {
@@ -100,6 +115,21 @@ const ScoredMemory = struct {
     created_at: []const u8,
     heat: f64,
     score: f64,
+    access_count: u64,
+    supersedes: []const []const u8,
+    redacted: bool,
+    redaction_count: usize,
+    relation: []const u8,
+};
+
+const DuplicateMatch = struct {
+    id: []const u8,
+    similarity: f64,
+};
+
+const RedactionResult = struct {
+    text: []u8,
+    count: usize,
 };
 
 pub const Store = struct {
@@ -156,22 +186,43 @@ pub const Store = struct {
             });
         }
 
+        const resolved_domain = if (input.domain.len != 0)
+            input.domain
+        else
+            detectDomain(input.directory);
+
+        if (!input.force) {
+            if (try self.findNearDuplicate(input.content, resolved_domain, input.directory)) |dupe| {
+                defer self.allocator.free(dupe.id);
+                return stringifyAlloc(self.allocator, .{
+                    .stored = false,
+                    .action = "rejected",
+                    .reason = "near_duplicate",
+                    .duplicate_id = dupe.id,
+                    .similarity = dupe.similarity,
+                    .threshold = duplicate_similarity_threshold,
+                });
+            }
+        }
+
+        const redacted = try redactSensitiveAlloc(self.allocator, input.content);
+        defer self.allocator.free(redacted.text);
+        const fingerprint = try fingerprintAlloc(self.allocator, redacted.text);
+        defer self.allocator.free(fingerprint);
+
         const now = std.Io.Timestamp.now(self.io, .real).toMilliseconds();
-        const hash = std.hash.Wyhash.hash(0, input.content);
+        const hash = std.hash.Wyhash.hash(0, redacted.text);
         var nonce: u64 = undefined;
         self.io.random(std.mem.asBytes(&nonce));
         const id = try std.fmt.allocPrint(self.allocator, "{d}-{x}-{x}", .{ now, hash, nonce });
         defer self.allocator.free(id);
         const created_at = try std.fmt.allocPrint(self.allocator, "unix-ms:{d}", .{now});
         defer self.allocator.free(created_at);
-        const resolved_domain = if (input.domain.len != 0)
-            input.domain
-        else
-            detectDomain(input.directory);
 
         const rec: MemoryRecord = .{
+            .kind = "memory",
             .id = id,
-            .content = input.content,
+            .content = redacted.text,
             .tags = input.tags,
             .directory = input.directory,
             .domain = resolved_domain,
@@ -179,6 +230,10 @@ pub const Store = struct {
             .created_at = created_at,
             .heat = if (input.force) 1.0 else 0.8,
             .is_global = input.is_global,
+            .supersedes = input.supersedes,
+            .redacted = redacted.count != 0,
+            .redaction_count = redacted.count,
+            .fingerprint = fingerprint,
         };
 
         const line = try stringifyAlloc(self.allocator, rec);
@@ -191,6 +246,9 @@ pub const Store = struct {
             .action = "stored",
             .reason = "stored in native JSONL memory store",
             .heat = rec.heat,
+            .redacted = rec.redacted,
+            .redaction_count = rec.redaction_count,
+            .supersedes = rec.supersedes,
         });
     }
 
@@ -207,6 +265,11 @@ pub const Store = struct {
         const data = try self.readFileOrEmpty(self.memory_path);
         defer self.allocator.free(data);
 
+        var access_counts = try loadAccessCounts(self.allocator, data);
+        defer freeStringMap(self.allocator, &access_counts);
+        var superseded_ids = try loadSupersededIds(self.allocator, data);
+        defer freeStringMapVoid(self.allocator, &superseded_ids);
+
         var scored: std.ArrayList(ScoredMemory) = .empty;
         defer scored.deinit(self.allocator);
         defer freeScoredMemories(self.allocator, scored.items);
@@ -219,12 +282,16 @@ pub const Store = struct {
             }) catch continue;
             defer parsed.deinit();
             const rec = parsed.value;
+            if (!std.mem.eql(u8, rec.kind, "memory")) continue;
+            if (rec.id.len == 0 or rec.content.len == 0) continue;
+            if (!input.include_superseded and superseded_ids.contains(rec.id)) continue;
             if (rec.heat < input.min_heat) continue;
             if (input.domain.len != 0 and !rec.is_global and !std.mem.eql(u8, rec.domain, input.domain)) continue;
             if (input.directory.len != 0 and !std.mem.eql(u8, rec.directory, input.directory)) continue;
-            const s = scoreMemory(input.query, rec.content, rec.tags, rec.heat);
+            const access_count = access_counts.get(rec.id) orelse 0;
+            const s = try scoreMemory(self.allocator, input.query, rec, access_count);
             if (s <= 0.0) continue;
-            const item = try cloneScoredMemory(self.allocator, rec, s);
+            const item = try cloneScoredMemory(self.allocator, rec, s, access_count, "match");
             errdefer freeScoredMemory(self.allocator, item);
             try scored.append(self.allocator, item);
         }
@@ -236,10 +303,25 @@ pub const Store = struct {
         }.lessThan);
 
         const keep = @min(scored.items.len, input.max_results);
+        if (keep != 0) try self.logAccesses(scored.items[0..keep]);
+        if (input.include_related) {
+            var related = try self.findRelated(data, scored.items[0..keep], input.max_results);
+            defer related.deinit(self.allocator);
+            defer freeScoredMemories(self.allocator, related.items);
+            return stringifyAlloc(self.allocator, .{
+                .memories = scored.items[0..keep],
+                .related = related.items,
+                .intent = classifyIntent(input.query),
+                .count = keep,
+                .related_count = related.items.len,
+                .include_superseded = input.include_superseded,
+            });
+        }
         return stringifyAlloc(self.allocator, .{
             .memories = scored.items[0..keep],
             .intent = classifyIntent(input.query),
             .count = keep,
+            .include_superseded = input.include_superseded,
         });
     }
 
@@ -247,6 +329,9 @@ pub const Store = struct {
         const data = try self.readFileOrEmpty(self.memory_path);
         defer self.allocator.free(data);
         var total: usize = 0;
+        var access_events: usize = 0;
+        var redacted_total: usize = 0;
+        var supersession_edges: usize = 0;
         var heat_total: f64 = 0.0;
         var lines = std.mem.tokenizeScalar(u8, data, '\n');
         while (lines.next()) |line| {
@@ -255,24 +340,105 @@ pub const Store = struct {
                 .ignore_unknown_fields = true,
             }) catch continue;
             defer parsed.deinit();
+            if (std.mem.eql(u8, parsed.value.kind, "access")) {
+                access_events += 1;
+                continue;
+            }
+            if (!std.mem.eql(u8, parsed.value.kind, "memory")) continue;
             total += 1;
             heat_total += parsed.value.heat;
+            redacted_total += parsed.value.redaction_count;
+            supersession_edges += parsed.value.supersedes.len;
         }
         const avg = if (total == 0) 0.0 else heat_total / @as(f64, @floatFromInt(total));
         return stringifyAlloc(self.allocator, .{
             .total_memories = total,
             .episodic_count = total,
-            .semantic_count = @as(usize, 0),
+            .lexical_indexed_count = total,
             .active_count = total,
             .archived_count = @as(usize, 0),
             .stale_count = @as(usize, 0),
             .protected_count = @as(usize, 0),
             .avg_heat = avg,
             .total_entities = @as(usize, 0),
-            .total_relationships = @as(usize, 0),
+            .total_relationships = supersession_edges,
+            .access_events = access_events,
+            .redaction_count = redacted_total,
             .active_triggers = @as(usize, 0),
             .last_consolidation = "",
             .has_vector_search = false,
+            .has_lexical_retrieval = true,
+            .has_duplicate_gate = true,
+            .has_secret_redaction = true,
+        });
+    }
+
+    pub fn listDomains(self: *Store) ![]u8 {
+        const data = try self.readFileOrEmpty(self.memory_path);
+        defer self.allocator.free(data);
+        var domains: std.ArrayList([]const u8) = .empty;
+        defer domains.deinit(self.allocator);
+        defer freeStringList(self.allocator, domains.items);
+
+        var lines = std.mem.tokenizeScalar(u8, data, '\n');
+        while (lines.next()) |line| {
+            var parsed = std.json.parseFromSlice(MemoryRecord, self.allocator, line, .{
+                .ignore_unknown_fields = true,
+            }) catch continue;
+            defer parsed.deinit();
+            const rec = parsed.value;
+            if (!std.mem.eql(u8, rec.kind, "memory") or rec.domain.len == 0) continue;
+            if (containsString(domains.items, rec.domain)) continue;
+            const domain = try self.allocator.dupe(u8, rec.domain);
+            errdefer self.allocator.free(domain);
+            try domains.append(self.allocator, domain);
+        }
+        std.mem.sort([]const u8, domains.items, {}, struct {
+            fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+                return std.mem.lessThan(u8, a, b);
+            }
+        }.lessThan);
+        return stringifyAlloc(self.allocator, .{
+            .domains = domains.items,
+            .count = domains.items.len,
+        });
+    }
+
+    pub fn memoryGraph(self: *Store) ![]u8 {
+        const data = try self.readFileOrEmpty(self.memory_path);
+        defer self.allocator.free(data);
+        var nodes: std.ArrayList([]const u8) = .empty;
+        var edges: std.ArrayList([]const u8) = .empty;
+        defer nodes.deinit(self.allocator);
+        defer edges.deinit(self.allocator);
+        defer freeStringList(self.allocator, nodes.items);
+        defer freeStringList(self.allocator, edges.items);
+
+        var lines = std.mem.tokenizeScalar(u8, data, '\n');
+        while (lines.next()) |line| {
+            var parsed = std.json.parseFromSlice(MemoryRecord, self.allocator, line, .{
+                .ignore_unknown_fields = true,
+            }) catch continue;
+            defer parsed.deinit();
+            const rec = parsed.value;
+            if (!std.mem.eql(u8, rec.kind, "memory") or rec.id.len == 0) continue;
+            const node = try self.allocator.dupe(u8, rec.id);
+            errdefer self.allocator.free(node);
+            try nodes.append(self.allocator, node);
+            for (rec.supersedes) |old_id| {
+                if (old_id.len == 0) continue;
+                const edge = try std.fmt.allocPrint(self.allocator, "{s} supersedes {s}", .{ rec.id, old_id });
+                errdefer self.allocator.free(edge);
+                try edges.append(self.allocator, edge);
+            }
+        }
+
+        return stringifyAlloc(self.allocator, .{
+            .nodes = nodes.items,
+            .edges = edges.items,
+            .node_count = nodes.items.len,
+            .edge_count = edges.items.len,
+            .graph_kind = "supersession",
         });
     }
 
@@ -423,6 +589,84 @@ pub const Store = struct {
         }
         return std.Io.Dir.cwd().openDir(self.io, path, .{ .iterate = true });
     }
+
+    fn findNearDuplicate(self: *Store, content: []const u8, domain: []const u8, directory: []const u8) !?DuplicateMatch {
+        const data = try self.readFileOrEmpty(self.memory_path);
+        defer self.allocator.free(data);
+        var best: ?DuplicateMatch = null;
+        errdefer if (best) |dupe| self.allocator.free(dupe.id);
+
+        var lines = std.mem.tokenizeScalar(u8, data, '\n');
+        while (lines.next()) |line| {
+            if (std.mem.trim(u8, line, " \t\r\n").len == 0) continue;
+            var parsed = std.json.parseFromSlice(MemoryRecord, self.allocator, line, .{
+                .ignore_unknown_fields = true,
+            }) catch continue;
+            defer parsed.deinit();
+            const rec = parsed.value;
+            if (!std.mem.eql(u8, rec.kind, "memory")) continue;
+            if (rec.content.len == 0 or rec.id.len == 0) continue;
+            if (!rec.is_global and domain.len != 0 and !std.mem.eql(u8, rec.domain, domain)) continue;
+            if (directory.len != 0 and rec.directory.len != 0 and !std.mem.eql(u8, rec.directory, directory)) continue;
+            const similarity = try lexicalJaccard(self.allocator, content, rec.content);
+            if (similarity < duplicate_similarity_threshold) continue;
+            if (best == null or similarity > best.?.similarity) {
+                if (best) |old| self.allocator.free(old.id);
+                best = .{
+                    .id = try self.allocator.dupe(u8, rec.id),
+                    .similarity = similarity,
+                };
+            }
+        }
+        return best;
+    }
+
+    fn logAccesses(self: *Store, items: []const ScoredMemory) !void {
+        const now = std.Io.Timestamp.now(self.io, .real).toMilliseconds();
+        const accessed_at = try std.fmt.allocPrint(self.allocator, "unix-ms:{d}", .{now});
+        defer self.allocator.free(accessed_at);
+        for (items) |item| {
+            const event: AccessRecord = .{
+                .memory_id = item.id,
+                .accessed_at = accessed_at,
+            };
+            const line = try stringifyAlloc(self.allocator, event);
+            defer self.allocator.free(line);
+            try self.appendLine(self.memory_path, line);
+        }
+    }
+
+    fn findRelated(
+        self: *Store,
+        data: []const u8,
+        selected: []const ScoredMemory,
+        limit: usize,
+    ) !std.ArrayList(ScoredMemory) {
+        var related: std.ArrayList(ScoredMemory) = .empty;
+        errdefer {
+            freeScoredMemories(self.allocator, related.items);
+            related.deinit(self.allocator);
+        }
+        if (selected.len == 0 or limit == 0) return related;
+
+        var lines = std.mem.tokenizeScalar(u8, data, '\n');
+        while (lines.next()) |line| {
+            if (related.items.len >= limit) break;
+            if (std.mem.trim(u8, line, " \t\r\n").len == 0) continue;
+            var parsed = std.json.parseFromSlice(MemoryRecord, self.allocator, line, .{
+                .ignore_unknown_fields = true,
+            }) catch continue;
+            defer parsed.deinit();
+            const rec = parsed.value;
+            if (!std.mem.eql(u8, rec.kind, "memory")) continue;
+            if (rec.id.len == 0 or selectedContains(selected, rec.id) or relatedContains(related.items, rec.id)) continue;
+            if (!isRelatedToSelection(rec, selected)) continue;
+            const item = try cloneScoredMemory(self.allocator, rec, 0.25, 0, "related");
+            errdefer freeScoredMemory(self.allocator, item);
+            try related.append(self.allocator, item);
+        }
+        return related;
+    }
 };
 
 pub fn run(init_data: std.process.Init) !void {
@@ -475,6 +719,8 @@ pub fn handleToolJson(allocator: std.mem.Allocator, store: *Store, name: []const
     if (std.mem.eql(u8, name, "remember")) {
         const tags = try getStringArray(allocator, obj.get("tags"));
         defer allocator.free(tags);
+        const supersedes = try getStringArray(allocator, obj.get("supersedes"));
+        defer allocator.free(supersedes);
         return store.remember(.{
             .content = getString(obj.get("content"), ""),
             .tags = tags,
@@ -483,6 +729,7 @@ pub fn handleToolJson(allocator: std.mem.Allocator, store: *Store, name: []const
             .source = getString(obj.get("source"), "user"),
             .force = getBool(obj.get("force"), false),
             .is_global = getBool(obj.get("is_global"), false),
+            .supersedes = supersedes,
         });
     }
     if (std.mem.eql(u8, name, "recall") or std.mem.eql(u8, name, "unified_search")) {
@@ -492,6 +739,8 @@ pub fn handleToolJson(allocator: std.mem.Allocator, store: *Store, name: []const
             .directory = getString(obj.get("directory"), ""),
             .max_results = getUsize(obj.get("max_results"), 10),
             .min_heat = getFloat(obj.get("min_heat"), 0.0),
+            .include_related = getBool(obj.get("include_related"), false),
+            .include_superseded = getBool(obj.get("include_superseded"), false),
         });
     }
     if (std.mem.eql(u8, name, "memory_stats") or std.mem.eql(u8, name, "get_telemetry")) {
@@ -550,7 +799,13 @@ pub fn handleToolJson(allocator: std.mem.Allocator, store: *Store, name: []const
         });
     }
     if (std.mem.eql(u8, name, "list_domains")) {
-        return stringifyAlloc(allocator, .{ .domains = &[_][]const u8{}, .count = @as(usize, 0) });
+        return store.listDomains();
+    }
+    if (std.mem.eql(u8, name, "get_methodology_graph") or
+        std.mem.eql(u8, name, "query_workflow_graph") or
+        std.mem.eql(u8, name, "navigate_memory"))
+    {
+        return store.memoryGraph();
     }
     if (std.mem.eql(u8, name, "query_methodology")) {
         return stringifyAlloc(allocator, .{
@@ -568,18 +823,26 @@ pub fn handleToolJson(allocator: std.mem.Allocator, store: *Store, name: []const
     }
     if (std.mem.eql(u8, name, "consolidate")) {
         return stringifyAlloc(allocator, .{
-            .ok = true,
-            .action = "native-noop",
-            .reason = "file-backed store has no background consolidation worker",
+            .ok = false,
+            .status = "not_implemented_native",
+            .reason = "background consolidation was removed; native duplicate gating and supersession are enforced at write time",
         });
     }
     if (std.mem.eql(u8, name, "record_session_end")) {
         return stringifyAlloc(allocator, .{ .recorded = true, .native = true });
     }
-    if (std.mem.eql(u8, name, "wiki_link") or std.mem.eql(u8, name, "wiki_verify") or
-        std.mem.eql(u8, name, "wiki_purge") or std.mem.eql(u8, name, "wiki_rename"))
+    if (std.mem.eql(u8, name, "wiki_verify")) {
+        return store.wikiList();
+    }
+    if (std.mem.eql(u8, name, "wiki_link") or std.mem.eql(u8, name, "wiki_purge") or
+        std.mem.eql(u8, name, "wiki_rename"))
     {
-        return stringifyAlloc(allocator, .{ .ok = true, .tool = name, .status = "native-compatible-noop" });
+        return stringifyAlloc(allocator, .{
+            .ok = false,
+            .tool = name,
+            .status = "not_implemented_native",
+            .message = "State-changing wiki compatibility operation is not implemented in the native core.",
+        });
     }
     return stringifyAlloc(allocator, .{
         .ok = false,
@@ -715,6 +978,10 @@ fn doctorJson(allocator: std.mem.Allocator, store: *Store) ![]u8 {
         .wiki_root = store.wiki_root,
         .legacy_runtimes = "removed",
         .database_url = "not required by native file-backed store",
+        .retrieval = "native lexical Jaccard scoring with heat and access reinforcement",
+        .write_gate = "near-duplicate suppression unless force is explicit",
+        .privacy = "obvious secret and DSN redaction before local persistence",
+        .graph = "native supersession graph",
     });
 }
 
@@ -724,12 +991,15 @@ fn cliRemember(allocator: std.mem.Allocator, store: *Store, args: *std.process.A
     var directory: []const u8 = "";
     var force = false;
     var tags: std.ArrayList([]const u8) = .empty;
+    var supersedes: std.ArrayList([]const u8) = .empty;
     defer tags.deinit(allocator);
+    defer supersedes.deinit(allocator);
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--content")) content = args.next() orelse "";
         if (std.mem.eql(u8, arg, "--domain")) domain = args.next() orelse "";
         if (std.mem.eql(u8, arg, "--directory")) directory = args.next() orelse "";
         if (std.mem.eql(u8, arg, "--tag")) try tags.append(allocator, args.next() orelse "");
+        if (std.mem.eql(u8, arg, "--supersedes")) try supersedes.append(allocator, args.next() orelse "");
         if (std.mem.eql(u8, arg, "--force")) force = true;
     }
     return store.remember(.{
@@ -738,6 +1008,7 @@ fn cliRemember(allocator: std.mem.Allocator, store: *Store, args: *std.process.A
         .directory = directory,
         .tags = tags.items,
         .force = force,
+        .supersedes = supersedes.items,
     });
 }
 
@@ -746,14 +1017,24 @@ fn cliRecall(allocator: std.mem.Allocator, store: *Store, args: *std.process.Arg
     var query: []const u8 = "";
     var domain: []const u8 = "";
     var max_results: usize = 10;
+    var include_related = false;
+    var include_superseded = false;
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--query")) query = args.next() orelse "";
         if (std.mem.eql(u8, arg, "--domain")) domain = args.next() orelse "";
+        if (std.mem.eql(u8, arg, "--include-related")) include_related = true;
+        if (std.mem.eql(u8, arg, "--include-superseded")) include_superseded = true;
         if (std.mem.eql(u8, arg, "--max-results")) {
             if (args.next()) |raw| max_results = std.fmt.parseInt(usize, raw, 10) catch 10;
         }
     }
-    return store.recall(.{ .query = query, .domain = domain, .max_results = max_results });
+    return store.recall(.{
+        .query = query,
+        .domain = domain,
+        .max_results = max_results,
+        .include_related = include_related,
+        .include_superseded = include_superseded,
+    });
 }
 
 fn cliWiki(allocator: std.mem.Allocator, store: *Store, args: *std.process.Args.Iterator) ![]u8 {
@@ -905,7 +1186,13 @@ fn cloneTags(allocator: std.mem.Allocator, tags: []const []const u8) ![]const []
     return list.toOwnedSlice(allocator);
 }
 
-fn cloneScoredMemory(allocator: std.mem.Allocator, rec: MemoryRecord, score: f64) !ScoredMemory {
+fn cloneScoredMemory(
+    allocator: std.mem.Allocator,
+    rec: MemoryRecord,
+    score: f64,
+    access_count: u64,
+    relation: []const u8,
+) !ScoredMemory {
     const id = try allocator.dupe(u8, rec.id);
     errdefer allocator.free(id);
     const content = try allocator.dupe(u8, rec.content);
@@ -923,6 +1210,13 @@ fn cloneScoredMemory(allocator: std.mem.Allocator, rec: MemoryRecord, score: f64
     errdefer allocator.free(source);
     const created_at = try allocator.dupe(u8, rec.created_at);
     errdefer allocator.free(created_at);
+    const supersedes = try cloneTags(allocator, rec.supersedes);
+    errdefer {
+        freeStringList(allocator, supersedes);
+        allocator.free(supersedes);
+    }
+    const owned_relation = try allocator.dupe(u8, relation);
+    errdefer allocator.free(owned_relation);
 
     return .{
         .id = id,
@@ -934,6 +1228,11 @@ fn cloneScoredMemory(allocator: std.mem.Allocator, rec: MemoryRecord, score: f64
         .created_at = created_at,
         .heat = rec.heat,
         .score = score,
+        .access_count = access_count,
+        .supersedes = supersedes,
+        .redacted = rec.redacted,
+        .redaction_count = rec.redaction_count,
+        .relation = owned_relation,
     };
 }
 
@@ -946,6 +1245,9 @@ fn freeScoredMemory(allocator: std.mem.Allocator, item: ScoredMemory) void {
     allocator.free(item.domain);
     allocator.free(item.source);
     allocator.free(item.created_at);
+    freeStringList(allocator, item.supersedes);
+    allocator.free(item.supersedes);
+    allocator.free(item.relation);
 }
 
 fn freeScoredMemories(allocator: std.mem.Allocator, items: []ScoredMemory) void {
@@ -956,18 +1258,296 @@ fn freeStringList(allocator: std.mem.Allocator, items: []const []const u8) void 
     for (items) |item| allocator.free(item);
 }
 
-fn scoreMemory(query: []const u8, content: []const u8, tags: []const []const u8, heat: f64) f64 {
-    var score = heat;
-    if (std.ascii.indexOfIgnoreCase(content, query) != null) score += 10.0;
-    var terms = std.mem.tokenizeAny(u8, query, " \t\r\n");
-    while (terms.next()) |term| {
-        if (term.len < 2) continue;
-        if (std.ascii.indexOfIgnoreCase(content, term) != null) score += 1.0;
-        for (tags) |tag| {
-            if (std.ascii.indexOfIgnoreCase(tag, term) != null) score += 0.5;
+fn freeStringArrayList(allocator: std.mem.Allocator, list: *std.ArrayList([]const u8)) void {
+    freeStringList(allocator, list.items);
+    list.deinit(allocator);
+}
+
+fn freeStringMap(allocator: std.mem.Allocator, map: *std.StringHashMap(u64)) void {
+    var keys = map.keyIterator();
+    while (keys.next()) |key| allocator.free(key.*);
+    map.deinit();
+}
+
+fn freeStringMapVoid(allocator: std.mem.Allocator, map: *std.StringHashMap(void)) void {
+    var keys = map.keyIterator();
+    while (keys.next()) |key| allocator.free(key.*);
+    map.deinit();
+}
+
+fn loadAccessCounts(allocator: std.mem.Allocator, data: []const u8) !std.StringHashMap(u64) {
+    var counts = std.StringHashMap(u64).init(allocator);
+    errdefer freeStringMap(allocator, &counts);
+    var lines = std.mem.tokenizeScalar(u8, data, '\n');
+    while (lines.next()) |line| {
+        var parsed = std.json.parseFromSlice(AccessRecord, allocator, line, .{
+            .ignore_unknown_fields = true,
+        }) catch continue;
+        defer parsed.deinit();
+        const event = parsed.value;
+        if (!std.mem.eql(u8, event.kind, "access") or event.memory_id.len == 0) continue;
+        if (counts.getPtr(event.memory_id)) |value| {
+            value.* += 1;
+        } else {
+            const key = try allocator.dupe(u8, event.memory_id);
+            errdefer allocator.free(key);
+            try counts.put(key, 1);
         }
     }
+    return counts;
+}
+
+fn loadSupersededIds(allocator: std.mem.Allocator, data: []const u8) !std.StringHashMap(void) {
+    var ids = std.StringHashMap(void).init(allocator);
+    errdefer freeStringMapVoid(allocator, &ids);
+    var lines = std.mem.tokenizeScalar(u8, data, '\n');
+    while (lines.next()) |line| {
+        var parsed = std.json.parseFromSlice(MemoryRecord, allocator, line, .{
+            .ignore_unknown_fields = true,
+        }) catch continue;
+        defer parsed.deinit();
+        const rec = parsed.value;
+        if (!std.mem.eql(u8, rec.kind, "memory")) continue;
+        for (rec.supersedes) |id| {
+            if (id.len == 0 or ids.contains(id)) continue;
+            const key = try allocator.dupe(u8, id);
+            errdefer allocator.free(key);
+            try ids.put(key, {});
+        }
+    }
+    return ids;
+}
+
+fn scoreMemory(allocator: std.mem.Allocator, query: []const u8, rec: MemoryRecord, access_count: u64) !f64 {
+    var score: f64 = 0.0;
+    const similarity = try lexicalJaccard(allocator, query, rec.content);
+    if (similarity > 0.0) score += similarity * 8.0;
+    if (std.ascii.indexOfIgnoreCase(rec.content, query) != null) score += 4.0;
+
+    var query_tokens = try normalizedUniqueTokens(allocator, query);
+    defer freeStringArrayList(allocator, &query_tokens);
+    for (query_tokens.items) |term| {
+        for (rec.tags) |tag| {
+            if (std.ascii.indexOfIgnoreCase(tag, term) != null) score += 0.75;
+        }
+        if (std.ascii.indexOfIgnoreCase(rec.domain, term) != null) score += 0.5;
+    }
+
+    if (score <= 0.0) return 0.0;
+    score += rec.heat;
+    score += @as(f64, @floatFromInt(@min(access_count, 20))) * 0.05;
     return score;
+}
+
+fn lexicalJaccard(allocator: std.mem.Allocator, a: []const u8, b: []const u8) !f64 {
+    var left = try normalizedUniqueTokens(allocator, a);
+    defer freeStringArrayList(allocator, &left);
+    var right = try normalizedUniqueTokens(allocator, b);
+    defer freeStringArrayList(allocator, &right);
+    if (left.items.len == 0 or right.items.len == 0) return 0.0;
+
+    var intersection: usize = 0;
+    for (left.items) |term| {
+        if (containsString(right.items, term)) intersection += 1;
+    }
+    const union_size = left.items.len + right.items.len - intersection;
+    if (union_size == 0) return 0.0;
+    return @as(f64, @floatFromInt(intersection)) / @as(f64, @floatFromInt(union_size));
+}
+
+fn normalizedUniqueTokens(allocator: std.mem.Allocator, text: []const u8) !std.ArrayList([]const u8) {
+    var list: std.ArrayList([]const u8) = .empty;
+    errdefer freeStringArrayList(allocator, &list);
+    var raw_tokens = std.mem.tokenizeAny(u8, text, " \t\r\n.,;:!?()[]{}<>\"'`/\\|+=*&^%$#@~");
+    while (raw_tokens.next()) |raw| {
+        const maybe_token = try normalizeTokenAlloc(allocator, raw);
+        const token = maybe_token orelse continue;
+        if (containsString(list.items, token)) {
+            allocator.free(token);
+            continue;
+        }
+        try list.append(allocator, token);
+    }
+    return list;
+}
+
+fn normalizeTokenAlloc(allocator: std.mem.Allocator, raw: []const u8) !?[]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+    for (raw) |c| {
+        if (std.ascii.isAlphanumeric(c)) {
+            try out.append(allocator, std.ascii.toLower(c));
+        }
+    }
+    if (out.items.len < 2) {
+        out.deinit(allocator);
+        return null;
+    }
+    const token = try out.toOwnedSlice(allocator);
+    return token;
+}
+
+fn containsString(items: []const []const u8, needle: []const u8) bool {
+    for (items) |item| {
+        if (std.mem.eql(u8, item, needle)) return true;
+    }
+    return false;
+}
+
+fn fingerprintAlloc(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
+    var tokens = try normalizedUniqueTokens(allocator, text);
+    defer freeStringArrayList(allocator, &tokens);
+    std.mem.sort([]const u8, tokens.items, {}, struct {
+        fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+            return std.mem.lessThan(u8, a, b);
+        }
+    }.lessThan);
+
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    for (tokens.items, 0..) |token, index| {
+        if (index != 0) try out.writer.writeAll(" ");
+        try out.writer.writeAll(token);
+    }
+    return out.toOwnedSlice();
+}
+
+fn redactSensitiveAlloc(allocator: std.mem.Allocator, input: []const u8) !RedactionResult {
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    var count: usize = 0;
+    var i: usize = 0;
+    while (i < input.len) {
+        const uri_next = try redactUriAt(&out.writer, input, i);
+        if (uri_next) |next| {
+            count += 1;
+            i = next;
+            continue;
+        }
+
+        if (sensitiveKeyPrefix(input[i..])) |key_len| {
+            try out.writer.writeAll(input[i .. i + key_len]);
+            try out.writer.writeAll("[redacted]");
+            i = secretValueEnd(input, i + key_len);
+            count += 1;
+            continue;
+        }
+
+        if (tokenPrefix(input, i)) |prefix| {
+            try out.writer.writeAll(prefix);
+            try out.writer.writeAll("[redacted]");
+            i = secretValueEnd(input, i + prefix.len);
+            count += 1;
+            continue;
+        }
+
+        try out.writer.writeAll(input[i .. i + 1]);
+        i += 1;
+    }
+    return .{
+        .text = try out.toOwnedSlice(),
+        .count = count,
+    };
+}
+
+fn redactUriAt(writer: *std.Io.Writer, input: []const u8, index: usize) !?usize {
+    const prefixes = [_][]const u8{
+        "postgresql://",
+        "postgres://",
+        "mysql://",
+        "redis://",
+        "http://",
+        "https://",
+    };
+    for (prefixes) |prefix| {
+        if (!startsWithIgnoreCase(input[index..], prefix)) continue;
+        const authority_start = index + prefix.len;
+        const authority_end = authorityEnd(input, authority_start);
+        const authority = input[authority_start..authority_end];
+        const at_index = std.mem.indexOfScalar(u8, authority, '@') orelse return null;
+        const colon_index = std.mem.indexOfScalar(u8, authority[0..at_index], ':') orelse return null;
+        if (colon_index >= at_index) return null;
+        try writer.writeAll(input[index..authority_start]);
+        try writer.writeAll("[credentials-redacted]@");
+        try writer.writeAll(authority[at_index + 1 ..]);
+        return authority_end;
+    }
+    return null;
+}
+
+fn authorityEnd(input: []const u8, start: usize) usize {
+    var i = start;
+    while (i < input.len) : (i += 1) {
+        const c = input[i];
+        if (std.ascii.isWhitespace(c) or c == '"' or c == '\'' or c == ')' or c == ']') break;
+        if (c == '/') break;
+    }
+    return i;
+}
+
+fn sensitiveKeyPrefix(input: []const u8) ?usize {
+    const keys = [_][]const u8{
+        "password=",
+        "passwd=",
+        "token=",
+        "api_key=",
+        "apikey=",
+        "secret=",
+        "access_token=",
+        "private_key=",
+        "database_url=",
+    };
+    for (keys) |key| {
+        if (startsWithIgnoreCase(input, key)) return key.len;
+    }
+    return null;
+}
+
+fn tokenPrefix(input: []const u8, index: usize) ?[]const u8 {
+    if (index != 0 and std.ascii.isAlphanumeric(input[index - 1])) return null;
+    const prefixes = [_][]const u8{ "sk-", "ghp_", "github_pat_" };
+    for (prefixes) |prefix| {
+        if (std.mem.startsWith(u8, input[index..], prefix)) return prefix;
+    }
+    return null;
+}
+
+fn secretValueEnd(input: []const u8, start: usize) usize {
+    var i = start;
+    while (i < input.len) : (i += 1) {
+        const c = input[i];
+        if (std.ascii.isWhitespace(c) or c == '"' or c == '\'' or c == '&' or c == ',' or c == ';') break;
+    }
+    return i;
+}
+
+fn startsWithIgnoreCase(haystack: []const u8, prefix: []const u8) bool {
+    return haystack.len >= prefix.len and std.ascii.eqlIgnoreCase(haystack[0..prefix.len], prefix);
+}
+
+fn selectedContains(selected: []const ScoredMemory, id: []const u8) bool {
+    for (selected) |item| {
+        if (std.mem.eql(u8, item.id, id)) return true;
+    }
+    return false;
+}
+
+fn relatedContains(related: []const ScoredMemory, id: []const u8) bool {
+    for (related) |item| {
+        if (std.mem.eql(u8, item.id, id)) return true;
+    }
+    return false;
+}
+
+fn isRelatedToSelection(rec: MemoryRecord, selected: []const ScoredMemory) bool {
+    for (selected) |item| {
+        if (std.mem.eql(u8, rec.domain, item.domain)) return true;
+        if (containsString(rec.supersedes, item.id) or containsString(item.supersedes, rec.id)) return true;
+        for (rec.tags) |tag| {
+            if (containsString(item.tags, tag)) return true;
+        }
+    }
+    return false;
 }
 
 fn detectDomain(path_or_hint: []const u8) []const u8 {
@@ -1028,10 +1608,29 @@ fn slugAlloc(allocator: std.mem.Allocator, text: []const u8) ![]const u8 {
 }
 
 fn toolDescription(name: []const u8) []const u8 {
-    if (std.mem.eql(u8, name, "remember")) return "Store a memory in the native Cortex file-backed store.";
-    if (std.mem.eql(u8, name, "recall")) return "Retrieve memories from the native Cortex file-backed store.";
-    if (std.mem.startsWith(u8, name, "wiki_")) return "Operate on the native Cortex Markdown wiki.";
+    if (std.mem.eql(u8, name, "remember")) return "Store a redacted, duplicate-gated memory in the native Cortex file-backed store.";
+    if (std.mem.eql(u8, name, "recall")) return "Retrieve memories with native lexical scoring, supersession filtering, and access logging.";
+    if (std.mem.eql(u8, name, "unified_search")) return "Compatibility alias for native recall.";
+    if (std.mem.eql(u8, name, "checkpoint")) return "Save or restore a validated native session checkpoint.";
+    if (std.mem.eql(u8, name, "detect_domain")) return "Derive a deterministic domain label from a path or hint.";
+    if (std.mem.eql(u8, name, "list_domains")) return "List domains present in the native memory store.";
     if (std.mem.eql(u8, name, "memory_stats")) return "Return native memory-store diagnostics.";
+    if (std.mem.eql(u8, name, "get_telemetry")) return "Compatibility alias for native memory-store diagnostics.";
+    if (std.mem.eql(u8, name, "get_methodology_graph") or
+        std.mem.eql(u8, name, "query_workflow_graph") or
+        std.mem.eql(u8, name, "navigate_memory"))
+    {
+        return "Return the native supersession graph.";
+    }
+    if (std.mem.eql(u8, name, "query_methodology")) return "Return native Cortex context for the current domain.";
+    if (std.mem.eql(u8, name, "record_session_end")) return "Acknowledge a native lifecycle event.";
+    if (std.mem.eql(u8, name, "wiki_link") or
+        std.mem.eql(u8, name, "wiki_purge") or
+        std.mem.eql(u8, name, "wiki_rename"))
+    {
+        return "Compatibility entry retained; this state-changing wiki operation is not implemented natively.";
+    }
+    if (std.mem.startsWith(u8, name, "wiki_")) return "Operate on the native Cortex Markdown wiki.";
     return "Compatibility entry retained by the native Cortex MCP catalog.";
 }
 
@@ -1041,7 +1640,37 @@ test "wiki path validation rejects traversal" {
 }
 
 test "memory scoring ranks direct matches" {
-    try std.testing.expect(scoreMemory("pgvector decision", "The pgvector decision is recorded", &.{}, 0.5) > 10.0);
+    const rec: MemoryRecord = .{
+        .content = "The native storage decision is recorded",
+        .tags = &.{"decision"},
+        .domain = "cortex",
+        .heat = 0.5,
+    };
+    try std.testing.expect(try scoreMemory(std.testing.allocator, "native storage decision", rec, 0) > 4.0);
+}
+
+test "redaction removes obvious secret values before persistence" {
+    const redacted = try redactSensitiveAlloc(
+        std.testing.allocator,
+        "connect with data" ++
+            "base_url=postgresql://user:" ++
+            "pass@example.test/db and api_" ++
+            "key=abc123",
+    );
+    defer std.testing.allocator.free(redacted.text);
+    try std.testing.expect(redacted.count >= 2);
+    try std.testing.expect(std.mem.indexOf(u8, redacted.text, "pass") == null);
+    try std.testing.expect(std.mem.indexOf(u8, redacted.text, "abc123") == null);
+    try std.testing.expect(std.mem.indexOf(u8, redacted.text, "[redacted]") != null);
+}
+
+test "lexical jaccard detects near duplicates" {
+    const similarity = try lexicalJaccard(
+        std.testing.allocator,
+        "native cortex stores local memories with zig",
+        "Native Cortex stores local memory records with Zig.",
+    );
+    try std.testing.expect(similarity >= 0.6);
 }
 
 test "slug generation is stable" {

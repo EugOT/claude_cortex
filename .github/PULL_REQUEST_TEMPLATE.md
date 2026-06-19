@@ -24,7 +24,7 @@ Closes #
 
 <!--
   How was this verified? List the specific tests run.
-  - Existing tests: `pytest` — pass count?
+  - Existing tests: `zig build test` pass count?
   - New tests: what mutations would they catch?
   - Manual verification: what did you exercise that automated tests don't?
 -->
@@ -42,7 +42,7 @@ Closes #
 -->
 
 - Engineering review (code-reviewer / architect / refactorer / test-engineer): findings + closures
-- Genius review (feynman / curie / popper / dijkstra / others): findings + closures
+- Evidence review (claim verification / measurement / falsifiability / correctness): findings + closures
 - Outstanding deferred findings (with follow-up issue links):
 
 ## Coding-standards compliance
@@ -50,13 +50,11 @@ Closes #
 <!-- See rules/coding-standards.md (or the linked zetetic standard). -->
 
 - [ ] §2.2 Layer dependency direction preserved (no inward layer imports outward).
-- [ ] §3.2 No `any` (or `as any`, or untyped dicts at boundaries) in production code.
-- [ ] §4.1 No file > 500 lines (test files exempt).
-- [ ] §4.2 No function > 50 lines (dispatch tables exempt).
-- [ ] §4.4 No function with > 4 parameters.
-- [ ] §7 Local reasoning preserved (no clever constructs that defeat single-function comprehension).
-- [ ] §8 Every numeric constant ≥ 3 significant digits has a `// source:` annotation.
-- [ ] §9 No dead code, no TODOs without issue references.
+- [ ] Native Zig allocator ownership is explicit.
+- [ ] I/O boundaries are visible and testable.
+- [ ] Unsupported compatibility tools return explicit native unsupported status.
+- [ ] User-visible claims match implemented and tested behavior.
+- [ ] No dead code, no stale runtime instructions, no TODOs without issue references.
 
 ## Breaking changes
 

@@ -28,14 +28,13 @@ body:
       label: Audit lens
       description: Which audit perspective surfaced this?
       options:
-        - feynman (integrity / claim verification)
-        - curie (measurement discipline)
-        - popper (falsifiability / test risk)
-        - dijkstra (correctness / contracts)
-        - code-reviewer (rules/coding-standards.md compliance)
-        - test-engineer (mutation survival / coverage)
-        - architect (decomposition / dependency direction)
-        - security-auditor (STRIDE / supply chain)
+        - claim verification
+        - measurement discipline
+        - falsifiability / test risk
+        - correctness / contracts
+        - Zig allocator ownership
+        - MCP compatibility
+        - security / privacy
         - other (specify in finding)
     validations:
       required: true
@@ -49,9 +48,9 @@ body:
         the rule (§ from rules/coding-standards.md, or the contract that
         was violated).
       placeholder: |
-        File: packages/foo/bar.ts:42
-        Rule: §4.2 (function size)
-        Finding: handleX is 87 lines (37 over the 50-line cap).
+        File: src/cortex.zig:42
+        Contract: unsupported tools must not report successful no-ops
+        Finding: tool X returns ok=true without changing state.
     validations:
       required: true
 
