@@ -118,7 +118,7 @@ If persist_entities() were moved to async/background:
 
 The full test code suite is organized under `tests_py/invariants/`.
 This document cites the structural contracts each test must satisfy;
-see the [Lamport handoff file](../../tasks/lamport-invariant-tests.md)
+see the Lamport invariant tests (internal, not published)
 for ready-to-drop code blocks.
 
 Summary of tests (one per invariant):

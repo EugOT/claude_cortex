@@ -387,7 +387,7 @@ arXiv-ready.
   preserved at `docs/benchmarks/e1-v3-locomo-results.md`.
 - **Phase A + B blend-weight calibration.** Central composite design + 5×5
   grid search; all six post-WRRF rerank constants confirmed near-optimum at
-  the engineering defaults shipped today. `tasks/e1-v3-blend-calibration.md`.
+  the engineering defaults shipped today. `docs/provenance/blend-weight-calibration.md`.
 - **Per-category delta analysis (LME-S).** Mechanism specialization
   surfaced: HDC specializes for multi-session reasoning, HOPFIELD for
   knowledge updates, ADAPTIVE_DECAY against stable preferences.

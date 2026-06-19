@@ -21,7 +21,7 @@ See `docs/provenance/refactoring-plan.md` for the file-by-file split plan (31 fi
 
 ## Research Methodology
 
-When implementing neuroscience-inspired mechanisms, always consult primary research papers before coding. Use [arxivisual](https://arxivisual.com) to explore and understand referenced papers visually — it provides detailed visual explanations of arxiv papers. Paper references are listed in `tasks/neuro-evolution-plan.md` and `docs/adr/`. The implementation should follow the computational model described in the paper, not just the metaphor. Every new mechanism must cite its source paper and match the paper's equations/algorithms as closely as practical for a memory system operating at hours/days timescale (vs milliseconds in biology).
+When implementing neuroscience-inspired mechanisms, always consult primary research papers before coding. Use [arxivisual](https://arxivisual.com) to explore and understand referenced papers visually — it provides detailed visual explanations of arxiv papers. Paper references are listed in `docs/adr/`. The implementation should follow the computational model described in the paper, not just the metaphor. Every new mechanism must cite its source paper and match the paper's equations/algorithms as closely as practical for a memory system operating at hours/days timescale (vs milliseconds in biology).
 
 ## Architecture
 

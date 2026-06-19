@@ -318,7 +318,7 @@ a calibration artefact, not a generalizable result.
 - Single arm; the comparator is the historical LoCoMo standalone-tuned score from
   CLAUDE.md (MRR=0.794). This is a one-arm pre-registered claim.
 - Replications: 3 seeds (DB load order). LoCoMo is 1986 Q — high statistical power.
-- Zero-cell: prior published MRR=0.794 (read from `tasks/benchmarks-detail.md` snapshot
+- Zero-cell: prior published MRR=0.794 (read from `docs/benchmarks/` snapshot
   at protocol freeze).
 - Blocking: same hardware, embedding cache, Postgres binary as E1's LoCoMo block.
 
@@ -382,7 +382,7 @@ instrumentation, schema migration SHA.
 ## Negative-result log policy
 
 Every cell that does not support its hypothesis gets an entry in
-`tasks/negative-results-log.md` with: hypothesis, design pointer, manifest hash,
+`docs/provenance/negative-results-log.md` with: hypothesis, design pointer, manifest hash,
 result, candidate explanation. No quiet reframing. No rerun-until-positive.
 
 ---
@@ -439,5 +439,5 @@ With Lane B parallelized: ~52h (≈ 2.2 days) post-E6.
 5. Negative-result log file initialized.
 6. This document referenced in the commit message of every scored run.
 
-Any deviation produces an addendum file `tasks/verification-protocol-addendum-NNN.md`,
+Any deviation produces an addendum file `docs/provenance/verification-protocol-addendum-NNN.md`,
 not an edit to this file.

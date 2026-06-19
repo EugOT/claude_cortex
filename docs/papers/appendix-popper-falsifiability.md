@@ -51,7 +51,7 @@ A claim with no falsification condition is unscientific in Popper's sense and mu
 - Metric: ΔR@10 = `R@10(full Cortex) − R@10(no-decay)`, normalized against `R@10(full) − R@10(flat-RAG)`.
 - Threshold: if the no-decay ablation recovers ≥ 50% of the gap to flat-RAG (i.e., decay accounts for less than half the lift), the "decay alone is sufficient" claim is refuted. Some other mechanism (likely WRRF or pattern separation) is doing the work.
 
-**Current evidence.** **UNTESTED.** 23 ablatable mechanisms are registered in `ablation.py`; no published row isolates "decay only" against the full system. The current per-mechanism ablation log in `tasks/benchmarks-detail.md` does not cover this ablation.
+**Current evidence.** **UNTESTED.** 23 ablatable mechanisms are registered in `ablation.py`; no published row isolates "decay only" against the full system. The current per-mechanism ablation log in `docs/benchmarks/` does not cover this ablation.
 
 ---
 
@@ -82,7 +82,7 @@ A claim with no falsification condition is unscientific in Popper's sense and mu
 - For (b): six ablations via `ablation.py`, one per signal; measure ΔR@10 on LongMemEval, LoCoMo, BEAM.
 - Threshold: if any off-diagonal exceeds 0.5, OR any single-signal ablation drops R@10 by > 5pp, the "decorrelated noise" claim is refuted — at least one signal is load-bearing rather than complementary.
 
-**Current evidence.** **PARTIALLY TESTED.** `tasks/benchmarks-detail.md` records ablations for some signals (vector, FTS) but not all six. The signal-correlation matrix has not been computed. The decorrelation claim is currently a design rationale, not a measurement.
+**Current evidence.** **PARTIALLY TESTED.** `docs/benchmarks/` records ablations for some signals (vector, FTS) but not all six. The signal-correlation matrix has not been computed. The decorrelation claim is currently a design rationale, not a measurement.
 
 ---
 

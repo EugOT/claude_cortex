@@ -4,7 +4,7 @@
 **Status:** PRE-REGISTERED DRAFT v3 (Haiku-then-Gemini sequencing, 2026-04-30) — freezes on commit `<TBD>` (the commit that lands this file plus the harness skeleton at `benchmarks/llm_head_to_head/`).
 - v1 → v2: generator panel switched from Sonnet 4.6 + Opus 4.7-1M to Haiku 4.5 + GPT-4o mini + Gemini 2.0 Flash; judge mode now cross-vendor; cost drop ~30× on full panel.
 - v2 → v3: GPT-4o mini dropped (user lock-in to Anthropic + Google).  Stage 2 now runs **sequentially**: Stage 2.1 Haiku 4.5 (primary, production claim), Stage 2.2 Gemini 2.0 Flash (cross-vendor validation, fires only after 2.1 reviewed).  Combined Stage 2 cost ~$40–55.
-**Companions:** `docs/provenance/verification-protocol.md` (Fisher template), `tasks/verification-measurement-discipline.md` (Curie HARD-STOP), `docs/provenance/hnsw-determinism-playbook.md` (DB reproducibility), `docs/papers/thermodynamic-memory-vs-flat-importance.md` (paper under validation), `docs/arxiv-context-assembly/main.tex` (prior BEAM-10M assembler claim: MRR 0.471 vs flat 0.353).
+**Companions:** `docs/provenance/verification-protocol.md` (Fisher template), `docs/provenance/verification-measurement-discipline.md` (Curie HARD-STOP), `docs/provenance/hnsw-determinism-playbook.md` (DB reproducibility), `docs/papers/thermodynamic-memory-vs-flat-importance.md` (paper under validation), `docs/arxiv-context-assembly/main.tex` (prior BEAM-10M assembler claim: MRR 0.471 vs flat 0.353).
 **Critique this protocol closes:** *"You measured retrieval quality without an LLM in the loop, so you can't claim you're better."*  This protocol is the LLM-stage extension that converts retrieval-quality numbers into end-to-end answer accuracy.
 **Pre-registration discipline:** OSF-style. After freeze, the analysis is locked. Post-hoc analyses are reported separately as **exploratory**, never relabelled confirmatory.
 
@@ -275,7 +275,7 @@ Before the full run:
 3. C beats B on Haiku 4.5 by **at least +3 pp** raw (no significance test required at this stage; this is a "is the signal even directionally there" gate).
 4. Total pilot cost within ±50% of estimate.
 
-**NO-GO** if any of those fail.  Triggers an addendum file (`tasks/beam-10m-llm-h2h-addendum-001.md`) with diagnosis + revised estimates.  This protocol does NOT auto-edit on no-go.
+**NO-GO** if any of those fail.  Triggers an addendum file (`docs/provenance/beam-10m-llm-h2h-addendum-001.md`) with diagnosis + revised estimates.  This protocol does NOT auto-edit on no-go.
 
 ### Stage 2 sequencing — Haiku then Gemini (user-locked, 2026-04-30)
 Per user directive, Stage 2 runs **sequentially**, NOT all generators in parallel.
@@ -310,7 +310,7 @@ GPT-4o mini is **deprecated from this protocol** by user lock-in.  Re-introducti
 | H3 | D − C ≥ 10 pp at α = 0.01 | Real headroom above Cortex.  Quantifies §7.1 limitation.  Drives next-quarter retrieval research. |
 | H3 (other side) | D − C < 5 pp at p < 0.01 | Cortex is near-ceiling — strongest possible H3 outcome; informs §6 paragraph "where the gap is smaller." |
 
-Anti-fragile note (Popper 1959, *The Logic of Scientific Discovery*): the protocol pre-commits to publishing **all three falsification rulings**, not just the favourable ones.  A negative-result entry per hypothesis is mandatory in `tasks/negative-results-log.md`.
+Anti-fragile note (Popper 1959, *The Logic of Scientific Discovery*): the protocol pre-commits to publishing **all three falsification rulings**, not just the favourable ones.  A negative-result entry per hypothesis is mandatory in `docs/provenance/negative-results-log.md`.
 
 ---
 
@@ -358,7 +358,7 @@ Missing field → run downgraded to **exploratory** per `verification-protocol.m
 4. **Pre-registered prompts.**  Appendices A & B SHA-256-hashed at freeze.  Post-freeze change → addendum + re-run.
 5. **No seed cherry-picking.**  Seeds `20260501/02/03` fixed at freeze.  Different seeds = exploratory.
 6. **No best-of-N.**  One generation per (item × condition × generator).  Temperature = 0 (or vendor floor).  That one result is the result.
-7. **Negative log mandatory.**  Every failed test → `tasks/negative-results-log.md` with manifest pointer, never silently re-run.
+7. **Negative log mandatory.**  Every failed test → `docs/provenance/negative-results-log.md` with manifest pointer, never silently re-run.
 
 ---
 
@@ -375,7 +375,7 @@ Missing field → run downgraded to **exploratory** per `verification-protocol.m
 | 6–8 | experiment-runner | Stage 2 slim run (Haiku 4.5 × all 4 conditions × 196 items + GPT-4o judge).  Cost ≤ $80. |
 | 8 | research-scientist | Lock the slim numbers; write up Stage-2-slim results.  Decide whether to commit budget for full run. |
 | 9–11 | experiment-runner | Stage 2 full panel (add GPT-4o mini + Gemini 2.0 Flash).  Cost ≤ $150 upper bound (cross-vendor judging).  Auto-Mode budget release at this magnitude is acceptable without an extra OK; only the optional Opus-1M robustness study (§13) requires explicit budget approval. |
-| 12 | curie | Final audit against `tasks/verification-measurement-discipline.md` HARD-STOP checklist.  Any failure → Stage 2 results downgraded to exploratory. |
+| 12 | curie | Final audit against `docs/provenance/verification-measurement-discipline.md` HARD-STOP checklist.  Any failure → Stage 2 results downgraded to exploratory. |
 | 13 | research-scientist + paper-writer | Write up; H1/H2/H3 verdicts; negative-results-log entries; commit. |
 
 ---
