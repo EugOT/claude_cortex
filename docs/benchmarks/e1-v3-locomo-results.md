@@ -22,7 +22,7 @@
 
 > Δ = metric(anchor_baseline) − metric(ablated)
 
-so that **positive Δ ⇒ mechanism contributes positively** (ablating it hurts), and **negative Δ ⇒ mechanism is counterproductive** (ablating it improves the score). Same convention as `tasks/e1-v3-results.md`.
+so that **positive Δ ⇒ mechanism contributes positively** (ablating it hurts), and **negative Δ ⇒ mechanism is counterproductive** (ablating it improves the score). Same convention as `docs/benchmarks/e1-v3-results.md`.
 
 ## Two-baseline structure (paper-bearing)
 
@@ -58,7 +58,7 @@ Each anchor reflects the active mechanism set at recall time for that group's me
 
 ## Architectural-mismatch hypothesis: empirical resolution
 
-The LME-S §6.3 writeup (`tasks/e1-v3-results.md`) flagged a class of mechanisms whose mechanism-of-action is foreclosed by the LME-S isolated-haystack architecture (`db.clear() → db.load(haystack) → db.recall(query)` per question wipes longitudinal state). Those mechanisms appeared at the noise floor on LME-S. The hypothesis: they would show measurable effect on a longitudinal benchmark.
+The LME-S §6.3 writeup (`docs/benchmarks/e1-v3-results.md`) flagged a class of mechanisms whose mechanism-of-action is foreclosed by the LME-S isolated-haystack architecture (`db.clear() → db.load(haystack) → db.recall(query)` per question wipes longitudinal state). Those mechanisms appeared at the noise floor on LME-S. The hypothesis: they would show measurable effect on a longitudinal benchmark.
 
 | Mechanism        | LME-S ΔMRR | LoCoMo ΔMRR | Resolution |
 |------------------|-----------:|------------:|------------|

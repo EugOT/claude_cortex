@@ -5,7 +5,7 @@
 - **Cortex BASELINE_NO_CONSOLIDATION (longitudinal-read-path anchor): MRR = 0.8279, R@10 = 0.9435** on LoCoMo (n = 1986).
 - vs. CLAUDE.md established LoCoMo baseline (MRR = 0.794, R@10 = 0.926): **+4.3% MRR, +1.7% R@10** — within rounding identical to the pre-fix sweep, as expected (the longitudinal-read-path rows ran with consolidation off in both sweeps and the plasticity bug cannot exercise there).
 - **BASELINE_WITH_CONSOLIDATION (consolidation-cadence anchor): MRR = 0.8265, R@10 = 0.941.** ΔvsNO = +0.0014, **identical to the pre-fix value**, within the per-row noise floor. The cadence fix (commit `6c51bce`) re-validated at full n = 1986 a second time on post-`5f737fe` bytes.
-- The 14-row two-baseline ablation **re-confirms** the architectural-mismatch resolution from the pre-fix writeup (`tasks/e1-v3-locomo-results.md`): RECONSOLIDATION ΔMRR = +0.0091, ADAPTIVE_DECAY ΔMRR = -0.0163. The longitudinal-read-path group is unchanged; the consolidation-only group has small sign flips on three rows (HOMEOSTATIC_PLASTICITY, SCHEMA_ENGINE, SYNAPTIC_PLASTICITY) — see "Pre-vs-post-fix comparison" below.
+- The 14-row two-baseline ablation **re-confirms** the architectural-mismatch resolution from the pre-fix writeup (`docs/benchmarks/e1-v3-locomo-results.md`): RECONSOLIDATION ΔMRR = +0.0091, ADAPTIVE_DECAY ΔMRR = -0.0163. The longitudinal-read-path group is unchanged; the consolidation-only group has small sign flips on three rows (HOMEOSTATIC_PLASTICITY, SCHEMA_ENGINE, SYNAPTIC_PLASTICITY) — see "Pre-vs-post-fix comparison" below.
 
 ## Method
 
@@ -23,7 +23,7 @@
 
 > Δ = metric(anchor_baseline) − metric(ablated)
 
-Positive Δ ⇒ mechanism contributes positively (ablating it hurts). Negative Δ ⇒ mechanism is counterproductive (ablating it improves the score). Same convention as `tasks/e1-v3-results.md` and `tasks/e1-v3-locomo-results.md`.
+Positive Δ ⇒ mechanism contributes positively (ablating it hurts). Negative Δ ⇒ mechanism is counterproductive (ablating it improves the score). Same convention as `docs/benchmarks/e1-v3-results.md` and `docs/benchmarks/e1-v3-locomo-results.md`.
 
 ## Two-baseline structure (unchanged from pre-fix sweep)
 
@@ -139,8 +139,8 @@ The consolidation-only group's deltas all sit at or just outside the per-row noi
 
 The E1 v3 verification campaign now comprises **three artefact sets** at full n:
 
-1. **LME-S, 17 rows, n=500** — `tasks/e1-v3-results.md` (pre-fix, but plasticity bug never exercised — LME-S is not consolidation-dependent).
-2. **LoCoMo, 14 rows, n=1986, pre-fix bytes** — `tasks/e1-v3-locomo-results.md`.
+1. **LME-S, 17 rows, n=500** — `docs/benchmarks/e1-v3-results.md` (pre-fix, but plasticity bug never exercised — LME-S is not consolidation-dependent).
+2. **LoCoMo, 14 rows, n=1986, pre-fix bytes** — `docs/benchmarks/e1-v3-locomo-results.md`.
 3. **LoCoMo, 14 rows, n=1986, post-fix bytes** — this writeup.
 
-Total per-mechanism evidence rows on the appropriate benchmark for each mechanism's mechanism-of-action: **45 rows**. The architectural-mismatch hypothesis — surfaced in §6.3.3 of the paper, predicted in §6.3.4 from the LME-S analysis, and measured on LoCoMo in §6.3.4 of `tasks/e1-v3-locomo-results.md` — is now confirmed on two independent LoCoMo runs straddling the plasticity-shape fix. The hypothesis is robust to the only contract bug surfaced during verification.
+Total per-mechanism evidence rows on the appropriate benchmark for each mechanism's mechanism-of-action: **45 rows**. The architectural-mismatch hypothesis — surfaced in §6.3.3 of the paper, predicted in §6.3.4 from the LME-S analysis, and measured on LoCoMo in §6.3.4 of `docs/benchmarks/e1-v3-locomo-results.md` — is now confirmed on two independent LoCoMo runs straddling the plasticity-shape fix. The hypothesis is robust to the only contract bug surfaced during verification.

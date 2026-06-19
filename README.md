@@ -240,7 +240,7 @@ LoCoMo (Maharana et al., ACL 2024): 1,986 questions across 10 conversations — 
 | Recall@10 | **94.2%** | Right memory in top 10 over 9 times out of 10 |
 | MRR | **0.8278** | The correct *memory* is typically ranked first — retrieval rank only, no LLM reader |
 
-<sub>n=1986, BASELINE_NO_CONSOLIDATION, post-plasticity-fix — `tasks/e1-v3-locomo-results-post-fix.md`.</sub>
+<sub>n=1986, BASELINE_NO_CONSOLIDATION, post-plasticity-fix — `docs/benchmarks/e1-v3-locomo-results-post-fix.md`.</sub>
 
 | Category | MRR | R@10 |
 |---|---|---|
@@ -392,8 +392,8 @@ Clean Architecture with strict dependency rules — inner layers never import ou
 
 Every benchmark headline above is backed by a per-mechanism ablation campaign — full *n*, single-seed, with code SHAs, dirty flags, manifests, and per-row JSON preserved:
 
-- **LongMemEval-S, 17 rows, n=500** — `tasks/e1-v3-results.md`. Per-mechanism deltas at the calibrated equilibrium + category-specialization analysis.
-- **LoCoMo, 14 rows, n=1986** — `tasks/e1-v3-locomo-results.md` (pre-fix) and `tasks/e1-v3-locomo-results-post-fix.md` (post plasticity result-shape fix). Two-baseline design (NO_CONSOLIDATION / WITH_CONSOLIDATION).
+- **LongMemEval-S, 17 rows, n=500** — `docs/benchmarks/e1-v3-results.md`. Per-mechanism deltas at the calibrated equilibrium + category-specialization analysis.
+- **LoCoMo, 14 rows, n=1986** — `docs/benchmarks/e1-v3-locomo-results.md` (pre-fix) and `docs/benchmarks/e1-v3-locomo-results-post-fix.md` (post plasticity result-shape fix). Two-baseline design (NO_CONSOLIDATION / WITH_CONSOLIDATION).
 
 The full per-mechanism evidence lives in the thermodynamic paper (§6.3); the BEAM decay dose-response (§6.4) documents a re-scoped negative result after a dirty-store confound was caught and traced. **[Thermodynamic Memory vs. Flat-Importance Stores (PDF, 34 pages)](docs/arxiv-thermodynamic/main.pdf)** · **[Stage-Aware Context Assembly (PDF, 39 pages)](docs/arxiv-context-assembly/main.pdf)**.
 

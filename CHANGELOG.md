@@ -372,7 +372,7 @@ arXiv-ready.
   `R@10 = 97.8%`: **+3.0% MRR, +0.6% R@10**). Driver:
   `benchmarks/lib/run_e1_v3_lme.py`. Per-row JSONs:
   `benchmarks/results/ablation/longmemeval-s_v3/`. Writeup:
-  `tasks/e1-v3-results.md`.
+  `docs/benchmarks/e1-v3-results.md`.
 - **E1 v3 LoCoMo — 14-row two-baseline ablation, n=1986.** Headline
   `MRR = 0.8279`, `R@10 = 94.3%` (`BASELINE_NO_CONSOLIDATION`,
   longitudinal-read-path anchor) — vs. CLAUDE.md baseline
@@ -383,15 +383,15 @@ arXiv-ready.
   (`HOMEOSTATIC_PLASTICITY`, `SCHEMA_ENGINE`) recover positive
   contributions previously masked by the contract bug.
   `benchmarks/results/ablation/locomo_v3_post_plasticity_fix/`.
-  Writeup: `tasks/e1-v3-locomo-results-post-fix.md`. The pre-fix sweep is
-  preserved at `tasks/e1-v3-locomo-results.md`.
+  Writeup: `docs/benchmarks/e1-v3-locomo-results-post-fix.md`. The pre-fix sweep is
+  preserved at `docs/benchmarks/e1-v3-locomo-results.md`.
 - **Phase A + B blend-weight calibration.** Central composite design + 5×5
   grid search; all six post-WRRF rerank constants confirmed near-optimum at
   the engineering defaults shipped today. `tasks/e1-v3-blend-calibration.md`.
 - **Per-category delta analysis (LME-S).** Mechanism specialization
   surfaced: HDC specializes for multi-session reasoning, HOPFIELD for
   knowledge updates, ADAPTIVE_DECAY against stable preferences.
-  `tasks/e1-v3-per-category.md`.
+  `docs/benchmarks/e1-v3-per-category.md`.
 
 Total: **45 per-mechanism evidence rows** across 26 enum mechanisms
 (17 read-path on LongMemEval-S + 9 consolidation-only routed to LoCoMo).

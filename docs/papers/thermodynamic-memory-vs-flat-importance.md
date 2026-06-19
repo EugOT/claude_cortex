@@ -170,7 +170,7 @@ The headline §6 table reports the integrated stack against published baselines.
 
 #### 6.3.1 Sign convention and the 17-row table
 
-We use the convention $\Delta\text{MRR} = \text{BASELINE} - \text{ABLATED}$ throughout this subsection: positive $\Delta$ means the mechanism contributes (ablating it hurts the score); negative $\Delta$ means the mechanism is counterproductive on this benchmark (ablating it improves the score). This matches the pre-registration brief in `tasks/e1-v3-results.md`.
+We use the convention $\Delta\text{MRR} = \text{BASELINE} - \text{ABLATED}$ throughout this subsection: positive $\Delta$ means the mechanism contributes (ablating it hurts the score); negative $\Delta$ means the mechanism is counterproductive on this benchmark (ablating it improves the score). This matches the pre-registration brief in `docs/benchmarks/e1-v3-results.md`.
 
 | Mechanism | MRR (ablated) | R@10 (ablated) | ΔMRR | ΔR@10 |
 |---|---:|---:|---:|---:|
@@ -196,7 +196,7 @@ We use the convention $\Delta\text{MRR} = \text{BASELINE} - \text{ABLATED}$ thro
 
 #### 6.3.2 Per-category specialization (the load-bearing finding)
 
-Reading only the overall ΔMRR column would lead to a misleading conclusion: "13 of 17 mechanisms have no effect, only HOPFIELD has a measurable positive contribution, the system is overdetermined." That reading is wrong. The integrated stack does win by +3.0% MRR over the published baseline; the question is *where* the lift comes from. The answer is visible only when the per-category MRR is decomposed (re-analysis of the same 17-row dataset, no re-run; full table in `tasks/e1-v3-per-category.md`):
+Reading only the overall ΔMRR column would lead to a misleading conclusion: "13 of 17 mechanisms have no effect, only HOPFIELD has a measurable positive contribution, the system is overdetermined." That reading is wrong. The integrated stack does win by +3.0% MRR over the published baseline; the question is *where* the lift comes from. The answer is visible only when the per-category MRR is decomposed (re-analysis of the same 17-row dataset, no re-run; full table in `docs/benchmarks/e1-v3-per-category.md`):
 
 | Mechanism | Multi-session | Knowledge updates | Pref (single-session) | Net overall |
 |---|---:|---:|---:|---:|
@@ -273,7 +273,7 @@ This is the load-bearing finding of §6.3.4. The §6.3.3 argument (that 13 LME-S
 
 #### 6.3.4.1 The plasticity-fix re-run on post-`5f737fe` bytes
 
-The §6.3.7 plasticity result-shape contract bug was fixed in commit `5f737fe`; the same 14-row two-baseline sweep was re-run at full n = 1986 on a descendant SHA (`2f45bcb`, dirty=false, finished 2026-05-04). Artefacts at `benchmarks/results/ablation/locomo_v3_post_plasticity_fix/`. The detailed writeup is `tasks/e1-v3-locomo-results-post-fix.md`.
+The §6.3.7 plasticity result-shape contract bug was fixed in commit `5f737fe`; the same 14-row two-baseline sweep was re-run at full n = 1986 on a descendant SHA (`2f45bcb`, dirty=false, finished 2026-05-04). Artefacts at `benchmarks/results/ablation/locomo_v3_post_plasticity_fix/`. The detailed writeup is `docs/benchmarks/e1-v3-locomo-results-post-fix.md`.
 
 **Headline.** `BASELINE_NO_CONSOLIDATION` reaches MRR = 0.8279, R@10 = 0.9435; `BASELINE_WITH_CONSOLIDATION` reaches MRR = 0.8265, R@10 = 0.941; ΔvsNO = +0.0014 — **identical to four decimals** to the pre-fix value. The cadence-fix anchor agreement (§6.3.6) is therefore re-validated at full n on a second independent run on bytes that include the plasticity fix. The longitudinal-read-path group is essentially unchanged between runs, as expected: those rows ran with consolidation off, so the plasticity bug had no opportunity to exercise.
 
