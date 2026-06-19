@@ -1,6 +1,6 @@
 """Schema-shape regression tests for the ingested_at column.
 
-The consolidation-cadence fix (tasks/e1-v3-locomo-smoke-finding.md) adds
+The consolidation-cadence fix (docs/benchmarks/e1-v3-locomo-smoke-finding.md) adds
 ``memories.ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`` so that
 compression and decay cadence reads ingest-relative time instead of
 ``created_at`` (which is the original-event time and may be backdated
@@ -42,7 +42,7 @@ def test_migration_backfills_from_created_at() -> None:
 
     Ensures the migration is semantically transparent for memories that
     predate the column: their cadence remains created_at-equivalent
-    (the rationale recorded in tasks/e1-v3-locomo-smoke-finding.md).
+    (the rationale recorded in docs/benchmarks/e1-v3-locomo-smoke-finding.md).
     """
     assert "UPDATE memories SET ingested_at = created_at" in MIGRATIONS_DDL, (
         "ingested_at migration must backfill from created_at"

@@ -151,7 +151,7 @@ def _build_tagging_candidates(
         # original-event time. For backfilled memories with a backdated
         # created_at this prevents the tagging window from collapsing
         # immediately on first consolidation pass.
-        # Source: tasks/e1-v3-locomo-smoke-finding.md.
+        # Source: docs/benchmarks/e1-v3-locomo-smoke-finding.md.
         hours_ago = _hours_since_creation(
             mem.get("ingested_at") or mem.get("created_at", "")
         )

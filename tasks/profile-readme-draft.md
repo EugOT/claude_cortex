@@ -34,7 +34,7 @@ Long-term memory system for AI agents. PostgreSQL + pgvector, 26 biological mech
 - **LoCoMo (ACL 2024):** R@10 94.2%, MRR 0.8278 (n=1986) vs published — / 0.794
 - **BEAM-10M (ICLR 2026):** +33.4% over flat retrieval (0.471 vs 0.353)
 
-Verified via 31-row two-benchmark ablation campaign (`tasks/e1-v3-results.md`, `tasks/e1-v3-locomo-results.md`). Paper draft: `docs/arxiv-thermodynamic/main.pdf`.
+Verified via 31-row two-benchmark ablation campaign (`docs/benchmarks/e1-v3-results.md`, `docs/benchmarks/e1-v3-locomo-results.md`). Paper draft: `docs/arxiv-thermodynamic/main.pdf`.
 
 ### [PRD Spec Generator](https://github.com/cdeust/prd-spec-generator) — verified PRD reducer
 Stateless reducer that turns a feature description into a 9-file PRD. 17 MCP tools, multi-judge verification with weighted-average + Bayesian consensus, deterministic Hard Output Rules, 248 tests. Part of the AI Architect ecosystem.

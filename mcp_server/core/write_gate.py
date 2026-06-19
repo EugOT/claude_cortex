@@ -82,7 +82,7 @@ def compute_temporal_novelty(
             # recently?" — that is elapsed-since-ingest, not
             # elapsed-since-the-original-event. Use ingested_at and fall
             # back to created_at for legacy rows.
-            # Source: tasks/e1-v3-locomo-smoke-finding.md.
+            # Source: docs/benchmarks/e1-v3-locomo-smoke-finding.md.
             if best_mem and (best_mem.get("ingested_at") or best_mem.get("created_at")):
                 ts = best_mem.get("ingested_at") or best_mem["created_at"]
                 hours = _parse_hours_since(ts)

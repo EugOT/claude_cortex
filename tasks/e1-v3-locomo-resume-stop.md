@@ -12,7 +12,7 @@ uncommitted). Awaiting human decision.
 1. Step 1 committed cleanly: `b68c5ac feat(verif): --ablate +
    --with-consolidation flags for LoCoMo harness`. 167 LOC, no push.
 2. Step 2 written: `benchmarks/lib/run_e1_v3_locomo.py` driver, 14 rows,
-   two-baseline design per Option B in `tasks/e1-v3-locomo-smoke-finding.md`.
+   two-baseline design per Option B in `docs/benchmarks/e1-v3-locomo-smoke-finding.md`.
    Mirrors LME-S driver structure (commit `ca7f9d4`). Currently uncommitted.
 3. First launch attempt at 12:27:12 UTC: subprocess started running but
    exited inside ~10 minutes with no traceback, no per-conversation
@@ -47,7 +47,7 @@ Diff sample from `compression.py`:
 > backdated created_at (e.g. a 2023 conversation imported in 2026);
 > using created_at would compress them on the first consolidation
 > pass, before retrieval ever runs (see
-> tasks/e1-v3-locomo-smoke-finding.md).
+> docs/benchmarks/e1-v3-locomo-smoke-finding.md).
 
 The concurrent agent is migrating consolidation cadence from `created_at`
 (wall-clock-relative) to `ingested_at` (corpus-age-relative). This is

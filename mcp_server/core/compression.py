@@ -39,7 +39,7 @@ def _parse_ingested_at(memory: dict) -> datetime | None:
     since the original event. Backfilled / imported memories carry a
     backdated created_at (e.g. a 2023 conversation imported in 2026);
     using created_at would compress them on the first consolidation
-    pass, before retrieval ever runs (see tasks/e1-v3-locomo-smoke-finding.md).
+    pass, before retrieval ever runs (see docs/benchmarks/e1-v3-locomo-smoke-finding.md).
 
     Falls back to created_at for legacy rows that predate the
     ingested_at column (the schema migration in pg_schema.py backfills
@@ -138,7 +138,7 @@ def get_compression_schedule(
         return 0
 
     # Cadence is measured from ingest, not from the original event.
-    # Source: tasks/e1-v3-locomo-smoke-finding.md.
+    # Source: docs/benchmarks/e1-v3-locomo-smoke-finding.md.
     hours_elapsed = (datetime.now(timezone.utc) - ingested_at).total_seconds() / 3600.0
     resistance = _compute_resistance(memory)
 

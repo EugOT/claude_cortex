@@ -145,7 +145,7 @@ class TestComputeEntityDecay:
 class TestIngestRelativeCadence:
     """Regression: cadence reasoning uses ingested_at, not created_at.
 
-    Source: tasks/e1-v3-locomo-smoke-finding.md.
+    Source: docs/benchmarks/e1-v3-locomo-smoke-finding.md.
     """
 
     def test_adaptive_decay_uses_ingested_at_not_created_at(self):

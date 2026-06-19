@@ -1365,7 +1365,7 @@ BEGIN
 END $$;
 
 -- Migration: add ingested_at for consolidation cadence reasoning.
--- Source: tasks/e1-v3-locomo-smoke-finding.md.
+-- Source: docs/benchmarks/e1-v3-locomo-smoke-finding.md.
 -- created_at = original event/utterance time (may be backdated on import).
 -- ingested_at = when the row entered THIS Cortex DB (always NOW at insert).
 -- Compression and decay cadence MUST use ingested_at: the mechanism asks

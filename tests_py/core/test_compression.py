@@ -61,7 +61,7 @@ class TestGetCompressionSchedule:
         assert get_compression_schedule({"created_at": "invalid"}) == 0
 
     # ── Cadence relative to ingest, not original event ──────────────────
-    # Source: tasks/e1-v3-locomo-smoke-finding.md.
+    # Source: docs/benchmarks/e1-v3-locomo-smoke-finding.md.
 
     def test_backdated_created_at_with_fresh_ingest_stays_level_zero(self):
         """Regression: backfilled memories must NOT compress immediately.

@@ -85,7 +85,7 @@ def _hours_since_access(mem: dict, now: datetime) -> float | None:
 
     Fallback chain: last_accessed → ingested_at → created_at. The
     ingested_at fallback (added for the consolidation-cadence fix —
-    tasks/e1-v3-locomo-smoke-finding.md) ensures backfilled memories
+    docs/benchmarks/e1-v3-locomo-smoke-finding.md) ensures backfilled memories
     with a backdated created_at do not falsely register as
     "last-accessed years ago" when last_accessed is missing.
     """
@@ -108,7 +108,7 @@ def _hours_since_creation(mem: dict, now: datetime) -> float | None:
     ``ingested_at``: backfilled / imported memories with backdated
     ``created_at`` would otherwise return a wrongly-large L on first
     decay pass and collapse heat to near-zero before any access.
-    Source: tasks/e1-v3-locomo-smoke-finding.md.
+    Source: docs/benchmarks/e1-v3-locomo-smoke-finding.md.
 
     Falls back to ``created_at`` only for in-memory dicts that never
     round-tripped through PG (schema backfills ingested_at=created_at

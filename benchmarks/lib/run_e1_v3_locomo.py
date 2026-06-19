@@ -10,7 +10,7 @@ Output: benchmarks/results/ablation/locomo_v3/
 Why serial: the harness mutates a shared PG database (db.clear() per
 conversation). Parallel rows would contaminate each other's haystacks.
 
-Two-baseline design (per tasks/e1-v3-locomo-smoke-finding.md, Option B):
+Two-baseline design (per docs/benchmarks/e1-v3-locomo-smoke-finding.md, Option B):
 
 LoCoMo session timestamps are real 2023 conversation dates. At 2026 wall
 time, every loaded memory is ≈3 years old. Cortex's compression gates
