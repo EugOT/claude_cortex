@@ -1,9 +1,0 @@
-{
-  "optimum_lambda": 0.95,
-  "optimum_mrr": 0.694,
-  "plateau_lo": 0.95,
-  "plateau_hi": 1.0,
-  "plateau_width": 0.050000000000000044,
-  "slope_left": null,
-  "slope_right": 0.0
-}

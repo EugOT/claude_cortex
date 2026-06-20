@@ -24,9 +24,9 @@ body:
       label: Reproduction steps
       description: Numbered steps. Include version / commit SHA.
       placeholder: |
-        1. Run `pnpm install --frozen-lockfile`
-        2. Set FOO=bar in .env
-        3. Call the start_pipeline tool with feature_description="..."
+        1. Run `zig build test`
+        2. Set CORTEX_HOME to a temporary directory
+        3. Call the native MCP tool or CLI command with the smallest input that reproduces the issue
         4. Observe Y
     validations:
       required: true
@@ -44,12 +44,13 @@ body:
     attributes:
       label: Environment
       description: |
-        OS, runtime version (Node / Python / Rust), package versions,
-        anything load-bearing.
+        OS, Zig version, Crtx version / commit SHA, and any load-bearing
+        environment variables.
       placeholder: |
         - OS: macOS 15.0
-        - Runtime: Node 22.x
-        - Project version / commit: v0.2.0 / abc1234
+        - Zig: 0.16.0
+        - Crtx version / commit: v4.0.0-native / abc1234
+        - CORTEX_HOME: /tmp/crtx-repro
     validations:
       required: true
 
