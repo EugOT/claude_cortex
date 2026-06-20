@@ -1,0 +1,19 @@
+.{
+    .name = .claude_cortex,
+    .version = "4.0.0-native",
+    .fingerprint = 0x1dae6289be7b7afc,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+        "docs",
+        ".claude-plugin",
+        ".github",
+        ".gitleaks.toml",
+        ".gitignore",
+        "LICENSE",
+    },
+}

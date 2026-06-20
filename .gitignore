@@ -1,45 +1,21 @@
-__pycache__/
-*.pyc
-*.pyo
-.coverage
-htmlcov/
-*.egg-info/
-dist/
-build/
-.pytest_cache/
-.mutmut-cache/
-mutants/
-.pixi/
-.python-version
 .DS_Store
-mcp-server_old/
-
-# Secrets and credentials
 .env
 .env.*
 *.credentials.json
-*.pem
 *.key
+*.pem
+.coverage
+__pycache__/
+*.pyc
+*.pyo
 
-# Large benchmark datasets (download instructions in README)
-benchmarks/longmemeval/longmemeval_s.json
-benchmarks/longmemeval/longmemeval_oracle.json
-benchmarks/spell_alteration/*.pdf
-*.pdf
-# Whitelist the thermodynamic memory paper PDF (compiled artefact for publication)
-!docs/arxiv-thermodynamic/main.pdf
-!docs/arxiv-context-assembly/main.pdf
+# Zig build outputs
+.zig-cache/
+zig-cache/
+zig-out/
 
-# Runtime telemetry
+# Local editor/agent scratch space
+.agents/
+.codex/
 traces/
-
-# Claude Code ephemeral session state
-.claude/scheduled_tasks.lock
-.claude/session-cache.json
-benchmarks/snapshots/
 .memsearch/
-
-app-tauri/src-tauri/target/
-
-# Vendored site-packages tree (pip --target install; not part of the repo)
-/deps/

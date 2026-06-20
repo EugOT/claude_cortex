@@ -1,12 +1,12 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-# Repo-specific CodeRabbit configuration for EugOT/claude_cortex.
+# Repo-specific CodeRabbit configuration for EugOT/Crtx.
 # Keep this file short: prompts and review rules are technical debt too.
 
 inheritance: true
 language: "en-US"
 early_access: true
 focus: "high"
-tone_instructions: "Focus on strict TypeScript/Bun workflows, package hygiene, CI reliability, and user-facing regressions. Cite file:line and avoid generic style comments."
+tone_instructions: "Focus on strict native Zig behavior, zero Python/JavaScript regression risk, allocator and error-path correctness, security/privacy defaults, CI reliability, and user-facing regressions. Cite file:line and avoid generic style comments."
 
 chat:
   auto_reply: true
@@ -77,8 +77,10 @@ reviews:
     - "!**/Manifest.toml"
     - "!**/flake.lock"
   path_instructions:
-    - path: "**/*.{ts,tsx,js,jsx,mts,cts}"
-      instructions: "Assume Bun-first workflows. Check strict typing, runtime validation at boundaries, package scripts, CI parity, and browser/server separation."
+    - path: "**/*.zig"
+      instructions: "Assume Zig 0.16. Check allocator ownership, explicit error unions, std.Io usage, deterministic filesystem/process behavior, redaction, duplicate/supersession semantics, and test coverage for edge cases."
+    - path: ".github/workflows/**/*.yml"
+      instructions: "Check least-privilege permissions, pinned/modern action versions, no Python/JavaScript runtime reintroduction, secret handling, and local parity with documented validation commands."
     - path: "**/{AGENTS.md,CLAUDE.md,GEMINI.md,WARP.md,PROMPT.md,.github/copilot-instructions.md}"
       instructions: "Treat agent instructions as technical debt. Prefer short repo-specific contracts, explicit commands, and deletion of stale or duplicated prompt text."
   tools:
@@ -93,9 +95,9 @@ reviews:
     actionlint: { enabled: true }
     zizmor: { enabled: true }
     skillspector: { enabled: true }
-    eslint: { enabled: true }
-    biome: { enabled: true }
-    oxc: { enabled: true }
+    eslint: { enabled: false }
+    biome: { enabled: false }
+    oxc: { enabled: false }
 
 knowledge_base:
   opt_out: false
