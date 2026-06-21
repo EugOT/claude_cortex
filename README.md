@@ -68,6 +68,9 @@ Markdown wiki tools.
 zig build fmt
 zig build check
 zig build test
+zig build test -Doptimize=ReleaseSafe
+# Active Zig development overlay only until stable 0.16.0 fuzzer is fixed.
+zig build test --fuzz=1 --test-timeout 30s
 zig build docs
 gitleaks detect --source . --config .gitleaks.toml --redact
 git ls-files | rg '(\.(py|pyi|ipynb|js|mjs|cjs|jsx|ts|tsx)$|(^|/)(package\.json|pyproject\.toml|setup\.py|requirements\.txt|tox\.ini|pytest\.ini|tsconfig\.json|bun\.lock|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|pixi\.lock|uv\.lock)$)'
