@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crtx Native Rewrite Post-Merge Audit</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f7f4;
+      --fg: #161616;
+      --muted: #5f6368;
+      --line: #d9d9d2;
+      --panel: #ffffff;
+      --accent: #116a5c;
+      --warn: #8a5a00;
+      --bad: #9b1c1c;
+      --ok: #236b36;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111312;
+        --fg: #eeeeea;
+        --muted: #b8bbb4;
+        --line: #343a36;
+        --panel: #1a1d1b;
+        --accent: #74d6c6;
+        --warn: #e2bd6b;
+        --bad: #ff8b8b;
+        --ok: #83d18d;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      width: min(1120px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+    header {
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 20px;
+      margin-bottom: 24px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(28px, 4vw, 48px);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+    h2 { font-size: 18px; margin: 0; }
+    p { margin: 8px 0; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.94em;
+      background: color-mix(in srgb, var(--line) 36%, transparent);
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+    .meta, .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 12px;
+      margin: 18px 0;
+    }
+    .tile, details {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .value { font-weight: 650; word-break: break-word; }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+    details { margin: 12px 0; }
+    summary {
+      cursor: pointer;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    ul { padding-left: 20px; }
+    a { color: var(--accent); }
+    .checks li { margin: 5px 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Crtx Native Rewrite Post-Merge Audit</h1>
+      <p>Evidence-backed status for the Zig-native Crtx repository after PR #5 and PR #7 merged.</p>
+      <div class="meta">
+        <div class="tile"><div class="label">Observed</div><div class="value">2026-06-21 14:51:54 UTC</div></div>
+        <div class="tile"><div class="label">Host</div><div class="value">Evgeniis-MacBook-Pro</div></div>
+        <div class="tile"><div class="label">Branch</div><div class="value">test/crtx-post-merge-audit-20260621</div></div>
+        <div class="tile"><div class="label">HEAD</div><div class="value">e87d9d33ae7146fb61922124a443f7b54f122ad7</div></div>
+      </div>
+    </header>
+
+    <section class="grid">
+      <div class="tile"><div class="label">Rewrite State</div><div class="value ok">Native Zig on main</div></div>
+      <div class="tile"><div class="label">Current PR</div><div class="value ok">#8 draft open</div></div>
+      <div class="tile"><div class="label">Tracked Python/JS</div><div class="value ok">None found</div></div>
+      <div class="tile"><div class="label">Report Host</div><div class="value warn">Prepared locally; himalayas publish blocked</div></div>
+    </section>
+
+    <details open>
+      <summary>Remote and PR State</summary>
+      <ul>
+        <li>Origin: <code>https://github.com/EugOT/Crtx.git</code>.</li>
+        <li>Upstream: <code>https://github.com/cdeust/Cortex.git</code>.</li>
+        <li>PR #5, <em>Rewrite Cortex as native Zig</em>, merged to <code>dev</code> on 2026-06-20.</li>
+        <li>PR #7 promoted <code>dev</code> to <code>main</code> as <code>e87d9d33</code>.</li>
+        <li>PR #6 was closed unmerged because direct upstream sync would restore removed dynamic-runtime code.</li>
+        <li>PR #8 is the protected-main-safe post-merge audit branch: <a href="https://github.com/EugOT/Crtx/pull/8">github.com/EugOT/Crtx/pull/8</a>.</li>
+      </ul>
+    </details>
+
+    <details open>
+      <summary>Implemented Fixes</summary>
+      <ul>
+        <li>Replaced removed <code>std.json.ObjectMap.empty</code> usage with optional object lookup in MCP argument handling.</li>
+        <li>Preserved missing or non-object MCP arguments by passing <code>std.json.Value.null</code> through the native tool boundary.</li>
+        <li>Added deterministic JSON-RPC regression tests for missing, null, and scalar <code>arguments</code> across the advertised tool catalog.</li>
+        <li>Returned native tool execution failures as JSON-RPC errors at <code>handleRpc</code>.</li>
+        <li>Added a Zig fuzz target for redaction, tokenization, fingerprinting, and lexical scoring.</li>
+        <li>Added <code>ReleaseSafe</code> test rotation to CI and documented validation commands.</li>
+        <li>Updated <code>docs/native-rewrite.md</code> with current post-merge plan and blockers.</li>
+      </ul>
+    </details>
+
+    <details open>
+      <summary>Validation Results</summary>
+      <ul class="checks">
+        <li class="ok">Active Zig dev overlay <code>fmt</code>, <code>check</code>, default tests, <code>ReleaseSafe</code> tests, bounded fuzz, and docs passed.</li>
+        <li class="ok">Stable <code>mise x zig@0.16.0</code> <code>fmt</code>, <code>check</code>, normal tests, <code>ReleaseSafe</code> tests, and docs passed.</li>
+        <li class="warn">Stable <code>zig@0.16.0</code> fuzzer failed inside Zig test runner with a <code>builtin.StackTrace</code>/<code>debug.StackTrace</code> mismatch.</li>
+        <li class="ok">CLI smoke test passed for <code>doctor</code>, <code>remember</code>, <code>recall</code>, and <code>stats</code>.</li>
+        <li class="ok">MCP smoke test passed for <code>initialize</code>, <code>tools/list</code>, and scalar-argument <code>memory_stats</code>.</li>
+        <li class="ok">Gitleaks scanned 1124 commits and found no leaks; <code>veles-cli vulnerability scan</code> reported zero findings.</li>
+        <li class="ok">Tracked file and runnable-doc scans found no Python/JavaScript runtime surface.</li>
+        <li class="ok">PR CI and CodeRabbit completed successfully after the first push; the first CodeRabbit review requested deterministic MCP argument regression tests, and this follow-up adds them.</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>External Limitations</summary>
+      <ul>
+        <li><code>gitstore verify .</code> crashes in <code>gitstore 0.2.2</code> with <code>panic: reached unreachable code</code>.</li>
+        <li>This checkout is not a <code>jj</code> repository.</li>
+        <li><code>veles</code>, <code>ziglint</code>, <code>zigdoc</code>, <code>actionlint</code>, and direct <code>claude-zig-quality</code> commands are not on <code>PATH</code>.</li>
+        <li>Local CodeRabbit review stalled without findings before PR creation; PR CodeRabbit completed remotely after adding the required <code>review-ready</code> label.</li>
+        <li>Meshnet HTTP <code>http://100.100.39.44:4000</code> timed out from the MacBook.</li>
+        <li>SSH to <code>himalayas</code> succeeded, but publishing failed because the Data volume is at 100% with about 145 MiB available and destination writes fail.</li>
+      </ul>
+    </details>
+
+    <details open>
+      <summary>Next Plan</summary>
+      <ul>
+        <li>Push the CodeRabbit follow-up commit to PR #8.</li>
+        <li>Wait for rerun CI and CodeRabbit on the updated branch.</li>
+        <li>Address any new PR comments or CI findings before merge.</li>
+        <li>Keep upstream PR #6 closed; port only native-compatible ideas through scoped commits.</li>
+      </ul>
+    </details>
+  </main>
+</body>
+</html>

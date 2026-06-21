@@ -47,6 +47,9 @@ jobs:
       - name: Unit and functional tests
         run: zig build test
 
+      - name: Safety-mode tests
+        run: zig build test -Doptimize=ReleaseSafe
+
       - name: Docs generation
         run: zig build docs
 

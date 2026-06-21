@@ -46,6 +46,9 @@ Run before submitting:
 zig build fmt
 zig build check
 zig build test
+zig build test -Doptimize=ReleaseSafe
+# Active Zig development overlay only until stable 0.16.0 fuzzer is fixed.
+zig build test --fuzz=1 --test-timeout 30s
 zig build docs
 gitleaks detect --source . --config .gitleaks.toml --redact
 ```

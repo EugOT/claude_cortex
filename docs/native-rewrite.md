@@ -3,14 +3,40 @@
 ## Observation Stamp
 
 - Host: `Evgeniis-MacBook-Pro`
-- UTC: `2026-06-19T18:58:29Z`
+- UTC: `2026-06-21T14:51:54Z`
 - Repo path: `/Users/etretiakov/.codex/worktrees/fc00/claude_cortex`
-- Branch: `codex/native-zero-python-js-rewrite`
-- HEAD at observation: `a1e33aab7df62c85ccb2c6d4689259043fa7ea6b`
+- Branch: `test/crtx-post-merge-audit-20260621`
+- HEAD at observation: `e87d9d33ae7146fb61922124a443f7b54f122ad7`
 - Origin: `https://github.com/EugOT/Crtx.git`
 - Upstream: `https://github.com/cdeust/Cortex.git`
 - Dirty status: clean at observation
 - Detected tracked implementation languages: Zig only
+
+## Post-Merge Audit Update
+
+PR #5 rewrote Crtx as native Zig and was merged to `dev` on 2026-06-20. PR #7
+promoted `dev` to `main` as merge commit `e87d9d33`. PR #6, the upstream
+sync PR, was closed unmerged because its direct merge would restore removed
+dynamic-runtime code and undo the native rewrite.
+
+The post-merge audit keeps the native rewrite as the source of truth and only
+cherry-picks upstream ideas when they can be implemented natively without
+Python, JavaScript, package managers, dynamic-runtime wrappers, or unsupported
+behavior claims.
+
+Current follow-up fixes:
+
+- keep MCP `tools/call` robust on Zig 0.16-dev where `std.json.ObjectMap.empty`
+  is no longer available
+- add a native fuzz target for redaction, tokenization, fingerprinting, and
+  lexical scoring
+- add deterministic MCP JSON-RPC regression tests for missing, null, and scalar
+  `arguments` values across the advertised tool catalog
+- return native tool execution failures as JSON-RPC errors at the `handleRpc`
+  boundary instead of relying on the outer stdio loop
+- run the test suite in `ReleaseSafe` as a safety-mode rotation
+- add the `ReleaseSafe` gate to CI and document the bounded fuzz gate for the
+  active Zig development overlay
 
 ## Current Behavior
 
@@ -134,13 +160,33 @@ Compatibility catalog entries that are not implemented return
 - `zig build fmt`
 - `zig build check`
 - `zig build test`
+- `zig build test -Doptimize=ReleaseSafe`
+- `zig build test --fuzz=1 --test-timeout 30s` on the active Zig development
+  overlay; `mise x zig@0.16.0` currently fails this fuzzer rebuild in Zig's
+  compiler test runner
 - `zig build docs`
 - `gitleaks detect --source . --config .gitleaks.toml --redact`
 - `veles` scan when available
-- `claude-zig-quality` as an external gate when the wrapper supports this
-  checkout
+- `claude-zig-quality` as an external gate when its verifier can be invoked
+  without importing Bun/TypeScript tooling into this repository
 - `ziglint` if available in `mise` or `PATH`
+- `zigdoc` if available in `mise` or `PATH`; `zig build docs` remains the
+  in-repo docs gate
 - zero Python/JavaScript proof with `git ls-files`, `find`, and `rg`
+
+Local post-merge validation on 2026-06-21 found these external limitations:
+
+- `gitstore verify .` crashed in `/opt/homebrew/Cellar/gitstore/0.2.2/bin/gitstore`
+  with `panic: reached unreachable code`
+- this checkout is not a `jj` repository
+- `veles`, `ziglint`, `zigdoc`, and a direct `claude-zig-quality` command were
+  not present on `PATH`
+- `mise x zig@0.16.0 -- zig build test --fuzz=1 --test-timeout 30s` failed in
+  Zig's compiler test runner with a `builtin.StackTrace`/`debug.StackTrace`
+  mismatch; stable `fmt`, `check`, and normal `test` passed
+- Phoenix LiveView report host `http://100.100.39.44:4000` timed out from this
+  MacBook; SSH to `himalayas` worked, but publishing the 7.3 KB report failed
+  because the Data volume is at 100% and destination writes fail.
 
 ## Python/JavaScript Removal Plan
 

@@ -715,32 +715,32 @@ pub fn run(init_data: std.process.Init) !void {
 }
 
 pub fn handleToolJson(allocator: std.mem.Allocator, store: *Store, name: []const u8, args: std.json.Value) ![]u8 {
-    const obj = if (args == .object) args.object else std.json.ObjectMap.empty;
+    const obj: ?*const std.json.ObjectMap = if (args == .object) &args.object else null;
     if (std.mem.eql(u8, name, "remember")) {
-        const tags = try getStringArray(allocator, obj.get("tags"));
+        const tags = try getStringArray(allocator, objectGet(obj, "tags"));
         defer allocator.free(tags);
-        const supersedes = try getStringArray(allocator, obj.get("supersedes"));
+        const supersedes = try getStringArray(allocator, objectGet(obj, "supersedes"));
         defer allocator.free(supersedes);
         return store.remember(.{
-            .content = getString(obj.get("content"), ""),
+            .content = getString(objectGet(obj, "content"), ""),
             .tags = tags,
-            .directory = getString(obj.get("directory"), ""),
-            .domain = getString(obj.get("domain"), ""),
-            .source = getString(obj.get("source"), "user"),
-            .force = getBool(obj.get("force"), false),
-            .is_global = getBool(obj.get("is_global"), false),
+            .directory = getString(objectGet(obj, "directory"), ""),
+            .domain = getString(objectGet(obj, "domain"), ""),
+            .source = getString(objectGet(obj, "source"), "user"),
+            .force = getBool(objectGet(obj, "force"), false),
+            .is_global = getBool(objectGet(obj, "is_global"), false),
             .supersedes = supersedes,
         });
     }
     if (std.mem.eql(u8, name, "recall") or std.mem.eql(u8, name, "unified_search")) {
         return store.recall(.{
-            .query = getString(obj.get("query"), getString(obj.get("text"), "")),
-            .domain = getString(obj.get("domain"), ""),
-            .directory = getString(obj.get("directory"), ""),
-            .max_results = getUsize(obj.get("max_results"), 10),
-            .min_heat = getFloat(obj.get("min_heat"), 0.0),
-            .include_related = getBool(obj.get("include_related"), false),
-            .include_superseded = getBool(obj.get("include_superseded"), false),
+            .query = getString(objectGet(obj, "query"), getString(objectGet(obj, "text"), "")),
+            .domain = getString(objectGet(obj, "domain"), ""),
+            .directory = getString(objectGet(obj, "directory"), ""),
+            .max_results = getUsize(objectGet(obj, "max_results"), 10),
+            .min_heat = getFloat(objectGet(obj, "min_heat"), 0.0),
+            .include_related = getBool(objectGet(obj, "include_related"), false),
+            .include_superseded = getBool(objectGet(obj, "include_superseded"), false),
         });
     }
     if (std.mem.eql(u8, name, "memory_stats") or std.mem.eql(u8, name, "get_telemetry")) {
@@ -748,16 +748,16 @@ pub fn handleToolJson(allocator: std.mem.Allocator, store: *Store, name: []const
     }
     if (std.mem.eql(u8, name, "wiki_write")) {
         return store.wikiWrite(
-            getString(obj.get("path"), ""),
-            getString(obj.get("content"), ""),
-            getString(obj.get("mode"), "create"),
+            getString(objectGet(obj, "path"), ""),
+            getString(objectGet(obj, "content"), ""),
+            getString(objectGet(obj, "mode"), "create"),
         );
     }
-    if (std.mem.eql(u8, name, "wiki_read")) return store.wikiRead(getString(obj.get("path"), ""));
+    if (std.mem.eql(u8, name, "wiki_read")) return store.wikiRead(getString(objectGet(obj, "path"), ""));
     if (std.mem.eql(u8, name, "wiki_list")) return store.wikiList();
     if (std.mem.eql(u8, name, "wiki_reindex")) return store.wikiList();
     if (std.mem.eql(u8, name, "wiki_adr")) {
-        const title = getString(obj.get("title"), "Untitled ADR");
+        const title = getString(objectGet(obj, "title"), "Untitled ADR");
         const body = try std.fmt.allocPrint(allocator,
             \\# {s}
             \\
@@ -772,9 +772,9 @@ pub fn handleToolJson(allocator: std.mem.Allocator, store: *Store, name: []const
             \\
         , .{
             title,
-            getString(obj.get("context"), ""),
-            getString(obj.get("decision"), ""),
-            getString(obj.get("consequences"), ""),
+            getString(objectGet(obj, "context"), ""),
+            getString(objectGet(obj, "decision"), ""),
+            getString(objectGet(obj, "consequences"), ""),
         });
         defer allocator.free(body);
         const slug = try slugAlloc(allocator, title);
@@ -787,14 +787,14 @@ pub fn handleToolJson(allocator: std.mem.Allocator, store: *Store, name: []const
         const payload = try stringifyAlloc(allocator, args);
         defer allocator.free(payload);
         return store.checkpoint(
-            getString(obj.get("action"), "save"),
-            getString(obj.get("session_id"), "default"),
+            getString(objectGet(obj, "action"), "save"),
+            getString(objectGet(obj, "session_id"), "default"),
             payload,
         );
     }
     if (std.mem.eql(u8, name, "detect_domain")) {
         return stringifyAlloc(allocator, .{
-            .domain = detectDomain(getString(obj.get("cwd"), "")),
+            .domain = detectDomain(getString(objectGet(obj, "cwd"), "")),
             .confidence = 0.75,
         });
     }
@@ -809,7 +809,7 @@ pub fn handleToolJson(allocator: std.mem.Allocator, store: *Store, name: []const
     }
     if (std.mem.eql(u8, name, "query_methodology")) {
         return stringifyAlloc(allocator, .{
-            .domain = detectDomain(getString(obj.get("cwd"), "")),
+            .domain = detectDomain(getString(objectGet(obj, "cwd"), "")),
             .formatted = "Native Cortex is active. Recall memories with the recall tool before non-trivial work.",
             .memories = &[_][]const u8{},
         });
@@ -908,8 +908,11 @@ fn handleRpc(allocator: std.mem.Allocator, store: *Store, line: []const u8) !?[]
             return response;
         }
         const name = getString(params.object.get("name"), "");
-        const arguments = params.object.get("arguments") orelse std.json.Value{ .object = .empty };
-        const tool_json = try handleToolJson(allocator, store, name, arguments);
+        const arguments = params.object.get("arguments") orelse std.json.Value.null;
+        const tool_json = handleToolJson(allocator, store, name, arguments) catch |err| {
+            const response = try rpcError(allocator, id_json, -32603, @errorName(err));
+            return response;
+        };
         defer allocator.free(tool_json);
         const wrapped = try mcpToolResult(allocator, tool_json);
         defer allocator.free(wrapped);
@@ -1126,6 +1129,11 @@ fn stringifyAlloc(allocator: std.mem.Allocator, value: anytype) ![]u8 {
 fn valueJsonOrNull(allocator: std.mem.Allocator, value: ?std.json.Value) ![]u8 {
     if (value) |v| return stringifyAlloc(allocator, v);
     return allocator.dupe(u8, "null");
+}
+
+fn objectGet(obj: ?*const std.json.ObjectMap, key: []const u8) ?std.json.Value {
+    if (obj) |map| return map.get(key);
+    return null;
 }
 
 fn getString(value: ?std.json.Value, default_value: []const u8) []const u8 {
@@ -1664,6 +1672,35 @@ test "redaction removes obvious secret values before persistence" {
     try std.testing.expect(std.mem.indexOf(u8, redacted.text, "[redacted]") != null);
 }
 
+test "fuzz: redaction tokenization and scoring are total" {
+    try std.testing.fuzz({}, fuzzRedactionTokenizationAndScoring, .{
+        .corpus = &.{
+            "api_key=secret-value",
+            "postgresql://user:pass@example.test/db",
+            "sk-test-token",
+            "../wiki/traversal.md",
+        },
+    });
+}
+
+fn fuzzRedactionTokenizationAndScoring(_: void, smith: *std.testing.Smith) anyerror!void {
+    var buf: [2048]u8 = undefined;
+    const len = smith.slice(&buf);
+    const input = buf[0..len];
+
+    const redacted = try redactSensitiveAlloc(std.testing.allocator, input);
+    defer std.testing.allocator.free(redacted.text);
+
+    var tokens = try normalizedUniqueTokens(std.testing.allocator, redacted.text);
+    defer freeStringArrayList(std.testing.allocator, &tokens);
+
+    const fingerprint = try fingerprintAlloc(std.testing.allocator, redacted.text);
+    defer std.testing.allocator.free(fingerprint);
+
+    const similarity = try lexicalJaccard(std.testing.allocator, input, redacted.text);
+    try std.testing.expect(similarity >= 0.0 and similarity <= 1.0);
+}
+
 test "lexical jaccard detects near duplicates" {
     const similarity = try lexicalJaccard(
         std.testing.allocator,
@@ -1695,4 +1732,65 @@ test "mcp notifications do not emit responses" {
         \\{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
     );
     try std.testing.expect(response == null);
+}
+
+test "mcp tools/call handles missing null and scalar arguments for advertised tools" {
+    const cases = [_]struct {
+        label: []const u8,
+        arguments_json: ?[]const u8,
+    }{
+        .{ .label = "missing", .arguments_json = null },
+        .{ .label = "null", .arguments_json = "null" },
+        .{ .label = "scalar", .arguments_json = "\"oops\"" },
+    };
+
+    for (tool_names) |name| {
+        for (cases) |case| {
+            const expected = expectedDefaultMcpToolFragment(name);
+            try expectMcpToolCallHandlesArguments(name, case.label, case.arguments_json, expected);
+        }
+    }
+}
+
+fn expectMcpToolCallHandlesArguments(
+    name: []const u8,
+    label: []const u8,
+    arguments_json: ?[]const u8,
+    expected_fragment: []const u8,
+) !void {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try std.fmt.allocPrint(
+        std.testing.allocator,
+        ".zig-cache/tmp/{s}/mcp-{s}-{s}",
+        .{ tmp.sub_path, name, label },
+    );
+    defer std.testing.allocator.free(root);
+    var store = try Store.init(std.testing.allocator, std.testing.io, root);
+    defer store.deinit();
+
+    const request = if (arguments_json) |arguments|
+        try std.fmt.allocPrint(
+            std.testing.allocator,
+            "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{{\"name\":\"{s}\",\"arguments\":{s}}}}}",
+            .{ name, arguments },
+        )
+    else
+        try std.fmt.allocPrint(
+            std.testing.allocator,
+            "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{{\"name\":\"{s}\"}}}}",
+            .{name},
+        );
+    defer std.testing.allocator.free(request);
+
+    const response = try handleRpc(std.testing.allocator, &store, request);
+    defer if (response) |json| std.testing.allocator.free(json);
+    try std.testing.expect(response != null);
+    try std.testing.expect(std.mem.indexOf(u8, response.?, "\"jsonrpc\":\"2.0\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, response.?, expected_fragment) != null);
+}
+
+fn expectedDefaultMcpToolFragment(name: []const u8) []const u8 {
+    if (std.mem.eql(u8, name, "wiki_read") or std.mem.eql(u8, name, "wiki_write")) return "InvalidWikiPath";
+    return "\"result\"";
 }
