@@ -143,14 +143,14 @@
     <details open>
       <summary>Validation Results</summary>
       <ul class="checks">
-        <li class="ok">Active Zig dev overlay <code>fmt</code>, <code>check</code>, <code>test</code> 16/16, <code>ReleaseSafe</code> 16/16, bounded fuzz, and docs passed.</li>
-        <li class="ok">Stable <code>mise x zig@0.16.0</code> <code>fmt</code>, <code>check</code>, normal tests 16/16, <code>ReleaseSafe</code> 16/16, and docs passed.</li>
+        <li class="ok">Active Zig dev overlay <code>fmt</code>, <code>check</code>, default tests, <code>ReleaseSafe</code> tests, bounded fuzz, and docs passed.</li>
+        <li class="ok">Stable <code>mise x zig@0.16.0</code> <code>fmt</code>, <code>check</code>, normal tests, <code>ReleaseSafe</code> tests, and docs passed.</li>
         <li class="warn">Stable <code>zig@0.16.0</code> fuzzer failed inside Zig test runner with a <code>builtin.StackTrace</code>/<code>debug.StackTrace</code> mismatch.</li>
         <li class="ok">CLI smoke test passed for <code>doctor</code>, <code>remember</code>, <code>recall</code>, and <code>stats</code>.</li>
         <li class="ok">MCP smoke test passed for <code>initialize</code>, <code>tools/list</code>, and scalar-argument <code>memory_stats</code>.</li>
         <li class="ok">Gitleaks scanned 1124 commits and found no leaks; <code>veles-cli vulnerability scan</code> reported zero findings.</li>
         <li class="ok">Tracked file and runnable-doc scans found no Python/JavaScript runtime surface.</li>
-        <li class="ok">PR CI and CodeRabbit completed successfully after the first push; the only actionable CodeRabbit request is addressed in this follow-up commit.</li>
+        <li class="ok">PR CI and CodeRabbit completed successfully after the first push; the first CodeRabbit review requested deterministic MCP argument regression tests, and this follow-up adds them.</li>
       </ul>
     </details>
 
