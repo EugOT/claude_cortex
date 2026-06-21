@@ -14,8 +14,8 @@
 
 ## Post-Merge Audit Update
 
-PR #5 rewrote Crtx as native Zig and was merged to `dev` on 2026-06-20. PR
-#7 promoted `dev` to `main` as merge commit `e87d9d33`. PR #6, the upstream
+PR #5 rewrote Crtx as native Zig and was merged to `dev` on 2026-06-20. PR #7
+promoted `dev` to `main` as merge commit `e87d9d33`. PR #6, the upstream
 sync PR, was closed unmerged because its direct merge would restore removed
 dynamic-runtime code and undo the native rewrite.
 
@@ -30,6 +30,10 @@ Current follow-up fixes:
   is no longer available
 - add a native fuzz target for redaction, tokenization, fingerprinting, and
   lexical scoring
+- add deterministic MCP JSON-RPC regression tests for missing, null, and scalar
+  `arguments` values across the advertised tool catalog
+- return native tool execution failures as JSON-RPC errors at the `handleRpc`
+  boundary instead of relying on the outer stdio loop
 - run the test suite in `ReleaseSafe` as a safety-mode rotation
 - add the `ReleaseSafe` gate to CI and document the bounded fuzz gate for the
   active Zig development overlay
@@ -182,7 +186,7 @@ Local post-merge validation on 2026-06-21 found these external limitations:
   mismatch; stable `fmt`, `check`, and normal `test` passed
 - Phoenix LiveView report host `http://100.100.39.44:4000` timed out from this
   MacBook; SSH to `himalayas` worked, but publishing the 7.3 KB report failed
-  because the Data volume is at 100% and destination writes fail
+  because the Data volume is at 100% and destination writes fail.
 
 ## Python/JavaScript Removal Plan
 

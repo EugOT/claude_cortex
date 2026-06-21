@@ -909,7 +909,10 @@ fn handleRpc(allocator: std.mem.Allocator, store: *Store, line: []const u8) !?[]
         }
         const name = getString(params.object.get("name"), "");
         const arguments = params.object.get("arguments") orelse std.json.Value.null;
-        const tool_json = try handleToolJson(allocator, store, name, arguments);
+        const tool_json = handleToolJson(allocator, store, name, arguments) catch |err| {
+            const response = try rpcError(allocator, id_json, -32603, @errorName(err));
+            return response;
+        };
         defer allocator.free(tool_json);
         const wrapped = try mcpToolResult(allocator, tool_json);
         defer allocator.free(wrapped);
@@ -1729,4 +1732,65 @@ test "mcp notifications do not emit responses" {
         \\{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
     );
     try std.testing.expect(response == null);
+}
+
+test "mcp tools/call handles missing null and scalar arguments for advertised tools" {
+    const cases = [_]struct {
+        label: []const u8,
+        arguments_json: ?[]const u8,
+    }{
+        .{ .label = "missing", .arguments_json = null },
+        .{ .label = "null", .arguments_json = "null" },
+        .{ .label = "scalar", .arguments_json = "\"oops\"" },
+    };
+
+    for (tool_names) |name| {
+        for (cases) |case| {
+            const expected = expectedDefaultMcpToolFragment(name);
+            try expectMcpToolCallHandlesArguments(name, case.label, case.arguments_json, expected);
+        }
+    }
+}
+
+fn expectMcpToolCallHandlesArguments(
+    name: []const u8,
+    label: []const u8,
+    arguments_json: ?[]const u8,
+    expected_fragment: []const u8,
+) !void {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try std.fmt.allocPrint(
+        std.testing.allocator,
+        ".zig-cache/tmp/{s}/mcp-{s}-{s}",
+        .{ tmp.sub_path, name, label },
+    );
+    defer std.testing.allocator.free(root);
+    var store = try Store.init(std.testing.allocator, std.testing.io, root);
+    defer store.deinit();
+
+    const request = if (arguments_json) |arguments|
+        try std.fmt.allocPrint(
+            std.testing.allocator,
+            "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{{\"name\":\"{s}\",\"arguments\":{s}}}}}",
+            .{ name, arguments },
+        )
+    else
+        try std.fmt.allocPrint(
+            std.testing.allocator,
+            "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{{\"name\":\"{s}\"}}}}",
+            .{name},
+        );
+    defer std.testing.allocator.free(request);
+
+    const response = try handleRpc(std.testing.allocator, &store, request);
+    defer if (response) |json| std.testing.allocator.free(json);
+    try std.testing.expect(response != null);
+    try std.testing.expect(std.mem.indexOf(u8, response.?, "\"jsonrpc\":\"2.0\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, response.?, expected_fragment) != null);
+}
+
+fn expectedDefaultMcpToolFragment(name: []const u8) []const u8 {
+    if (std.mem.eql(u8, name, "wiki_read") or std.mem.eql(u8, name, "wiki_write")) return "InvalidWikiPath";
+    return "\"result\"";
 }

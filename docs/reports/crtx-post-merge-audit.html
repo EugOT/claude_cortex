@@ -110,7 +110,7 @@
 
     <section class="grid">
       <div class="tile"><div class="label">Rewrite State</div><div class="value ok">Native Zig on main</div></div>
-      <div class="tile"><div class="label">Open PRs</div><div class="value ok">None at refresh</div></div>
+      <div class="tile"><div class="label">Current PR</div><div class="value ok">#8 draft open</div></div>
       <div class="tile"><div class="label">Tracked Python/JS</div><div class="value ok">None found</div></div>
       <div class="tile"><div class="label">Report Host</div><div class="value warn">Prepared locally; himalayas publish blocked</div></div>
     </section>
@@ -123,6 +123,7 @@
         <li>PR #5, <em>Rewrite Cortex as native Zig</em>, merged to <code>dev</code> on 2026-06-20.</li>
         <li>PR #7 promoted <code>dev</code> to <code>main</code> as <code>e87d9d33</code>.</li>
         <li>PR #6 was closed unmerged because direct upstream sync would restore removed dynamic-runtime code.</li>
+        <li>PR #8 is the protected-main-safe post-merge audit branch: <a href="https://github.com/EugOT/Crtx/pull/8">github.com/EugOT/Crtx/pull/8</a>.</li>
       </ul>
     </details>
 
@@ -130,7 +131,9 @@
       <summary>Implemented Fixes</summary>
       <ul>
         <li>Replaced removed <code>std.json.ObjectMap.empty</code> usage with optional object lookup in MCP argument handling.</li>
-        <li>Preserved missing or non-object MCP arguments by passing <code>std.json.Value.null</code>.</li>
+        <li>Preserved missing or non-object MCP arguments by passing <code>std.json.Value.null</code> through the native tool boundary.</li>
+        <li>Added deterministic JSON-RPC regression tests for missing, null, and scalar <code>arguments</code> across the advertised tool catalog.</li>
+        <li>Returned native tool execution failures as JSON-RPC errors at <code>handleRpc</code>.</li>
         <li>Added a Zig fuzz target for redaction, tokenization, fingerprinting, and lexical scoring.</li>
         <li>Added <code>ReleaseSafe</code> test rotation to CI and documented validation commands.</li>
         <li>Updated <code>docs/native-rewrite.md</code> with current post-merge plan and blockers.</li>
@@ -140,13 +143,14 @@
     <details open>
       <summary>Validation Results</summary>
       <ul class="checks">
-        <li class="ok">Active Zig dev overlay <code>fmt</code>, <code>check</code>, <code>test</code>, <code>ReleaseSafe</code>, bounded fuzz, and docs passed.</li>
-        <li class="ok">Stable <code>mise x zig@0.16.0</code> <code>fmt</code>, <code>check</code>, normal tests, <code>ReleaseSafe</code>, and docs passed.</li>
+        <li class="ok">Active Zig dev overlay <code>fmt</code>, <code>check</code>, <code>test</code> 16/16, <code>ReleaseSafe</code> 16/16, bounded fuzz, and docs passed.</li>
+        <li class="ok">Stable <code>mise x zig@0.16.0</code> <code>fmt</code>, <code>check</code>, normal tests 16/16, <code>ReleaseSafe</code> 16/16, and docs passed.</li>
         <li class="warn">Stable <code>zig@0.16.0</code> fuzzer failed inside Zig test runner with a <code>builtin.StackTrace</code>/<code>debug.StackTrace</code> mismatch.</li>
         <li class="ok">CLI smoke test passed for <code>doctor</code>, <code>remember</code>, <code>recall</code>, and <code>stats</code>.</li>
-        <li class="ok">MCP smoke test passed for <code>initialize</code>, <code>tools/list</code>, <code>remember</code>, and <code>recall</code>.</li>
-        <li class="ok">Gitleaks scanned 1123 commits and found no leaks.</li>
+        <li class="ok">MCP smoke test passed for <code>initialize</code>, <code>tools/list</code>, and scalar-argument <code>memory_stats</code>.</li>
+        <li class="ok">Gitleaks scanned 1124 commits and found no leaks; <code>veles-cli vulnerability scan</code> reported zero findings.</li>
         <li class="ok">Tracked file and runnable-doc scans found no Python/JavaScript runtime surface.</li>
+        <li class="ok">PR CI and CodeRabbit completed successfully after the first push; the only actionable CodeRabbit request is addressed in this follow-up commit.</li>
       </ul>
     </details>
 
@@ -156,7 +160,7 @@
         <li><code>gitstore verify .</code> crashes in <code>gitstore 0.2.2</code> with <code>panic: reached unreachable code</code>.</li>
         <li>This checkout is not a <code>jj</code> repository.</li>
         <li><code>veles</code>, <code>ziglint</code>, <code>zigdoc</code>, <code>actionlint</code>, and direct <code>claude-zig-quality</code> commands are not on <code>PATH</code>.</li>
-        <li>Local CodeRabbit review stalled without findings before PR creation.</li>
+        <li>Local CodeRabbit review stalled without findings before PR creation; PR CodeRabbit completed remotely after adding the required <code>review-ready</code> label.</li>
         <li>Meshnet HTTP <code>http://100.100.39.44:4000</code> timed out from the MacBook.</li>
         <li>SSH to <code>himalayas</code> succeeded, but publishing failed because the Data volume is at 100% with about 145 MiB available and destination writes fail.</li>
       </ul>
@@ -165,10 +169,9 @@
     <details open>
       <summary>Next Plan</summary>
       <ul>
-        <li>Commit this follow-up on <code>test/crtx-post-merge-audit-20260621</code>.</li>
-        <li>Push a protected-main-safe PR against <code>main</code>.</li>
-        <li>Let GitHub CI and PR CodeRabbit run on the branch.</li>
-        <li>Address any PR comments or CI findings before merge.</li>
+        <li>Push the CodeRabbit follow-up commit to PR #8.</li>
+        <li>Wait for rerun CI and CodeRabbit on the updated branch.</li>
+        <li>Address any new PR comments or CI findings before merge.</li>
         <li>Keep upstream PR #6 closed; port only native-compatible ideas through scoped commits.</li>
       </ul>
     </details>
