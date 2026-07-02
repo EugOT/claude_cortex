@@ -1,0 +1,11 @@
+[mcp_servers.cortex]
+command = "python3"
+args = [
+    "-c",
+    "import json,os; p=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json')))['plugins']['cortex@cortex-plugins'][0]['installPath']; os.execvp('python3',['python3',os.path.join(p,'scripts','launcher.py'),'mcp_server'])",
+]
+
+[mcp_servers.cortex.env]
+DATABASE_URL = "postgresql://localhost:5432/cortex"
+CORTEX_RUNTIME = ""
+CORTEX_MEMORY_AP_ENABLED = "1"
